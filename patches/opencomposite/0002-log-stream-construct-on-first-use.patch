@@ -1,0 +1,64 @@
+From: macvr
+Subject: [PATCH] log-stream-construct-on-first-use
+
+---
+ OpenOVR/logging.cpp | 17 +++++++++++------
+ 1 file changed, 11 insertions(+), 6 deletions(-)
+
+diff --git a/OpenOVR/logging.cpp b/OpenOVR/logging.cpp
+index 11b88c512bcb4c56b95e1a3dc9cd5a6d7c69209d..570b1cfa1a097244f3247bf987272467a5e819ae 100644
+--- a/OpenOVR/logging.cpp
++++ b/OpenOVR/logging.cpp
+@@ -135,7 +135,12 @@ std::string GetEnv(const std::string& var)
+ #ifdef ANDROID
+ #include <android/log.h>
+ #else
+-static std::ofstream stream;
++// Constructed on first use: other translation units log from their static initialisers.
++static std::ofstream& log_stream()
++{
++	static std::ofstream* s = new std::ofstream;
++	return *s;
++}
+ 
+ #ifdef __GLIBCXX__
+ #include <ext/stdio_filebuf.h>
+@@ -164,7 +169,7 @@ static FILE* cfile(std::ofstream& ofs)
+ 
+ static void init_stream()
+ {
+-	if (!stream.is_open()) {
++	if (!log_stream().is_open()) {
+ 		string outputFilePath = "opencomposite.log";
+ 
+ 		// Try and write to standard location
+@@ -188,9 +193,9 @@ static void init_stream()
+ 			outputFilePath = outputFolder + "/" + outputFilePath;
+ #endif
+ 
+-		stream.open(outputFilePath.c_str());
++		log_stream().open(outputFilePath.c_str());
+ #ifdef __GLIBCXX__
+-		stream_fd.store(fileno(cfile(stream)), std::memory_order::seq_cst);
++		stream_fd.store(fileno(cfile(log_stream())), std::memory_order::seq_cst);
+ #endif
+ 	}
+ }
+@@ -253,7 +258,7 @@ void oovr_log_raw(const char* file, long line, const char* func, const char* msg
+ 	__android_log_print(ANDROID_LOG_INFO, "OpenComposite", "%s:%d \t %s", func, line, msg);
+ #else
+ 	init_stream();
+-	stream << "[" << format_time() << "] " << func << ":" << line << "\t- " << (msg ? msg : "NULL") << std::endl;
++	log_stream() << "[" << format_time() << "] " << func << ":" << line << "\t- " << (msg ? msg : "NULL") << std::endl;
+ 
+ 	// Write it to stdout
+ 	// TODO on Windows, write it into the debug log
+@@ -305,7 +310,7 @@ OC_NORETURN void oovr_abort_raw_va(const char* file, long line, const char* func
+ #ifdef ANDROID
+ 	__android_log_print(ANDROID_LOG_ERROR, "OpenComposite", "ERROR: %s:%d \t %s", func, line, buff);
+ #else
+-	stream << std::flush;
++	log_stream() << std::flush;
+ #endif
+ 
+ 	OOVR_MESSAGE(buff, title);

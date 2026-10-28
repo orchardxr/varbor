@@ -1,0 +1,117 @@
+From: macvr
+Subject: [PATCH] mingw-build
+
+---
+ CMakeLists.txt                        | 8 +++++++-
+ DrvOpenXR/DrvOpenXR.cpp               | 2 ++
+ OpenOVR/Compositor/dx11compositor.cpp | 2 +-
+ OpenOVR/Compositor/dx12compositor.cpp | 2 +-
+ OpenOVR/Reimpl/BaseClientCore.cpp     | 4 ++--
+ OpenOVR/Reimpl/BaseInput.cpp          | 2 +-
+ 6 files changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 17fd03e4b49237389dfad3fbab960d944074b418..7a5299799d1db49f4e16e9f9db094e54ee277919 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -73,11 +73,13 @@ if (ERROR_ON_WARNING)
+ endif()
+ 
+ # === Runtime Switcher ===
++if (MSVC)
+ include_external_msproject(
+ 	RuntimeSwitcher ${CMAKE_SOURCE_DIR}/RuntimeSwitcher/RuntimeSwitcher.csproj
+ 	TYPE FAE04EC0-301F-11D3-BF4B-00C04F79EFBC
+ 	PLATFORM "AnyCPU"
+ )
++endif ()
+ 
+ # === OpenVR Headers ===
+ add_library(OpenVR INTERFACE)
+@@ -86,7 +88,11 @@ target_include_directories(OpenVR INTERFACE OpenVRHeaders) # TODO make this priv
+ # === Vulkan ===
+ add_library(Vulkan INTERFACE)
+ 
+-if (WIN32)
++if (WIN32 AND OC_VULKAN_INCLUDE_DIR)
++	target_include_directories(Vulkan INTERFACE ${OC_VULKAN_INCLUDE_DIR})
++	target_link_libraries(Vulkan INTERFACE ${OC_VULKAN_LIBRARY})
++	target_compile_definitions(Vulkan INTERFACE -DVK_USE_PLATFORM_WIN32_KHR)
++elseif (WIN32)
+ 	# On Windows, use the bundled copy
+ 	target_include_directories(Vulkan INTERFACE libs/vulkan/Include) # TODO make this private and put the public headers elsewhere
+ 	if ("${CMAKE_SIZEOF_VOID_P}" EQUAL "8")
+diff --git a/DrvOpenXR/DrvOpenXR.cpp b/DrvOpenXR/DrvOpenXR.cpp
+index 8e3bd9c98f75ce5c5124c7546f5f4198f3f54ac7..7247f44ab28bd12c7f698946e42000d736e40f2c 100644
+--- a/DrvOpenXR/DrvOpenXR.cpp
++++ b/DrvOpenXR/DrvOpenXR.cpp
+@@ -24,6 +24,8 @@ static XrBackend* currentBackend;
+ static bool initialised = false;
+ 
+ #ifdef _WIN32
++#include <shlwapi.h>
++
+ std::string GetExeName()
+ {
+ 	char exePath[MAX_PATH + 1] = { 0 };
+diff --git a/OpenOVR/Compositor/dx11compositor.cpp b/OpenOVR/Compositor/dx11compositor.cpp
+index 2ed44d2eae92b0ac67a6ed1d1ba4613506ad6e24..912217f5cd4a11cacea0d4828ab474436442a873 100644
+--- a/OpenOVR/Compositor/dx11compositor.cpp
++++ b/OpenOVR/Compositor/dx11compositor.cpp
+@@ -309,7 +309,7 @@ void DX11Compositor::CopyToSwapchain(const vr::Texture_t* texture, const vr::VRT
+ 	OOVR_FAILED_XR_ABORT(res = xrWaitSwapchainImage(chain, &waitInfo));
+ 
+ 	if (res == XR_TIMEOUT_EXPIRED)
+-		OOVR_ABORTF("xrWaitSwapchainImage timeout");
++		OOVR_ABORT("xrWaitSwapchainImage timeout");
+ 
+ 	// Copy the source to the destination image
+ 	D3D11_BOX sourceRegion;
+diff --git a/OpenOVR/Compositor/dx12compositor.cpp b/OpenOVR/Compositor/dx12compositor.cpp
+index ff2fedda54106cb159a2596652443fb3106caa08..c8d9f353e8754325127b9007e71d80a60f101589 100644
+--- a/OpenOVR/Compositor/dx12compositor.cpp
++++ b/OpenOVR/Compositor/dx12compositor.cpp
+@@ -213,7 +213,7 @@ void DX12Compositor::CopyToSwapchain(const vr::Texture_t* texture, const vr::VRT
+ 	OOVR_FAILED_XR_ABORT(res = xrWaitSwapchainImage(chain, &waitInfo));
+ 
+ 	if (res == XR_TIMEOUT_EXPIRED)
+-		OOVR_ABORTF("xrWaitSwapchainImage timeout");
++		OOVR_ABORT("xrWaitSwapchainImage timeout");
+ 
+ 	// Copy the source to the destination image
+ 	D3D12_BOX sourceRegion;
+diff --git a/OpenOVR/Reimpl/BaseClientCore.cpp b/OpenOVR/Reimpl/BaseClientCore.cpp
+index 5f06605e7ae65a1287e82abb0e8bb71dce1bb849..c799d205c1697904e9a24910146c4ea1040ec2e1 100644
+--- a/OpenOVR/Reimpl/BaseClientCore.cpp
++++ b/OpenOVR/Reimpl/BaseClientCore.cpp
+@@ -25,7 +25,7 @@ static std::wstring_convert<std::codecvt_utf8<wchar_t>> CHAR_CONV;
+ 
+ static bool ReadJson(wstring path, Json::Value& result)
+ {
+-	std::ifstream in(APISTR(path), std::ios::binary);
++	std::ifstream in(APISTR(path).c_str(), std::ios::binary);
+ 	if (in) {
+ 		std::stringstream contents;
+ 		contents << in.rdbuf();
+@@ -39,7 +39,7 @@ static bool ReadJson(wstring path, Json::Value& result)
+ 
+ static void WriteJson(wstring path, const Json::Value& value)
+ {
+-	std::ofstream out(APISTR(path), std::ios::binary);
++	std::ofstream out(APISTR(path).c_str(), std::ios::binary);
+ 	if (!out) {
+ 		OOVR_ABORTF("Failed to write applist json: %s", strerror(errno));
+ 	}
+diff --git a/OpenOVR/Reimpl/BaseInput.cpp b/OpenOVR/Reimpl/BaseInput.cpp
+index 1091a212af3c4530206db7ff2c06aa3ecb91eb6f..c4a014e73e5d385d386fa267c3fd130f38a769dc 100644
+--- a/OpenOVR/Reimpl/BaseInput.cpp
++++ b/OpenOVR/Reimpl/BaseInput.cpp
+@@ -78,7 +78,7 @@ static bool ReadJson(const std::wstring& path, Json::Value& result)
+ #endif
+ 
+ #ifndef ANDROID
+-	std::ifstream in(real_path, std::ios::binary);
++	std::ifstream in(real_path.c_str(), std::ios::binary);
+ 	if (in) {
+ 		std::stringstream contents;
+ 		contents << in.rdbuf();

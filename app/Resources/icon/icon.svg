@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FF9A3C"/><stop offset="1" stop-color="#E23D5B"/></linearGradient>
+<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#5A0A1E" flood-opacity="0.45"/></filter>
+</defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+<g filter="url(#sh)">
+<g fill="none" stroke="#FFFFFF" stroke-linecap="round">
+<path d="M408 318 Q512 246 616 318" stroke-width="36"/>
+<path d="M346 262 Q512 146 678 262" stroke-width="36" opacity="0.6"/>
+</g>
+<path d="M250 480 Q250 410 320 410 H704 Q774 410 774 480 V640 Q774 710 704 710 H604 L556 650 Q512 606 468 650 L420 710 H320 Q250 710 250 640 Z" fill="none" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="512" y="595" font-family="SF Pro Display, Helvetica Neue, Arial" font-weight="800" font-size="150" letter-spacing="6" text-anchor="middle" fill="#FFFFFF">VR</text>
+</g>
+</svg>

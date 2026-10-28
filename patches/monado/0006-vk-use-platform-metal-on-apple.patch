@@ -1,0 +1,31 @@
+From: macvr
+Subject: [PATCH] vk-use-platform-metal-on-apple
+
+---
+ CMakeLists.txt                                   | 3 +++
+ src/xrt/include/xrt/xrt_config_vulkan.h.cmake_in | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3810b9b72aa101c4b7423a828569925a8db07d18..422b36dffeab42a56edfc13744ab61f000b3367d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -559,6 +559,9 @@ endif()
+ if(WIN32)
+ 	set(VK_USE_PLATFORM_WIN32_KHR TRUE)
+ endif()
++if(APPLE)
++	set(VK_USE_PLATFORM_METAL_EXT TRUE)
++endif()
+ if(XRT_HAVE_VULKAN AND NOT ANDROID)
+ 	set(VK_USE_PLATFORM_DISPLAY_KHR TRUE)
+ endif()
+diff --git a/src/xrt/include/xrt/xrt_config_vulkan.h.cmake_in b/src/xrt/include/xrt/xrt_config_vulkan.h.cmake_in
+index d9bbf959a97ac14da0ec189b7834e173cbd7aa6b..148a47c7921d2c2ccd4c10482e5693525de0f643 100644
+--- a/src/xrt/include/xrt/xrt_config_vulkan.h.cmake_in
++++ b/src/xrt/include/xrt/xrt_config_vulkan.h.cmake_in
+@@ -15,3 +15,4 @@
+ #cmakedefine VK_USE_PLATFORM_XLIB_XRANDR_EXT
+ #cmakedefine VK_USE_PLATFORM_WIN32_KHR
+ #cmakedefine VK_USE_PLATFORM_DISPLAY_KHR
++#cmakedefine VK_USE_PLATFORM_METAL_EXT

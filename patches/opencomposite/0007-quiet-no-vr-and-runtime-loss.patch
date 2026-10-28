@@ -1,0 +1,671 @@
+From: macvr
+Subject: [PATCH] quiet-no-vr-and-runtime-loss
+
+---
+ DrvOpenXR/DrvOpenXR.cpp       | 22 +++++++++---
+ DrvOpenXR/XrBackend.cpp       | 57 ++++++++++++++++++++++++++++--
+ DrvOpenXR/XrBackend.h         |  5 +++
+ DrvOpenXR/pub/DrvOpenXR.h     |  3 +-
+ OCOVR/openvr_api.cpp          | 71 +++++++++++++++++++++++++++++---------
+ OpenOVR/Misc/Config.cpp       |  1 +
+ OpenOVR/Misc/Config.h         |  2 ++
+ OpenOVR/Misc/xrmoreutils.cpp  |  5 +++
+ OpenOVR/Misc/xrutil.cpp       | 80 +++++++++++++++++++++++++++++++++++++++++++
+ OpenOVR/Misc/xrutil.h         |  6 ++++
+ OpenOVR/Reimpl/BaseInput.cpp  | 19 ++++++++++
+ OpenOVR/Reimpl/BaseSystem.cpp |  5 +--
+ OpenOVR/logging.h             | 25 ++++++--------
+ 13 files changed, 260 insertions(+), 41 deletions(-)
+
+diff --git a/DrvOpenXR/DrvOpenXR.cpp b/DrvOpenXR/DrvOpenXR.cpp
+index 9f8e17ab401a27c9e2630110230efd2a30f27a60..7e31d68fe761ec9083f09e3bc16baa8b17b3c05b 100644
+--- a/DrvOpenXR/DrvOpenXR.cpp
++++ b/DrvOpenXR/DrvOpenXR.cpp
+@@ -116,13 +116,16 @@ static void handleStartupInfo(const char* startupInfo)
+ 	BaseInput::setStartupManifest(manifest);
+ }
+ 
+-IBackend* DrvOpenXR::CreateOpenXRBackend(const char* startupInfo)
++IBackend* DrvOpenXR::CreateOpenXRBackend(const char* startupInfo, vr::EVRInitError* error)
+ {
+ 	// TODO handle something like Unity which stops and restarts the instance
+ 	if (initialised) {
+ 		OOVR_ABORT("Cannot double-initialise OpenXR");
+ 	}
+-	initialised = true;
++	oovr_xr_reset_lost();
++
++	// SteamVR answers a scene app with HmdNotFound both with no headset and with no vrserver it could start
++	*error = vr::VRInitError_Init_HmdNotFound;
+ 
+ 	// TODO make these work on Linux
+ #ifdef XR_VALIDATION_LAYER_PATH
+@@ -263,9 +266,21 @@ IBackend* DrvOpenXR::CreateOpenXRBackend(const char* startupInfo)
+ 		if (res == XR_ERROR_RUNTIME_FAILURE) {
+ 			OOVR_LOGF("Is your OpenXR runtime running?");
+ 		}
++		xr_instance = XR_NULL_HANDLE;
+ 		return nullptr;
+ 	}
+ 
++	XrSystemGetInfo systemInfo{ XR_TYPE_SYSTEM_GET_INFO };
++	systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
++	if (XrResult res = xrGetSystem(xr_instance, &systemInfo, &xr_system); XR_FAILED(res)) {
++		OOVR_LOGF("WARNING: No HMD system (XrResult %d), is a headset connected?", res);
++		xrDestroyInstance(xr_instance);
++		xr_instance = XR_NULL_HANDLE;
++		xr_system = XR_NULL_SYSTEM_ID;
++		return nullptr;
++	}
++	initialised = true;
++
+ #ifdef _DEBUG
+ 	XrDebugUtilsMessengerCreateInfoEXT dbgCreateInfo{};
+ 	dbgCreateInfo.type = XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+@@ -284,8 +299,6 @@ IBackend* DrvOpenXR::CreateOpenXRBackend(const char* startupInfo)
+ 	// Load the function pointers for the extension functions
+ 	xr_ext = new XrExt(apiFlags, extensions);
+ 
+-	CreateSystemID();
+-
+ 	// List off the views and store them locally for easy access
+ 	uint32_t viewCount = 0;
+ 	OOVR_FAILED_XR_ABORT(xrEnumerateViewConfigurationViews(xr_instance, xr_system,
+@@ -315,6 +328,7 @@ IBackend* DrvOpenXR::CreateOpenXRBackend(const char* startupInfo)
+ 	SetupSession();
+ 	handleStartupInfo(startupInfo);
+ 
++	*error = vr::VRInitError_None;
+ 	return currentBackend;
+ }
+ 
+diff --git a/DrvOpenXR/XrBackend.cpp b/DrvOpenXR/XrBackend.cpp
+index 29dbab85380420147a2ff017d7c841aa0b34fef1..ee18a7c2ed004cb3cb2741151528dc3db096bca5 100644
+--- a/DrvOpenXR/XrBackend.cpp
++++ b/DrvOpenXR/XrBackend.cpp
+@@ -45,6 +45,7 @@
+ #include <chrono>
+ #include <cinttypes>
+ #include <mutex>
++#include <thread>
+ 
+ using namespace vr;
+ 
+@@ -144,6 +145,12 @@ void XrBackend::GetDeviceToAbsoluteTrackingPose(
+     vr::TrackedDevicePose_t* poseArray,
+     uint32_t poseArrayCount)
+ {
++	if (oovr_xr_lost()) {
++		for (uint32_t i = 0; i < poseArrayCount; ++i)
++			poseArray[i] = BackendManager::InvalidPose();
++		return;
++	}
++
+ 	for (uint32_t i = 0; i < poseArrayCount; ++i) {
+ 		std::shared_ptr<ITrackedDevice> dev = GetDevice(i);
+ 		if (dev) {
+@@ -391,6 +398,13 @@ void XrBackend::CheckOrInitCompositors(const vr::Texture_t* tex)
+ 
+ void XrBackend::WaitForTrackingData()
+ {
++	if (CheckRuntimeLost()) {
++		renderingFrame = false;
++		// Keep a game loop that waits on us from spinning
++		std::this_thread::sleep_for(std::chrono::milliseconds(11));
++		return;
++	}
++
+ 	// Make sure the OpenXR session is active before doing anything else, and if not then skip
+ 	if (!sessionActive) {
+ 		renderingFrame = false;
+@@ -403,6 +417,10 @@ void XrBackend::WaitForTrackingData()
+ 	{
+ 		auto lock = xr_session.lock_shared();
+ 		OOVR_FAILED_XR_ABORT(xrWaitFrame(xr_session.get(), &waitInfo, &state));
++		if (oovr_xr_lost()) {
++			renderingFrame = false;
++			return;
++		}
+ 		xr_gbl->nextPredictedFrameTime = state.predictedDisplayTime;
+ 
+ 		// FIXME loop until this returns true?
+@@ -564,6 +582,9 @@ IBackend::openvr_enum_t XrBackend::SetSkyboxOverride(const vr::Texture_t* pTextu
+ {
+ 	// Needed for rFactor2 loading screens
+ 	if (unTextureCount && pTextures) {
++		if (CheckRuntimeLost())
++			return 0;
++
+ 		CheckOrInitCompositors(pTextures);
+ 
+ 		if (!sessionActive || !usingApplicationGraphicsAPI)
+@@ -745,6 +766,9 @@ bool XrBackend::IsInputAvailable()
+ 
+ void XrBackend::PumpEvents()
+ {
++	if (CheckRuntimeLost())
++		return;
++
+ 	// Poll for OpenXR events
+ 	// TODO filter by session?
+ 	while (true) {
+@@ -752,7 +776,12 @@ void XrBackend::PumpEvents()
+ 		XrResult res;
+ 		OOVR_FAILED_XR_ABORT(res = xrPollEvent(xr_instance, &ev));
+ 
+-		if (res == XR_EVENT_UNAVAILABLE) {
++		if (res != XR_SUCCESS) {
++			break;
++		}
++
++		if (ev.type == XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING) {
++			oovr_xr_failed_raw(__FILE__, __LINE__, __func__, XR_ERROR_INSTANCE_LOST, "XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING");
+ 			break;
+ 		}
+ 
+@@ -811,6 +840,9 @@ void XrBackend::PumpEvents()
+ 
+ 	} // while loop
+ 
++	if (CheckRuntimeLost())
++		return;
++
+ 	/*
+ 	   We check for AreActionsLoaded here because:
+ 	   1. Games using legacy input call xrSyncActions every frame anyway, so the runtime should
+@@ -835,6 +867,27 @@ void XrBackend::PumpEvents()
+ 	}
+ }
+ 
++bool XrBackend::CheckRuntimeLost()
++{
++	if (!oovr_xr_lost())
++		return false;
++	if (runtimeLostHandled)
++		return true;
++
++	runtimeLostHandled = true;
++	sessionActive = false;
++	renderingFrame = false;
++	deferredRenderingStart = false;
++
++	OOVR_LOG("OpenXR runtime lost: VR stopped, sending VREvent_Quit");
++	VREvent_t quit = { VREvent_Quit };
++	auto system = GetBaseSystem();
++	if (system)
++		system->_EnqueueEvent(quit);
++	oovr_xr_lost_watchdog_start();
++	return true;
++}
++
+ void XrBackend::OnSessionCreated()
+ {
+ 	sessionState = XR_SESSION_STATE_UNKNOWN;
+@@ -845,7 +898,7 @@ void XrBackend::OnSessionCreated()
+ 
+ 	// Wait until we transition to the idle state.
+ 	// This sets the time, so OpenXR calls which use that will work correctly.
+-	while (sessionState == XR_SESSION_STATE_UNKNOWN) {
++	while (sessionState == XR_SESSION_STATE_UNKNOWN && !oovr_xr_lost()) {
+ 		const int durationMs = 250;
+ 
+ 		OOVR_LOGF("No session transition yet received, waiting %dms ...", durationMs);
+diff --git a/DrvOpenXR/XrBackend.h b/DrvOpenXR/XrBackend.h
+index 775c0887b2edbecd01ef0004870f728f6759ff05..070db6b1107481fcbeec43329eb82399364d5e9d 100644
+--- a/DrvOpenXR/XrBackend.h
++++ b/DrvOpenXR/XrBackend.h
+@@ -96,6 +96,11 @@ private:
+ 	 * to attach the actual inputs. BaseInput handles this when attaching its inputs.
+ 	 */
+ 	void QueryForInteractionProfile();
++
++	// Once the runtime is gone: stop the frame loop, send VREvent_Quit and start the exit watchdog. True if lost.
++	bool CheckRuntimeLost();
++	bool runtimeLostHandled = false;
++
+ 	void CreateInfoSet();
+ 	void BindInfoSet();
+ 
+diff --git a/DrvOpenXR/pub/DrvOpenXR.h b/DrvOpenXR/pub/DrvOpenXR.h
+index 9a346cbf8ee7c05c9a10582c7109490a0c2114b0..53a5497d037a41076b7f2d148dbd47ec997fb7f8 100644
+--- a/DrvOpenXR/pub/DrvOpenXR.h
++++ b/DrvOpenXR/pub/DrvOpenXR.h
+@@ -7,6 +7,7 @@
+ #endif
+ 
+ namespace DrvOpenXR {
+-IBackend* CreateOpenXRBackend(const char* startupInfo);
++// On failure (no runtime or no headset) returns null and sets error, without a message box.
++IBackend* CreateOpenXRBackend(const char* startupInfo, vr::EVRInitError* error);
+ void GetXRAppName(char (&appName)[128]);
+ }; // namespace DrvOpenXR
+diff --git a/OCOVR/openvr_api.cpp b/OCOVR/openvr_api.cpp
+index c45bf7d70c6da321d37cf397726692e8037a3a2c..d265ba84475b2f87d43ab6e032fc5cf0f754f2a0 100644
+--- a/OCOVR/openvr_api.cpp
++++ b/OCOVR/openvr_api.cpp
+@@ -219,7 +219,27 @@ VR_INTERFACE const char* VR_CALLTYPE VR_GetVRInitErrorAsEnglishDescription(EVRIn
+ 
+ VR_INTERFACE const char* VR_CALLTYPE VR_GetVRInitErrorAsSymbol(EVRInitError error)
+ {
+-	OOVR_ABORT("Stub");
++	switch (error) {
++		// clang-format off
++	case VRInitError_None: return "VRInitError_None";
++	case VRInitError_Unknown: return "VRInitError_Unknown";
++	case VRInitError_Init_InstallationNotFound: return "VRInitError_Init_InstallationNotFound";
++	case VRInitError_Init_InstallationCorrupt: return "VRInitError_Init_InstallationCorrupt";
++	case VRInitError_Init_VRClientDLLNotFound: return "VRInitError_Init_VRClientDLLNotFound";
++	case VRInitError_Init_FileNotFound: return "VRInitError_Init_FileNotFound";
++	case VRInitError_Init_FactoryNotFound: return "VRInitError_Init_FactoryNotFound";
++	case VRInitError_Init_InterfaceNotFound: return "VRInitError_Init_InterfaceNotFound";
++	case VRInitError_Init_InvalidInterface: return "VRInitError_Init_InvalidInterface";
++	case VRInitError_Init_HmdNotFound: return "VRInitError_Init_HmdNotFound";
++	case VRInitError_Init_NotInitialized: return "VRInitError_Init_NotInitialized";
++	case VRInitError_Init_PathRegistryNotFound: return "VRInitError_Init_PathRegistryNotFound";
++	case VRInitError_Init_Internal: return "VRInitError_Init_Internal";
++	case VRInitError_Init_HmdNotFoundPresenceFailed: return "VRInitError_Init_HmdNotFoundPresenceFailed";
++	case VRInitError_Init_NoServerForBackgroundApp: return "VRInitError_Init_NoServerForBackgroundApp";
++	case VRInitError_Init_InvalidApplicationType: return "VRInitError_Init_InvalidApplicationType";
++	default: return "VRInitError_Unknown";
++		// clang-format on
++	}
+ }
+ 
+ VR_INTERFACE uint32_t VR_CALLTYPE VR_InitInternal(EVRInitError* peError, EVRApplicationType eApplicationType)
+@@ -262,11 +282,20 @@ VR_INTERFACE uint32_t VR_CALLTYPE VR_InitInternal2(EVRInitError* peError, EVRApp
+ 		return current_init_token;
+ 	}
+ 
+-	if (eApplicationType != VRApplication_Scene)
++	if (eApplicationType != VRApplication_Scene) {
+ #ifndef _WIN32
+ 		if (eApplicationType != VRApplication_Background) // Proton uses this
+ #endif
+-			ERR("Cannot init VR: unsupported apptype " + to_string(eApplicationType));
++		{
++			// As SteamVR without a running vrserver: a background app (e.g. a flat game probing for VR) must not start VR
++			EVRInitError err = eApplicationType == VRApplication_Background ? VRInitError_Init_NoServerForBackgroundApp
++			                                                                 : VRInitError_Init_InvalidApplicationType;
++			OOVR_LOGF("Cannot init VR for apptype %d, returning %d", eApplicationType, err);
++			if (peError)
++				*peError = err;
++			return 0;
++		}
++	}
+ 
+ 	if (running)
+ 		ERR("Cannot init VR: Already running!");
+@@ -277,12 +306,17 @@ VR_INTERFACE uint32_t VR_CALLTYPE VR_InitInternal2(EVRInitError* peError, EVRApp
+ 	running = true;
+ 
+ 	// TODO seperate this from the rest of dllmain
+-	IBackend* backend = DrvOpenXR::CreateOpenXRBackend(pStartupInfo);
+-	if (!backend && peError) {
+-		*peError = VRInitError_Init_Internal;
+-	} else {
+-		BackendManager::Create(backend);
++	EVRInitError err = VRInitError_None;
++	IBackend* backend = DrvOpenXR::CreateOpenXRBackend(pStartupInfo, &err);
++	if (!backend) {
++		OOVR_LOGF("VR_Init failed: %s", VR_GetVRInitErrorAsSymbol(err));
++		if (peError)
++			*peError = err;
++		running = false;
++		running_ovr = false;
++		return 0;
+ 	}
++	BackendManager::Create(backend);
+ 
+ 	return current_init_token;
+ }
+@@ -291,10 +325,13 @@ VR_INTERFACE bool VR_CALLTYPE VR_IsHmdPresent()
+ {
+ 	// If we're already running, then Oculus's implementation fails with XR_ERROR_RUNTIME_FAILURE
+ 	if (running)
+-		return true;
++		return !oovr_xr_lost();
+ 
+ 	// At this point, we should NOT be running OpenXR, so setup a new session just for this
+-	OOVR_FALSE_ABORT(xr_instance == XR_NULL_HANDLE);
++	if (xr_instance != XR_NULL_HANDLE) {
++		OOVR_LOG("VR_IsHmdPresent: OpenXR instance exists while not running, reporting no HMD");
++		return false;
++	}
+ 
+ 	// FIXME copied from DrvOpenXR
+ 	XrApplicationInfo appInfo{};
+@@ -304,7 +341,8 @@ VR_INTERFACE bool VR_CALLTYPE VR_IsHmdPresent()
+ 	XrInstanceCreateInfo createInfo{ XR_TYPE_INSTANCE_CREATE_INFO };
+ 	createInfo.applicationInfo = appInfo;
+ 	XrInstance tmp_instance;
+-	if (xrCreateInstance(&createInfo, &tmp_instance) != XR_SUCCESS) {
++	if (XrResult res = xrCreateInstance(&createInfo, &tmp_instance); res != XR_SUCCESS) {
++		OOVR_LOGF("VR_IsHmdPresent: no OpenXR runtime (XrResult %d)", res);
+ 		return false;
+ 	}
+ 
+@@ -314,16 +352,14 @@ VR_INTERFACE bool VR_CALLTYPE VR_IsHmdPresent()
+ 	XrSystemId id;
+ 	XrResult res = xrGetSystem(tmp_instance, &systemInfo, &id);
+ 
+-	OOVR_FAILED_XR_ABORT(xrDestroyInstance(tmp_instance));
++	if (XrResult dres = xrDestroyInstance(tmp_instance); XR_FAILED(dres))
++		OOVR_LOGF("VR_IsHmdPresent: xrDestroyInstance failed: %d", dres);
+ 
+ 	if (res == XR_SUCCESS)
+ 		return true;
+ 
+-	if (res == XR_ERROR_FORM_FACTOR_UNAVAILABLE || res == XR_ERROR_FORM_FACTOR_UNSUPPORTED)
+-		return false;
+-
+-	// Something else went wrong
+-	OOVR_ABORTF("Failed to probe for OpenXR systems: return status %d", res);
++	OOVR_LOGF("VR_IsHmdPresent: no HMD system (XrResult %d)", res);
++	return false;
+ }
+ 
+ // Necessary for Proton games on Linux: https://github.com/ValveSoftware/Proton/blob/22f40122788d5f65389f59144705309ce9d6d403/vrclient_x64/vrclient_x64/vrclient_main.c#L267
+@@ -353,6 +389,7 @@ VR_INTERFACE const char* VR_CALLTYPE VR_RuntimePath()
+ VR_INTERFACE void VR_CALLTYPE VR_ShutdownInternal()
+ {
+ 	OOVR_LOG("OpenComposite shutdown");
++	oovr_xr_lost_watchdog_stop();
+ 
+ 	// Reset interfaces
+ 	// Do this first, while the OVR session is still available in case they
+diff --git a/OpenOVR/Misc/Config.cpp b/OpenOVR/Misc/Config.cpp
+index 6e35d15589e7251448bdd6e7ae39c2f7e137b721..3c7da1863d4b1aa31662af67b0317b247f73db7a 100644
+--- a/OpenOVR/Misc/Config.cpp
++++ b/OpenOVR/Misc/Config.cpp
+@@ -151,6 +151,7 @@ int Config::ini_handler(void* user, const char* pSection,
+ 		CFGOPT(bool, logAllOpenVRCalls);
+ 		CFGOPT(bool, copyBoundsOnly);
+ 		CFGOPT(bool, runtimeRefreshRate);
++		CFGOPT(float, runtimeLostExitSeconds);
+ 	}
+ 
+ #undef CFGOPT
+diff --git a/OpenOVR/Misc/Config.h b/OpenOVR/Misc/Config.h
+index a415ac49d07f6a106a2aa85a9fd9e25ad9c2851f..a3cebcf07449202ca9d9ef6285c714fb85fdb6c5 100644
+--- a/OpenOVR/Misc/Config.h
++++ b/OpenOVR/Misc/Config.h
+@@ -20,6 +20,7 @@ public:
+ 	inline bool LogAllOpenVRCalls() const { return logAllOpenVRCalls; }
+ 	inline bool CopyBoundsOnly() const { return copyBoundsOnly; }
+ 	inline bool RuntimeRefreshRate() const { return runtimeRefreshRate; }
++	inline float RuntimeLostExitSeconds() const { return runtimeLostExitSeconds; }
+ 
+ private:
+ 	static int ini_handler(
+@@ -42,6 +43,7 @@ private:
+ 	bool logAllOpenVRCalls = false;
+ 	bool copyBoundsOnly = true;
+ 	bool runtimeRefreshRate = true;
++	float runtimeLostExitSeconds = 10.0f;
+ };
+ 
+ extern Config oovr_global_configuration;
+diff --git a/OpenOVR/Misc/xrmoreutils.cpp b/OpenOVR/Misc/xrmoreutils.cpp
+index 73ef147065ddb45d7e0628ab8c9ce76043b041b4..fa267b242ec626d944e8b950609acf70c1241513 100644
+--- a/OpenOVR/Misc/xrmoreutils.cpp
++++ b/OpenOVR/Misc/xrmoreutils.cpp
+@@ -10,6 +10,11 @@
+ bool xr_utils::PoseFromSpace(vr::TrackedDevicePose_t* pose, XrSpace space, vr::ETrackingUniverseOrigin origin,
+     std::optional<glm::mat4> extraTransform)
+ {
++	if (oovr_xr_lost()) {
++		*pose = {};
++		return false;
++	}
++
+ 	auto baseSpace = xr_space_from_tracking_origin(origin);
+ 
+ 	XrSpaceVelocity velocity{ XR_TYPE_SPACE_VELOCITY };
+diff --git a/OpenOVR/Misc/xrutil.cpp b/OpenOVR/Misc/xrutil.cpp
+index 902bcd66b2ad8bd05546c7d7b0581d01bdbabfd9..6881a1218ddbe0aa163c4cb2606982b3f7e7735a 100644
+--- a/OpenOVR/Misc/xrutil.cpp
++++ b/OpenOVR/Misc/xrutil.cpp
+@@ -3,9 +3,14 @@
+ #include "xrutil.h"
+ 
+ #include "Drivers/Backend.h"
++#include "Misc/Config.h"
+ #include "convert.h"
+ #include "xr_ext.h"
+ 
++#include <atomic>
++#include <condition_variable>
++#include <thread>
++
+ XrInstance xr_instance = XR_NULL_HANDLE;
+ SessionWrapper xr_session;
+ XrSystemId xr_system = XR_NULL_SYSTEM_ID;
+@@ -275,3 +280,78 @@ SessionLock::~SessionLock()
+ }
+ 
+ SessionLock::operator XrSession&() { return parent.session; }
++
++static std::atomic<int> xr_lost_result{ 0 };
++
++bool oovr_xr_lost()
++{
++	return xr_lost_result.load() != 0;
++}
++
++void oovr_xr_reset_lost()
++{
++	xr_lost_result = 0;
++}
++
++void oovr_xr_failed_raw(const char* file, long line, const char* func, int result, const char* expression)
++{
++	if (result == XR_ERROR_INSTANCE_LOST || result == XR_ERROR_SESSION_LOST || oovr_xr_lost()) {
++		int expected = 0;
++		if (xr_lost_result.compare_exchange_strong(expected, result)) {
++			oovr_log_raw_format(file, line, func, "OpenXR runtime lost (XrResult %d in %s), stopping VR", result, expression);
++		}
++		return;
++	}
++
++	if (xr_instance != XR_NULL_HANDLE) {
++		char buf[XR_MAX_RESULT_STRING_SIZE];
++		xrResultToString(xr_instance, (XrResult)result, buf);
++		oovr_abort_raw(file, line, func, "OpenXR Call failed, aborting. %s:%d %s. Error code: %s\n%s", nullptr,
++		    file, (int)line, func, buf, expression);
++	}
++	oovr_abort_raw(file, line, func, "OpenXR Call failed, aborting. %s:%d %s. Error code: %d\n%s", nullptr,
++	    file, (int)line, func, result, expression);
++}
++
++// SteamVR kills an app that hasn't quit some time after VREvent_Quit; do the same once the runtime is lost,
++// unless the app shuts VR down (it may go on without VR) or says it is prompting the user.
++static std::mutex lost_watchdog_mutex;
++static std::condition_variable lost_watchdog_cv;
++static std::thread* lost_watchdog = nullptr; // never destroyed: a joinable std::thread at DLL detach terminates
++static bool lost_watchdog_cancel = false;
++
++void oovr_xr_lost_watchdog_start()
++{
++	std::lock_guard lock(lost_watchdog_mutex);
++	float seconds = oovr_global_configuration.RuntimeLostExitSeconds();
++	if (lost_watchdog || seconds <= 0)
++		return;
++
++	lost_watchdog_cancel = false;
++	auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds((int)(seconds * 1000));
++	lost_watchdog = new std::thread([deadline, seconds]() {
++		std::unique_lock lock(lost_watchdog_mutex);
++		if (lost_watchdog_cv.wait_until(lock, deadline, [] { return lost_watchdog_cancel; }))
++			return;
++		OOVR_LOGF("App did not shut VR down %.1f s after the runtime was lost, exiting the process", seconds);
++#ifdef _WIN32
++		TerminateProcess(GetCurrentProcess(), 0);
++#else
++		_exit(0);
++#endif
++	});
++}
++
++void oovr_xr_lost_watchdog_stop()
++{
++	std::unique_lock lock(lost_watchdog_mutex);
++	if (!lost_watchdog)
++		return;
++	lost_watchdog_cancel = true;
++	lost_watchdog_cv.notify_all();
++	lock.unlock();
++	lost_watchdog->join();
++	delete lost_watchdog;
++	lost_watchdog = nullptr;
++	OOVR_LOG("Runtime-lost exit timer cancelled");
++}
+diff --git a/OpenOVR/Misc/xrutil.h b/OpenOVR/Misc/xrutil.h
+index 199570c7c78d0906d42a9c17917fdee752325832..2a4a3bdfee59510644088b5fd6f8a894e85d7868 100644
+--- a/OpenOVR/Misc/xrutil.h
++++ b/OpenOVR/Misc/xrutil.h
+@@ -148,6 +148,12 @@ XrSpace xr_space_from_ref_space_type(XrReferenceSpaceType spaceType);
+ XrQuaternionf yRotation(XrQuaternionf& q, XrQuaternionf& r);
+ void rotate_vector_by_quaternion(const XrVector3f& v, const XrQuaternionf& q, XrVector3f& vprime);
+ 
++// Runtime loss (see OOVR_FAILED_XR_ABORT): reset at VR_Init; the watchdog ends the process if the app keeps
++// running VR after it, stopped by VR_Shutdown or AcknowledgeQuit_UserPrompt.
++void oovr_xr_reset_lost();
++void oovr_xr_lost_watchdog_start();
++void oovr_xr_lost_watchdog_stop();
++
+ extern XrInstance xr_instance;
+ extern SessionWrapper xr_session;
+ extern XrSystemId xr_system;
+diff --git a/OpenOVR/Reimpl/BaseInput.cpp b/OpenOVR/Reimpl/BaseInput.cpp
+index dd24d2eb91422677d8d0932f5b438d8f9bbc19b6..291f828e08ec2c255e3afa6847f74822c8f06153 100644
+--- a/OpenOVR/Reimpl/BaseInput.cpp
++++ b/OpenOVR/Reimpl/BaseInput.cpp
+@@ -1301,6 +1301,10 @@ EVRInputError BaseInput::UpdateActionState(VR_ARRAY_COUNT(unSetCount) VRActiveAc
+ 
+ 	OOVR_FALSE_ABORT(sizeof(*pSets) == unSizeOfVRSelectedActionSet_t);
+ 
++	// The runtime is gone: all actions read as inactive
++	if (oovr_xr_lost())
++		return VRInputError_None;
++
+ 	// Make sure all the ActionSets have the same priority, since we don't have any way around that right now
+ 	if (unSetCount > 1) {
+ 		int priority = pSets[0].nPriority;
+@@ -1592,6 +1596,8 @@ EVRInputError BaseInput::GetDigitalActionData(VRActionHandle_t action, InputDigi
+ 
+ 	ZeroMemory(pActionData, unActionDataSize);
+ 	OOVR_FALSE_ABORT(unActionDataSize == sizeof(*pActionData));
++	if (oovr_xr_lost())
++		return VRInputError_None;
+ 
+ 	XrActionStateGetInfo getInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
+ 	getInfo.action = act->xr;
+@@ -1644,6 +1650,8 @@ EVRInputError BaseInput::GetAnalogActionData(VRActionHandle_t action, InputAnalo
+ 	GET_ACTION_FROM_HANDLE(act, action);
+ 	ZeroMemory(pActionData, unActionDataSize);
+ 	OOVR_FALSE_ABORT(unActionDataSize == sizeof(*pActionData));
++	if (oovr_xr_lost())
++		return VRInputError_None;
+ 
+ 	XrActionStateGetInfo getInfo = { XR_TYPE_ACTION_STATE_GET_INFO };
+ 	getInfo.action = act->xr;
+@@ -1786,6 +1794,8 @@ EVRInputError BaseInput::GetPoseActionData(VRActionHandle_t action, ETrackingUni
+ 
+ 	ZeroMemory(pActionData, unActionDataSize);
+ 	OOVR_FALSE_ABORT(unActionDataSize == sizeof(*pActionData));
++	if (oovr_xr_lost())
++		return VRInputError_None;
+ 
+ 	if (act->type == ActionType::Skeleton) {
+ 		std::shared_ptr<ITrackedDevice> dev = BackendManager::Instance().GetDeviceByHand(act->skeletalHand);
+@@ -1931,6 +1941,11 @@ EVRInputError BaseInput::GetSkeletalActionData(VRActionHandle_t actionHandle, In
+ 
+ 	GET_ACTION_FROM_HANDLE(action, actionHandle);
+ 
++	if (oovr_xr_lost()) {
++		*out = {};
++		return VRInputError_None;
++	}
++
+ 	// Zero out the output data, leaving:
+ 	// bActive = false
+ 	// activeOrigin = vr::k_ulInvalidActionHandle
+@@ -2063,6 +2078,8 @@ EVRInputError BaseInput::GetSkeletalBoneData(VRActionHandle_t actionHandle, EVRS
+ {
+ 	ZeroMemory(pTransformArray, sizeof(VRBoneTransform_t) * unTransformArrayCount);
+ 	GET_ACTION_FROM_HANDLE(action, actionHandle);
++	if (oovr_xr_lost())
++		return VRInputError_None;
+ 
+ 	// FIXME remove
+ 	// Hand labs is in parent transform space, and usually 'with controller' motion range
+@@ -2641,6 +2658,8 @@ VRInputValueHandle_t BaseInput::activeOriginFromSubaction(Action* action, const
+ bool BaseInput::GetLegacyControllerState(vr::TrackedDeviceIndex_t controllerDeviceIndex, vr::VRControllerState_t* state)
+ {
+ 	*state = {};
++	if (oovr_xr_lost())
++		return false;
+ 
+ 	// FIXME implement packetNum
+ 	static int i = 0;
+diff --git a/OpenOVR/Reimpl/BaseSystem.cpp b/OpenOVR/Reimpl/BaseSystem.cpp
+index 948d80ce5fd6e878bed4dfd6e3c4a0d388fb2956..6a42856adeb54c87ec8803e89181886a9195b803 100644
+--- a/OpenOVR/Reimpl/BaseSystem.cpp
++++ b/OpenOVR/Reimpl/BaseSystem.cpp
+@@ -807,12 +807,13 @@ vr::EVRFirmwareError BaseSystem::PerformFirmwareUpdate(vr::TrackedDeviceIndex_t
+ 
+ void BaseSystem::AcknowledgeQuit_Exiting()
+ {
+-	OOVR_SOFT_ABORT("No implementation");
++	OOVR_LOG("App acknowledged quit, exiting");
+ }
+ 
+ void BaseSystem::AcknowledgeQuit_UserPrompt()
+ {
+-	STUBBED();
++	OOVR_LOG("App acknowledged quit, prompting the user: no forced exit");
++	oovr_xr_lost_watchdog_stop();
+ }
+ 
+ uint32_t BaseSystem::GetAppContainerFilePaths(VR_OUT_STRING() char* pchBuffer, uint32_t unBufferSize)
+diff --git a/OpenOVR/logging.h b/OpenOVR/logging.h
+index bf95c4af702272b671d7aba7a4cdcdfc42bdc8eb..6b29cc02be14f58d493f578ca218b52f14328065 100644
+--- a/OpenOVR/logging.h
++++ b/OpenOVR/logging.h
+@@ -112,26 +112,21 @@ void oovr_message_raw(const char* message, const char* title);
+ 	}
+ 
+ // TODO does OpenXR have an equivalent of ovr_GetLastErrorInfo?
+-#define OOVR_FAILED_XR_ABORT(expression)                                                  \
+-	do {                                                                                  \
+-		XrResult failed_xr_abort_result = (expression);                                   \
+-		if (XR_FAILED(failed_xr_abort_result)) {                                          \
+-			if (xr_instance != XR_NULL_HANDLE) {                                          \
+-				char buf[XR_MAX_RESULT_STRING_SIZE];                                      \
+-				xrResultToString(xr_instance, failed_xr_abort_result, buf);               \
+-				OOVR_ABORTF("OpenXR Call failed, aborting. %s:%d %s. Error code: %s\n%s", \
+-				    __FILE__, __LINE__, __func__, buf, #expression);                      \
+-			} else {                                                                      \
+-				OOVR_ABORTF("OpenXR Call failed, aborting. %s:%d %s. Error code: %d\n%s", \
+-				    __FILE__, __LINE__, __func__, failed_xr_abort_result, #expression);   \
+-			}                                                                             \
+-		}                                                                                 \
++// Aborts, except when the runtime is gone (instance/session lost): that is logged once and returns, see oovr_xr_lost.
++bool oovr_xr_lost();
++void oovr_xr_failed_raw(const char* file, long line, const char* func, int result, const char* expression);
++#define OOVR_FAILED_XR_ABORT(expression)                                                             \
++	do {                                                                                             \
++		XrResult failed_xr_abort_result = (expression);                                              \
++		if (XR_FAILED(failed_xr_abort_result)) {                                                     \
++			oovr_xr_failed_raw(__FILE__, __LINE__, __func__, failed_xr_abort_result, #expression); \
++		}                                                                                            \
+ 	} while (0)
+ 
+ #define OOVR_FAILED_XR_SOFT_ABORT(expression)                                       \
+ 	do {                                                                            \
+ 		XrResult failed_xr_abort_result = (expression);                             \
+-		if (XR_FAILED(failed_xr_abort_result)) {                                    \
++		if (XR_FAILED(failed_xr_abort_result) && !oovr_xr_lost()) {                 \
+ 			OOVR_SOFT_ABORTF("OpenXR Call failed. %s:%d %s. Error code: %d\n%s",    \
+ 			    __FILE__, __LINE__, __func__, failed_xr_abort_result, #expression); \
+ 		}                                                                           \

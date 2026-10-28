@@ -1,0 +1,283 @@
+From: macvr
+Subject: [PATCH] ipc-server-poll-mainloop-on-osx
+
+---
+ src/xrt/ipc/CMakeLists.txt                        |  2 +-
+ src/xrt/ipc/server/ipc_server.h                   |  9 ++-
+ src/xrt/ipc/server/ipc_server_mainloop_linux.c    | 75 ++++++++---------------
+ src/xrt/ipc/server/ipc_server_per_client_thread.c | 47 +++-----------
+ 4 files changed, 39 insertions(+), 94 deletions(-)
+
+diff --git a/src/xrt/ipc/CMakeLists.txt b/src/xrt/ipc/CMakeLists.txt
+index 71414e76ee7247540dee46377dcdea53a09bcf7e..d9f5e8e46b053e4ff012d09b7e5cfe8af149d9ab 100644
+--- a/src/xrt/ipc/CMakeLists.txt
++++ b/src/xrt/ipc/CMakeLists.txt
+@@ -178,7 +178,7 @@ if(ANDROID)
+ 		PUBLIC ${ANDROID_LIBRARY}
+ 		PRIVATE aux_android ipc_android
+ 		)
+-elseif(XRT_HAVE_LINUX)
++elseif(XRT_HAVE_LINUX OR APPLE)
+ 	target_sources(
+ 		ipc_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/server/ipc_server_mainloop_linux.c
+ 		)
+diff --git a/src/xrt/ipc/server/ipc_server.h b/src/xrt/ipc/server/ipc_server.h
+index 399e88a7a17b2ab23873e2fe747f9cd65fb70918..77107e4494e66a181ee23fbacd3bd2c10e2773a0 100644
+--- a/src/xrt/ipc/server/ipc_server.h
++++ b/src/xrt/ipc/server/ipc_server.h
+@@ -233,7 +233,7 @@ struct ipc_thread
+ struct ipc_server_mainloop
+ {
+ 
+-#if defined(XRT_OS_ANDROID) || defined(XRT_OS_LINUX) || defined(XRT_DOXYGEN)
++#if defined(XRT_OS_ANDROID) || defined(XRT_DOXYGEN)
+ 	//! For waiting on various events in the main thread.
+ 	int epoll_fd;
+ #endif
+@@ -300,15 +300,18 @@ struct ipc_server_mainloop
+ #define XRT_IPC_GOT_IMPL
+ #endif
+ 
+-#if (defined(XRT_OS_LINUX) && !defined(XRT_OS_ANDROID)) || defined(XRT_DOXYGEN)
++#if (defined(XRT_OS_LINUX) && !defined(XRT_OS_ANDROID)) || defined(XRT_OS_OSX) || defined(XRT_DOXYGEN)
+ 	/*!
+-	 * @name Desktop Linux Mainloop Members
++	 * @name Desktop Linux and macOS Mainloop Members
+ 	 * @{
+ 	 */
+ 
+ 	//! Socket that we accept connections on.
+ 	int listen_socket;
+ 
++	//! Also poll stdin, shutting down when it becomes readable.
++	bool poll_stdin;
++
+ 	//! Were we launched by socket activation, instead of explicitly?
+ 	bool launched_by_socket;
+ 
+diff --git a/src/xrt/ipc/server/ipc_server_mainloop_linux.c b/src/xrt/ipc/server/ipc_server_mainloop_linux.c
+index 453dd38ca849fe5f1cd67d849db5374578624ebc..8d180a4168c5b784720c855fabaeafee1f698231 100644
+--- a/src/xrt/ipc/server/ipc_server_mainloop_linux.c
++++ b/src/xrt/ipc/server/ipc_server_mainloop_linux.c
+@@ -35,7 +35,7 @@
+ #include <sys/mman.h>
+ #include <sys/socket.h>
+ #include <sys/un.h>
+-#include <sys/epoll.h>
++#include <poll.h>
+ #include <fcntl.h>
+ #include <errno.h>
+ #include <stdio.h>
+@@ -206,37 +206,10 @@ install_signal_handlers(void)
+ }
+ 
+ static int
+-init_epoll(struct ipc_server_mainloop *ml, bool no_stdin)
++init_poll(struct ipc_server_mainloop *ml, bool no_stdin)
+ {
+-	int ret = epoll_create1(EPOLL_CLOEXEC);
+-	if (ret < 0) {
+-		return ret;
+-	}
+-
+-	ml->epoll_fd = ret;
+-
+-	struct epoll_event ev = {0};
+-
+-	if (!ml->launched_by_socket && !no_stdin) {
+-		// Can't do this when launched by systemd socket activation by
+-		// default.
+-		// This polls stdin.
+-		ev.events = EPOLLIN;
+-		ev.data.fd = 0; // stdin
+-		ret = epoll_ctl(ml->epoll_fd, EPOLL_CTL_ADD, 0, &ev);
+-		if (ret < 0) {
+-			U_LOG_E("epoll_ctl(stdin) failed '%i'", ret);
+-			return ret;
+-		}
+-	}
+-
+-	ev.events = EPOLLIN;
+-	ev.data.fd = ml->listen_socket;
+-	ret = epoll_ctl(ml->epoll_fd, EPOLL_CTL_ADD, ml->listen_socket, &ev);
+-	if (ret < 0) {
+-		U_LOG_E("epoll_ctl(listen_socket) failed '%i'", ret);
+-		return ret;
+-	}
++	// Can't poll stdin when launched by systemd socket activation by default.
++	ml->poll_stdin = !ml->launched_by_socket && !no_stdin;
+ 
+ 	return 0;
+ }
+@@ -255,7 +228,6 @@ handle_listen(struct ipc_server *vs, struct ipc_server_mainloop *ml)
+ 	ipc_server_handle_client_connected(vs, ret);
+ }
+ 
+-#define NUM_POLL_EVENTS 8
+ #define NO_SLEEP 0
+ 
+ /*
+@@ -269,14 +241,16 @@ ipc_server_mainloop_poll(struct ipc_server *vs, struct ipc_server_mainloop *ml)
+ {
+ 	IPC_TRACE_MARKER();
+ 
+-	int epoll_fd = ml->epoll_fd;
+-
+-	struct epoll_event events[NUM_POLL_EVENTS] = {0};
++	struct pollfd fds[2] = {
++	    {.fd = ml->listen_socket, .events = POLLIN},
++	    {.fd = 0, .events = POLLIN}, // stdin
++	};
++	nfds_t nfds = ml->poll_stdin ? 2 : 1;
+ 
+ 	// No sleeping, returns immediately.
+-	int ret = epoll_wait(epoll_fd, events, NUM_POLL_EVENTS, NO_SLEEP);
+-	if (ret < 0) {
+-		U_LOG_E("epoll_wait failed with '%i'.", ret);
++	int ret = poll(fds, nfds, NO_SLEEP);
++	if (ret < 0 && errno != EINTR) {
++		U_LOG_E("poll failed with '%i'.", errno);
+ 		ipc_server_handle_failure(vs);
+ 		return;
+ 	}
+@@ -288,17 +262,19 @@ ipc_server_mainloop_poll(struct ipc_server *vs, struct ipc_server_mainloop *ml)
+ 		return;
+ 	}
+ 
+-	for (int i = 0; i < ret; i++) {
+-		// If we get data on stdin, stop.
+-		if (events[i].data.fd == 0) {
+-			ipc_server_handle_shutdown_signal(vs);
+-			return;
+-		}
++	if (ret <= 0) {
++		return;
++	}
+ 
+-		// Somebody new at the door.
+-		if (events[i].data.fd == ml->listen_socket) {
+-			handle_listen(vs, ml);
+-		}
++	// If we get data on stdin, stop.
++	if (nfds > 1 && fds[1].revents != 0) {
++		ipc_server_handle_shutdown_signal(vs);
++		return;
++	}
++
++	// Somebody new at the door.
++	if ((fds[0].revents & POLLIN) != 0) {
++		handle_listen(vs, ml);
+ 	}
+ }
+ 
+@@ -315,7 +291,7 @@ ipc_server_mainloop_init(struct ipc_server_mainloop *ml, bool no_stdin)
+ 
+ 	install_signal_handlers();
+ 
+-	ret = init_epoll(ml, no_stdin);
++	ret = init_poll(ml, no_stdin);
+ 	if (ret < 0) {
+ 		ipc_server_mainloop_deinit(ml);
+ 		return ret;
+@@ -342,5 +318,4 @@ ipc_server_mainloop_deinit(struct ipc_server_mainloop *ml)
+ 			ml->socket_filename = NULL;
+ 		}
+ 	}
+-	//! @todo close epoll_fd?
+ }
+diff --git a/src/xrt/ipc/server/ipc_server_per_client_thread.c b/src/xrt/ipc/server/ipc_server_per_client_thread.c
+index fb58696b8b8af6242ed229d8ae5a8dc2ad1772b0..a2d30951f3804fce2b7dc96ca2b07b28bbe373cc 100644
+--- a/src/xrt/ipc/server/ipc_server_per_client_thread.c
++++ b/src/xrt/ipc/server/ipc_server_per_client_thread.c
+@@ -29,7 +29,7 @@
+ #include <stdio.h>
+ #include <sys/stat.h>
+ #include <sys/types.h>
+-#include <sys/epoll.h>
++#include <poll.h>
+ #include <sys/socket.h>
+ 
+ #endif // XRT_OS_WINDOWS
+@@ -192,32 +192,6 @@ common_shutdown(volatile struct ipc_client_state *ics)
+ 
+ #ifndef XRT_OS_WINDOWS // Linux & Android
+ 
+-static int
+-setup_epoll(volatile struct ipc_client_state *ics)
+-{
+-	int listen_socket = ics->imc.ipc_handle;
+-	assert(listen_socket >= 0);
+-
+-	int ret = epoll_create1(EPOLL_CLOEXEC);
+-	if (ret < 0) {
+-		return ret;
+-	}
+-
+-	int epoll_fd = ret;
+-
+-	struct epoll_event ev = XRT_STRUCT_INIT;
+-
+-	ev.events = EPOLLIN;
+-	ev.data.fd = listen_socket;
+-	ret = epoll_ctl(epoll_fd, EPOLL_CTL_ADD, listen_socket, &ev);
+-	if (ret < 0) {
+-		IPC_ERROR(ics->server, "Error epoll_ctl(listen_socket) failed '%i'.", ret);
+-		return ret;
+-	}
+-
+-	return epoll_fd;
+-}
+-
+ static void
+ client_loop(volatile struct ipc_client_state *ics)
+ {
+@@ -229,25 +203,21 @@ client_loop(volatile struct ipc_client_state *ics)
+ 	    ics->client_state.id,                 //
+ 	    ics->server->callback_data);          //
+ 
+-	// Claim the client fd.
+-	int epoll_fd = setup_epoll(ics);
+-	if (epoll_fd < 0) {
+-		return;
+-	}
++	assert(ics->imc.ipc_handle >= 0);
+ 
+ 	while (ics->server->running) {
+ 		const int half_a_second_ms = 500;
+-		struct epoll_event event = XRT_STRUCT_INIT;
++		struct pollfd pfd = {.fd = ics->imc.ipc_handle, .events = POLLIN};
+ 		int ret = 0;
+ 
+ 		// On temporary failures retry.
+ 		do {
+-			// We use epoll here to be able to timeout.
+-			ret = epoll_wait(epoll_fd, &event, 1, half_a_second_ms);
++			// We use poll here to be able to timeout.
++			ret = poll(&pfd, 1, half_a_second_ms);
+ 		} while (ret == -1 && errno == EINTR);
+ 
+ 		if (ret < 0) {
+-			IPC_ERROR(ics->server, "Failed epoll_wait '%i', disconnecting client.", ret);
++			IPC_ERROR(ics->server, "Failed poll '%i', disconnecting client.", errno);
+ 			break;
+ 		}
+ 
+@@ -257,7 +227,7 @@ client_loop(volatile struct ipc_client_state *ics)
+ 		}
+ 
+ 		// Detect clients disconnecting gracefully.
+-		if (ret > 0 && (event.events & EPOLLHUP) != 0) {
++		if ((pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) {
+ 			break;
+ 		}
+ 
+@@ -303,9 +273,6 @@ client_loop(volatile struct ipc_client_state *ics)
+ 		}
+ 	}
+ 
+-	close(epoll_fd);
+-	epoll_fd = -1;
+-
+ 	// Call the client disconnected callback.
+ 	ics->server->callbacks->client_disconnected( //
+ 	    ics->server,                             //

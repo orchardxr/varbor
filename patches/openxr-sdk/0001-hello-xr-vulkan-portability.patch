@@ -1,0 +1,67 @@
+From: macvr
+Subject: [PATCH] hello-xr-vulkan-portability
+
+---
+ src/tests/hello_xr/graphicsplugin_vulkan.cpp | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/src/tests/hello_xr/graphicsplugin_vulkan.cpp b/src/tests/hello_xr/graphicsplugin_vulkan.cpp
+index 7e68c2d544afce5b3aa6e187fe213690cb10a219..57132361f67461dd143a4517ab621086834b3ab4 100644
+--- a/src/tests/hello_xr/graphicsplugin_vulkan.cpp
++++ b/src/tests/hello_xr/graphicsplugin_vulkan.cpp
+@@ -527,6 +527,7 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
+ #endif
+ 
+         std::vector<const char*> extensions;
++        bool portabilityEnumeration = false;
+         {
+             uint32_t extensionCount = 0;
+             XRC_CHECK_THROW_VKCMD(vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr));
+@@ -548,6 +549,14 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
+                 extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+             }
+             // TODO add back VK_EXT_debug_report code for compatibility with older systems? (Android)
++
++#ifdef VK_KHR_portability_enumeration
++            // Needed to see portability drivers such as MoltenVK.
++            if (isExtSupported(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
++                extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
++                portabilityEnumeration = true;
++            }
++#endif
+         }
+ #if defined(USE_MIRROR_WINDOW)
+         extensions.push_back("VK_KHR_surface");
+@@ -577,6 +586,11 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
+ 
+         VkInstanceCreateInfo instInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+         instInfo.pNext = &debugInfo;
++#ifdef VK_KHR_portability_enumeration
++        if (portabilityEnumeration) {
++            instInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++        }
++#endif
+         instInfo.pApplicationInfo = &appInfo;
+         instInfo.enabledLayerCount = (uint32_t)layers.size();
+         instInfo.ppEnabledLayerNames = layers.empty() ? nullptr : layers.data();
+@@ -630,6 +644,20 @@ struct VulkanGraphicsPlugin : public IGraphicsPlugin {
+         deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+ #endif
+ 
++        {
++            // A portability implementation requires VK_KHR_portability_subset to be enabled.
++            uint32_t extensionCount = 0;
++            XRC_CHECK_THROW_VKCMD(vkEnumerateDeviceExtensionProperties(m_vkPhysicalDevice, nullptr, &extensionCount, nullptr));
++            std::vector<VkExtensionProperties> availableExtensions(extensionCount);
++            XRC_CHECK_THROW_VKCMD(
++                vkEnumerateDeviceExtensionProperties(m_vkPhysicalDevice, nullptr, &extensionCount, availableExtensions.data()));
++            for (const auto& properties : availableExtensions) {
++                if (0 == strcmp(properties.extensionName, "VK_KHR_portability_subset")) {
++                    deviceExtensions.push_back("VK_KHR_portability_subset");
++                }
++            }
++        }
++
+         VkDeviceCreateInfo deviceInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+         deviceInfo.queueCreateInfoCount = 1;
+         deviceInfo.pQueueCreateInfos = &queueInfo;

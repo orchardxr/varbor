@@ -1,0 +1,460 @@
+From: macvr
+Subject: [PATCH] macos-steam-apps
+
+---
+ common/CMakeLists.txt       |   3 +
+ common/test_application.cpp |  15 +++
+ common/utils/load_icon.cpp  |  54 ++++++++++
+ common/utils/steam_info.cpp | 244 +++++++++++++++++++++++++++++++++++++++-----
+ 4 files changed, 289 insertions(+), 27 deletions(-)
+
+diff --git a/common/CMakeLists.txt b/common/CMakeLists.txt
+index bbeef59aade11484a297cb0e29508641a79a9d1f..fd12bec72897b3b77cab79f014ac79f012f36688 100644
+--- a/common/CMakeLists.txt
++++ b/common/CMakeLists.txt
+@@ -39,6 +39,9 @@ if (WIVRN_BUILD_DASHBOARD OR WIVRN_BUILD_SERVER)
+     target_link_libraries(wivrn-common-server
+         PRIVATE nlohmann_json::nlohmann_json PNG::PNG PkgConfig::librsvg-2.0 LibArchive::LibArchive Boost::iostreams
+         PUBLIC wivrn-common-base)
++    if (APPLE)
++        target_link_libraries(wivrn-common-server PRIVATE "-framework ImageIO" "-framework CoreGraphics" "-framework CoreFoundation")
++    endif()
+ 
+     if (WIVRN_BUILD_TEST)
+         add_executable(list-apps
+diff --git a/common/test_application.cpp b/common/test_application.cpp
+index 05e493350c8032a2b1467ca19d4746d09e6b30c9..39c68258737818044360dd61dc41958d455191eb 100644
+--- a/common/test_application.cpp
++++ b/common/test_application.cpp
+@@ -16,6 +16,7 @@
+  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+  */
+ #include "application.h"
++#include "utils/load_icon.h"
+ 
+ #include <iostream>
+ 
+@@ -38,5 +39,19 @@ int main()
+ 		std::cout << "Exec=" << app.exec << std::endl;
+ 		if (app.path)
+ 			std::cout << "Path=" << *app.path << std::endl;
++		if (app.icon_path)
++		{
++			std::cout << "Icon=" << app.icon_path->string();
++			try
++			{
++				for (const auto & icon: wivrn::load_icon(*app.icon_path))
++					std::cout << " (" << icon.width << "x" << icon.height << ", " << icon.png_data.size() << " bytes PNG)";
++			}
++			catch (std::exception & e)
++			{
++				std::cout << " (" << e.what() << ")";
++			}
++			std::cout << std::endl;
++		}
+ 	}
+ }
+diff --git a/common/utils/load_icon.cpp b/common/utils/load_icon.cpp
+index 08dbfe177da0c23f68dd8a84d3d799bf9d94c5c1..990cfdcea2c7af2fbcf3dd5da3b956e726d8f8af 100644
+--- a/common/utils/load_icon.cpp
++++ b/common/utils/load_icon.cpp
+@@ -28,6 +28,11 @@
+ #include <span>
+ #include <unordered_map>
+ 
++#ifdef __APPLE__
++#include <CoreGraphics/CoreGraphics.h>
++#include <ImageIO/ImageIO.h>
++#endif
++
+ namespace
+ {
+ std::vector<std::byte> load_file(const std::filesystem::path & filename)
+@@ -556,6 +561,46 @@ std::vector<wivrn::icon> try_load_png(const std::vector<std::byte> & png_data)
+ 	return icons;
+ }
+ 
++#ifdef __APPLE__
++// Any image ImageIO reads (Steam's JPEG artwork), letterboxed into a square PNG
++std::vector<wivrn::icon> try_load_imageio(const std::vector<std::byte> & data)
++{
++	auto cf = [](auto ref) { return std::unique_ptr<std::remove_pointer_t<decltype(ref)>, decltype(&CFRelease)>(ref, &CFRelease); };
++
++	auto bytes = cf(CFDataCreateWithBytesNoCopy(nullptr, reinterpret_cast<const UInt8 *>(data.data()), data.size(), kCFAllocatorNull));
++	auto source = cf(CGImageSourceCreateWithData(bytes.get(), nullptr));
++	if (not source)
++		throw std::runtime_error("");
++	auto image = cf(CGImageSourceCreateImageAtIndex(source.get(), 0, nullptr));
++	if (not image)
++		throw std::runtime_error("");
++
++	double w = CGImageGetWidth(image.get());
++	double h = CGImageGetHeight(image.get());
++	int size = std::min(512., std::max(w, h));
++	double scale = size / std::max(w, h);
++
++	auto colorspace = cf(CGColorSpaceCreateWithName(kCGColorSpaceSRGB));
++	auto context = cf(CGBitmapContextCreate(nullptr, size, size, 8, 0, colorspace.get(), kCGImageAlphaPremultipliedLast));
++	if (not context)
++		throw std::runtime_error("");
++	CGContextSetInterpolationQuality(context.get(), kCGInterpolationHigh);
++	CGContextDrawImage(context.get(), CGRectMake((size - w * scale) / 2, (size - h * scale) / 2, w * scale, h * scale), image.get());
++	auto square = cf(CGBitmapContextCreateImage(context.get()));
++
++	auto png = cf(CFDataCreateMutable(nullptr, 0));
++	auto destination = cf(CGImageDestinationCreateWithData(png.get(), CFSTR("public.png"), 1, nullptr));
++	if (not destination)
++		throw std::runtime_error("");
++	CGImageDestinationAddImage(destination.get(), square.get(), nullptr);
++	if (not CGImageDestinationFinalize(destination.get()))
++		throw std::runtime_error("");
++
++	auto begin = reinterpret_cast<const std::byte *>(CFDataGetBytePtr(png.get()));
++	return {{size, size, 32, std::vector<std::byte>(begin, begin + CFDataGetLength(png.get()))}};
++}
++#endif
++
+ std::unordered_map<std::filesystem::path, std::vector<wivrn::icon>> icon_cache;
+ 
+ } // namespace
+@@ -596,5 +641,14 @@ const std::vector<wivrn::icon> & wivrn::load_icon(const std::filesystem::path &
+ 	catch (...)
+ 	{}
+ 
++#ifdef __APPLE__
++	try
++	{
++		return icon_cache.emplace(filename, try_load_imageio(data)).first->second;
++	}
++	catch (...)
++	{}
++#endif
++
+ 	throw std::runtime_error{"Cannot load icon: " + filename.native()};
+ }
+diff --git a/common/utils/steam_info.cpp b/common/utils/steam_info.cpp
+index a6fb3cc3c8023f9baec1f3439c40590f1a5b4c7c..b76c0cddde663951c319b3506bd3f0a7ff1736a9 100644
+--- a/common/utils/steam_info.cpp
++++ b/common/utils/steam_info.cpp
+@@ -20,6 +20,7 @@
+ #include "steam_info.h"
+ #include "vdf.h"
+ #include "xdg_base_directory.h"
++#include <algorithm>
+ #include <bit>
+ #include <charconv>
+ #include <cstring>
+@@ -128,7 +129,13 @@ void read_dict(binary_reader & in, T & visitor, const std::vector<std::string> *
+ 			case 2: // uint32_t
+ 				visitor.on_uint32_t(key, in.read<uint32_t>());
+ 				break;
+-				// case 3: // float
++			case 3: // float
++				in.read<uint32_t>();
++				break;
++			case 7: // uint64_t
++			case 10: // int64_t
++				in.read<uint64_t>();
++				break;
+ 			default:
+ 				throw std::runtime_error{"Unknown object type " + std::to_string(type)};
+ 		}
+@@ -176,7 +183,8 @@ std::optional<uint32_t> guess_steam_userid(const std::filesystem::path & root)
+ 
+ } // namespace
+ 
+-void read_steam_icons(std::filesystem::path path, std::unordered_map<uint32_t, wivrn::steam::icon> & icons)
++template <typename F>
++void read_appinfo(const std::filesystem::path & path, F && on_app)
+ {
+ 	binary_reader in{std::ifstream{path}};
+ 
+@@ -196,6 +204,39 @@ void read_steam_icons(std::filesystem::path path, std::unordered_map<uint32_t, w
+ 		string_table_ptr = &string_table;
+ 	}
+ 
++	while (true)
++	{
++		// See https://github.com/SteamDatabase/SteamAppInfo/blob/master/README.md#app-entry-repeated
++		auto app_id = in.read<uint32_t>();
++		if (app_id == 0)
++			break;
++
++		size_t size_data = in.read<uint32_t>();
++		size_t pos = in.tellg();
++		in.discard(
++		        4    // info_state
++		        + 4  // last_updated
++		        + 8  // pics_token
++		        + 20 // SHA1 of the app info
++		        + 4  // change number
++		        + 20 // SHA1 of the bin data
++		        + 4  // checksum
++		        + 1  // type
++		);
++		try
++		{
++			on_app(app_id, [&](auto & visitor) { read_dict(in, visitor, string_table_ptr); });
++		}
++		catch (...)
++		{
++			// Ignore errors
++		}
++		in.seekg(pos + size_data);
++	}
++}
++
++void read_steam_icons(std::filesystem::path path, std::unordered_map<uint32_t, wivrn::steam::icon> & icons)
++{
+ 	struct V
+ 	{
+ 		wivrn::steam::icon current{};
+@@ -218,39 +259,161 @@ void read_steam_icons(std::filesystem::path path, std::unordered_map<uint32_t, w
+ 		}
+ 	};
+ 
+-	while (true)
++	read_appinfo(path, [&](uint32_t app_id, auto && read) {
++		V v;
++		read(v);
++		if (not(v.current.clienticon.empty() and v.current.linuxclienticon.empty()))
++			icons.emplace(app_id, std::move(v.current));
++	});
++}
++
++#ifdef __APPLE__
++namespace
++{
++std::string vdf_value(const std::vector<wivrn::vdf::keyvalue> & dict, const char * key)
++{
++	for (const auto & [k, v]: dict)
+ 	{
+-		// See https://github.com/SteamDatabase/SteamAppInfo/blob/master/README.md#app-entry-repeated
+-		auto app_id = in.read<uint32_t>();
+-		if (app_id == 0)
+-			break;
++		if (k == key)
++			if (auto s = std::get_if<wivrn::vdf::string>(&v))
++				return std::string{s->data};
++	}
++	return {};
++}
+ 
+-		size_t size_data = in.read<uint32_t>();
+-		size_t pos = in.tellg();
+-		in.discard(
+-		        4    // info_state
+-		        + 4  // last_updated
+-		        + 8  // pics_token
+-		        + 20 // SHA1 of the app info
+-		        + 4  // change number
+-		        + 20 // SHA1 of the bin data
+-		        + 4  // checksum
+-		        + 1  // type
+-		);
+-		try
++std::vector<std::filesystem::path> steam_libraries(const std::filesystem::path & root)
++{
++	std::vector<std::filesystem::path> res{root};
++	try
++	{
++		wivrn::vdf::root folders(root / "steamapps/libraryfolders.vdf");
++		for (const auto & [index, folder]: std::get<std::vector<wivrn::vdf::keyvalue>>(folders.value))
+ 		{
+-			V v;
+-			read_dict(in, v, string_table_ptr);
+-			if (not(v.current.clienticon.empty() and v.current.linuxclienticon.empty()))
+-				icons.emplace(app_id, std::move(v.current));
++			if (auto dict = std::get_if<std::vector<wivrn::vdf::keyvalue>>(&folder))
++			{
++				std::filesystem::path path = vdf_value(*dict, "path");
++				if (not path.empty() and not std::ranges::contains(res, path))
++					res.push_back(std::move(path));
++			}
+ 		}
+-		catch (...)
++	}
++	catch (std::exception &)
++	{
++	}
++	return res;
++}
++
++// appid -> name from the app manifests of fully installed apps
++std::unordered_map<uint32_t, std::string> installed_steam_apps(const std::filesystem::path & root)
++{
++	std::unordered_map<uint32_t, std::string> res;
++	for (const auto & library: steam_libraries(root))
++	{
++		std::error_code ec;
++		for (const auto & entry: std::filesystem::directory_iterator(library / "steamapps", ec))
+ 		{
+-			// Ignore errors
++			auto filename = entry.path().filename().string();
++			if (not filename.starts_with("appmanifest_") or not filename.ends_with(".acf"))
++				continue;
++			try
++			{
++				wivrn::vdf::root manifest(entry.path());
++				const auto & state = std::get<std::vector<wivrn::vdf::keyvalue>>(manifest.value);
++				uint32_t appid = std::stoul(vdf_value(state, "appid"));
++				auto flags = vdf_value(state, "StateFlags");
++				if (flags.empty() or not(std::stoul(flags) & 4)) // StateFullyInstalled
++					continue;
++				res.emplace(appid, vdf_value(state, "name"));
++			}
++			catch (std::exception &)
++			{
++			}
+ 		}
+-		in.seekg(pos + size_data);
+ 	}
++	return res;
++}
++
++// What Steam writes to steamapps.vrmanifest on Linux: installed games whose appinfo declares VR support.
++// macOS Steam leaves that file empty.
++void read_steam_vr_apps(const std::filesystem::path & root, std::vector<wivrn::steam::application> & apps)
++{
++	auto installed = installed_steam_apps(root);
++	for (const auto & app: apps)
++		installed.erase(app.appid);
++	if (installed.empty())
++		return;
++
++	struct V
++	{
++		std::vector<std::string> path;
++		std::string type;
++		std::string name;
++		bool vr = false;
++
++		bool in(std::initializer_list<const char *> p) const
++		{
++			return path.size() == p.size() and std::ranges::equal(path, p, [](const std::string & a, const char * b) { return strcasecmp(a.c_str(), b) == 0; });
++		}
++		void begin_dict(const std::string & key)
++		{
++			path.push_back(key);
++		}
++		void end_dict()
++		{
++			if (not path.empty())
++				path.pop_back();
++		}
++		void on_value(const std::string & key, bool set)
++		{
++			if (in({"common"}))
++			{
++				for (auto flag: {"openvrsupport", "openxrsupport", "onlyvrsupport"})
++					if (strcasecmp(key.c_str(), flag) == 0)
++						vr |= set;
++			}
++			else if (in({"common", "category"}))
++			{
++				// VR Supported, VR Only
++				if (strcasecmp(key.c_str(), "category_53") == 0 or strcasecmp(key.c_str(), "category_54") == 0)
++					vr |= set;
++			}
++		}
++		void on_string(const std::string & key, std::string && val)
++		{
++			if (in({"common"}))
++			{
++				if (strcasecmp(key.c_str(), "type") == 0)
++					type = val;
++				else if (strcasecmp(key.c_str(), "name") == 0)
++					name = val;
++			}
++			on_value(key, not val.empty() and val != "0");
++		}
++		void on_uint32_t(const std::string & key, uint32_t val)
++		{
++			on_value(key, val != 0);
++		}
++	};
++
++	read_appinfo(root / "appcache/appinfo.vdf", [&](uint32_t app_id, auto && read) {
++		auto it = installed.find(app_id);
++		if (it == installed.end())
++			return;
++		V v;
++		read(v);
++		// "Tool" excludes SteamVR itself
++		if (not v.vr or (strcasecmp(v.type.c_str(), "game") != 0 and strcasecmp(v.type.c_str(), "demo") != 0))
++			return;
++		wivrn::steam::application app{
++		        .appid = app_id,
++		        .url = std::format("steam://rungameid/{}", app_id),
++		};
++		app.name[""] = v.name.empty() ? it->second : v.name;
++		apps.push_back(std::move(app));
++	});
+ }
++} // namespace
++#endif
+ 
+ void read_steam_shortcuts(
+         const std::filesystem::path & path,
+@@ -355,6 +518,9 @@ std::vector<wivrn::steam> wivrn::steam::find_installations()
+ 		return false;
+ 	};
+ 
++#ifdef __APPLE__
++	try_construct(h / "Library/Application Support/Steam");
++#else
+ 	// Flatpak Steam
+ 	try_construct(h / ".var/app/com.valvesoftware.Steam/.steam/steam", true);
+ 
+@@ -364,6 +530,7 @@ std::vector<wivrn::steam> wivrn::steam::find_installations()
+ 	        or try_construct(xdg_data_home() / "Steam")
+ 	        // system Steam (accessed from flatpak)
+ 	        or try_construct(h / ".local/share/Steam");
++#endif
+ 
+ 	return res;
+ }
+@@ -423,6 +590,17 @@ std::vector<wivrn::steam::application> wivrn::steam::list_applications()
+ 	{
+ 	}
+ 
++#ifdef __APPLE__
++	try
++	{
++		read_steam_vr_apps(root, res);
++	}
++	catch (std::exception & e)
++	{
++		std::cerr << "Failed to list Steam VR apps: " << e.what() << std::endl;
++	}
++#endif
++
+ 	// Shortcuts
+ 	if (default_userid)
+ 	{
+@@ -462,6 +640,15 @@ std::optional<std::filesystem::path> wivrn::steam::get_icon(uint64_t appid)
+ 		return {};
+ 	}
+ 
++#ifdef __APPLE__
++	// No client icons on macOS: the library artwork, letterboxed by load_icon
++	auto id = std::to_string(appid);
++	auto cache = root / "appcache/librarycache";
++	for (auto path: {cache / id / "library_600x900.jpg", cache / (id + "_library_600x900.jpg"), cache / id / "header.jpg", cache / (id + "_header.jpg")})
++		if (std::filesystem::exists(path))
++			return path;
++#endif
++
+ 	if (not icons)
+ 	{
+ 		icons.emplace();
+@@ -490,6 +677,9 @@ std::optional<std::filesystem::path> wivrn::steam::get_icon(uint64_t appid)
+ 
+ std::string wivrn::steam::get_steam_command() const
+ {
++#ifdef __APPLE__
++	return "/usr/bin/open";
++#endif
+ 	if (flatpak)
+ 		return "flatpak run com.valvesoftware.Steam";
+ 	return "steam";

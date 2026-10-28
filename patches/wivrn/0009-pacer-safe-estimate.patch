@@ -1,0 +1,92 @@
+From: macvr
+Subject: [PATCH] pacer-safe-estimate
+
+---
+ server/compositor/pacer.cpp | 26 +++++++++++++++++++++++---
+ server/compositor/pacer.h   |  2 ++
+ 2 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/server/compositor/pacer.cpp b/server/compositor/pacer.cpp
+index 412451c3aee80863cfd05b5d36ba8a44422a7d13..943dda9018cec2a7e1f0ebd3567a6334bf3580bd 100644
+--- a/server/compositor/pacer.cpp
++++ b/server/compositor/pacer.cpp
+@@ -32,6 +32,8 @@
+ #include "util/u_logging.h"
+ 
+ DEBUG_GET_ONCE_FLOAT_OPTION(client_margin_ms, "WIVRN_CLIENT_MARGIN_MS", 1.f)
++DEBUG_GET_ONCE_FLOAT_OPTION(safe_percentile, "WIVRN_PACER_PERCENTILE", 99.5f)
++DEBUG_GET_ONCE_NUM_OPTION(safe_window, "WIVRN_PACER_WINDOW", 5000)
+ 
+ namespace wivrn
+ {
+@@ -47,7 +49,7 @@ pacer::pacer(uint64_t frame_duration) :
+                 .min = 0,
+                 .max = 20,
+         },
+-        frame_times(5000),
++        frame_times(std::max<long>(100, debug_get_num_option_safe_window())),
+         frame_times_compute(frame_times),
+         worker([this](std::stop_token t) {
+ 	        std::vector<XrDuration> samples;
+@@ -65,7 +67,7 @@ pacer::pacer(uint64_t frame_duration) :
+ 		        }
+ 		        if (samples.empty())
+ 			        continue;
+-		        auto it = samples.begin() + (samples.size() * 995) / 1000;
++		        auto it = samples.begin() + std::min<size_t>(samples.size() - 1, samples.size() * debug_get_float_option_safe_percentile() / 100);
+ 		        std::ranges::nth_element(samples, it);
+ 
+ 		        std::unique_lock lock(mutex);
+@@ -130,6 +132,15 @@ void pacer::predict(
+ 
+ void pacer::on_feedback(const wivrn::from_headset::feedback & feedback, const clock_offset & offset)
+ {
++	if (feedback.stream_index == 0)
++	{
++		std::lock_guard lock(mutex);
++		if (feedback.blitted and feedback.times_displayed > 1)
++			++repeated_frames;
++		else if (not feedback.blitted and feedback.received_from_decoder)
++			++skipped_frames;
++	}
++
+ 	if (feedback.times_displayed > 1 or not feedback.blitted)
+ 		return;
+ 
+@@ -214,13 +225,22 @@ void pacer::log_latency()
+ 	add("blit>display", &latency_sample::blit_to_display);
+ 	add("present>decoded", &latency_sample::present_to_decoded);
+ 	add("display-predicted", &latency_sample::display_error);
+-	U_LOG_I("latency ms p50/p95, %zu frames:%s; pacer: safe present>decoded %.1f, render>display %.1f, wake>present %.1f",
++	auto late = std::ranges::count_if(latency_samples, [this](const auto & s) { return s.display_error > frame_duration_ns / 2e6; });
++	U_LOG_I("latency ms p50/p95, %zu frames:%s; shown late %zd, repeated %d, skipped %d; pacer: safe present>decoded %.1f (p%.1f of %zu + %.1f), render>display %.1f, wake>present %.1f",
+ 	        latency_samples.size(),
+ 	        line.c_str(),
++	        late,
++	        repeated_frames,
++	        skipped_frames,
+ 	        safe_present_to_decoded_ns / 1e6,
++	        debug_get_float_option_safe_percentile(),
++	        frame_times.size(),
++	        client_margin_ms.val,
+ 	        mean_render_to_display_ns / 1e6,
+ 	        mean_wake_up_to_present_ns / 1e6);
+ 	latency_samples.clear();
++	repeated_frames = 0;
++	skipped_frames = 0;
+ }
+ 
+ void pacer::mark_timing_point(
+diff --git a/server/compositor/pacer.h b/server/compositor/pacer.h
+index b296e681bf3b438cbc6cffdbc01f6c747e4015d1..6365af9bf066f4ce20f02b62661198832e141fb0 100644
+--- a/server/compositor/pacer.h
++++ b/server/compositor/pacer.h
+@@ -81,6 +81,8 @@ private:
+ 	};
+ 	std::vector<latency_sample> latency_samples;
+ 	int64_t latency_log_start = 0;
++	int repeated_frames = 0;
++	int skipped_frames = 0;
+ 	void log_latency();
+ 
+ public:

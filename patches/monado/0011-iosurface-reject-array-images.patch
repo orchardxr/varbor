@@ -1,0 +1,24 @@
+From: macvr
+Subject: [PATCH] iosurface-reject-array-images
+
+---
+ src/xrt/auxiliary/vk/vk_image_allocator.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/xrt/auxiliary/vk/vk_image_allocator.c b/src/xrt/auxiliary/vk/vk_image_allocator.c
+index fa6adc23b463cbeccf8d5ee685ed604fbbfd9580..8164b7aa7b6a0f16282088d9a0ddafa080577b41 100644
+--- a/src/xrt/auxiliary/vk/vk_image_allocator.c
++++ b/src/xrt/auxiliary/vk/vk_image_allocator.c
+@@ -175,6 +175,12 @@ create_image(struct vk_bundle *vk, const struct xrt_swapchain_create_info *info,
+ 	}
+ 
+ #if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_MACH_PORT)
++	// MoltenVK aborts inside Metal on first use of IOSurface backed array images.
++	if (info->array_size * info->face_count > 1) {
++		VK_ERROR(vk, "create_image: Array and cube images can't be shared via IOSurface");
++		return VK_ERROR_FORMAT_NOT_SUPPORTED;
++	}
++
+ 	VkExportMetalObjectCreateInfoEXT export_metal_info = {
+ 	    .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
+ 	    .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_IOSURFACE_BIT_EXT,

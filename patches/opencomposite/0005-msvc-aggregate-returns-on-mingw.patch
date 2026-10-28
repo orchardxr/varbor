@@ -1,0 +1,149 @@
+From: macvr
+Subject: [PATCH] msvc-aggregate-returns-on-mingw
+
+---
+ CMakeLists.txt             |  2 +-
+ scripts/split_headers.py   | 33 +++++++++++++++++++++++++++++++++
+ scripts/stubs/codegen.py   | 25 ++++++++++++++++++++++---
+ scripts/stubs/interface.py |  6 ++++++
+ 4 files changed, 62 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3078f094997ea010337663404ac6b518617d9c6b..297cc638bf6cad82e3c4403a6df8af5b7e9000a9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -574,7 +574,7 @@ file(GLOB stub-deps CONFIGURE_DEPENDS LIST_DIRECTORIES false ${CMAKE_SOURCE_DIR}
+ # Command for running header splitting script
+ add_custom_command(
+ 	OUTPUT ${GENERATED_DIR}/interfaces/vrtypes.h
+-	COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/split_headers.py ${CMAKE_SOURCE_DIR}/OpenVRHeaders ${GENERATED_DIR}
++	COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/split_headers.py ${CMAKE_SOURCE_DIR}/OpenVRHeaders ${GENERATED_DIR} $<$<BOOL:${MINGW}>:--msvc-aggregate-returns>
+ 	DEPENDS ${CMAKE_SOURCE_DIR}/scripts/split_headers.py ${openvr-headers}
+ 	COMMENT "Splitting headers..."
+ 	)
+diff --git a/scripts/split_headers.py b/scripts/split_headers.py
+index 7788a339d16e9c1088aa7166678da74bdb7465a6..f500963f308eddad88918d479d2cf805c3cf42f7 100644
+--- a/scripts/split_headers.py
++++ b/scripts/split_headers.py
+@@ -74,6 +74,12 @@ input_dir = Path(sys.argv[1])
+ 
+ # output directory to place generated headers in
+ output_dir = Path(sys.argv[2])
++
++# MSVC passes the hidden return pointer of a member function after 'this' and always returns user-defined types
++# through it; MinGW's Itanium ABI puts it before 'this' (and returns small structs in registers). Games are built
++# with MSVC, so for MinGW builds the struct-returning interface methods are declared in the MSVC form explicitly:
++#   virtual T *Name(T *_oc_ret, args...) = 0;
++msvc_aggregate_returns = "--msvc-aggregate-returns" in sys.argv[3:]
+ output_dir.mkdir(exist_ok=True)
+ 
+ # List of files we've already written, this prevents us from overwriting newer files
+@@ -206,6 +212,9 @@ def write_interface(target: str, result: str, usingiface: bool, interface_checke
+     else:
+         result = result.replace("%%REPLACE%NS%START%%", "namespace vr")
+ 
++    if msvc_aggregate_returns and usingiface and not target.startswith("driver_"):
++        result = explicit_aggregate_returns(result)
++
+     # Apply any manual patches
+     if target in patches:
+         result = patch(result, input_dir / f"patches/{target}.ipatch")
+@@ -230,6 +239,30 @@ def write_interface(target: str, result: str, usingiface: bool, interface_checke
+         outfile.write(result.encode())
+ 
+ 
++def collect_struct_names():
++    names = set()
++    for fn in input_dir.glob("openvr-*.h"):
++        text = fn.read_text(encoding="latin-1")
++        names.update(re.findall(r"^\s*struct\s+(\w+)\s*\{", text, re.M))
++        names.update(re.findall(r"^\s*typedef\s+struct\s*\w*\s*\{[^}]*\}\s*(\w+)\s*;", text, re.M))
++    return names
++
++
++struct_names = collect_struct_names() if msvc_aggregate_returns else set()
++virtual_decl = re.compile(r"virtual\s+(\w+)\s+(\w+)\s*\(([^;]*?)\)\s*=\s*0\s*;")
++
++
++def explicit_aggregate_returns(text):
++    def repl(m):
++        rtype, name, args = m.group(1), m.group(2), m.group(3).strip()
++        if rtype not in struct_names:
++            return m.group(0)
++        if args in ("", "void"):
++            return f"virtual {rtype} *{name}( {rtype} *_oc_ret ) = 0;"
++        return f"virtual {rtype} *{name}( {rtype} *_oc_ret, {args} ) = 0;"
++    return virtual_decl.sub(repl, text)
++
++
+ def split_header(headerfile: TextIO, interface_checker: Callable = None,
+                  out_dir: Path = output_dir / "interfaces", imports=None):
+     """
+diff --git a/scripts/stubs/codegen.py b/scripts/stubs/codegen.py
+index 39cebd42d8df75e5f601cf06f331410814f28f84..d108cac38b3febb88cbe69d9f89e6e952569eeb8 100644
+--- a/scripts/stubs/codegen.py
++++ b/scripts/stubs/codegen.py
+@@ -97,17 +97,27 @@ std::shared_ptr<{cls}> GetCreate{getter_name}() {{
+                 else:
+                     nargs.append(a.name)
+ 
++            if f.explicit_ret():
++                nargs = nargs[1:]
+             nargs = ", ".join(nargs)
+ 
+             # Generate the code for the return, with a cast if necessary
+             return_str = "return"
+-            if namespace in f.return_type:
+-                return_str += f" ({f.return_type})"
++            if f.explicit_ret():
++                value_type = f.return_type.rstrip(" *")
++                call = f"base->{f.name}({nargs})"
++                if namespace in value_type:
++                    call = f"({value_type}) {call}"
++                body = f"\t*_oc_ret = {call};\n\treturn _oc_ret;\n"
++            else:
++                if namespace in f.return_type:
++                    return_str += f" ({f.return_type})"
++                body = f"\t{return_str} base->{f.name}({nargs});\n"
+ 
+             fi.write(f"{f.return_type} {cname}::{f.name}({f.args_str()}) {{\n"
+                      "\tif (oovr_global_configuration.LogAllOpenVRCalls())\n"
+                      f"\t\tOOVR_LOG(\"Entered function (from interface {ver.namespace()})\");\n"
+-                     f"\t{return_str} base->{f.name}({nargs});\n}}\n")
++                     f"{body}}}\n")
+ 
+         # Generate the fntable
+         _build_fntable(fi, ver)
+@@ -128,6 +138,15 @@ def _build_fntable(fi, ver: InterfaceDef):
+ 
+     # Generate the stub functions
+     for func in ver.functions:
++        if func.explicit_ret():
++            # FnTable entries are plain functions, which return structs the same way under MSVC and MinGW
++            value_type = func.return_type.rstrip(" *")
++            names = ", ".join(["&_oc_ret"] + [a.name for a in func.args[1:]])
++            args = ", ".join(a.type + " " + a.name for a in func.args[1:])
++            fi.write(f"static {value_type} OPENVR_FNTABLE_CALLTYPE {func_name_template % func.name}({args}) "
++                     f"{{ {value_type} _oc_ret; {inst_name}->{func.name}({names}); return _oc_ret; }}\n")
++            continue
++
+         call_stmt = f"return {inst_name}->{func.name}({func.args_names()});"
+ 
+         fi.write(
+diff --git a/scripts/stubs/interface.py b/scripts/stubs/interface.py
+index 5f9d857b77546bcc877981ee8b0c863633ae2837..0d99395958a2b5c38635226a7a0e92f71e5ce657 100644
+--- a/scripts/stubs/interface.py
++++ b/scripts/stubs/interface.py
+@@ -146,6 +146,12 @@ class Function:
+         """
+         return ", ".join(f.type + " " + f.name for f in self.args)
+ 
++    def explicit_ret(self):
++        """
++        True for methods split_headers.py rewrote as 'T *Name(T *_oc_ret, args...)' (MSVC aggregate return)
++        """
++        return len(self.args) > 0 and self.args[0].name == "_oc_ret"
++
+     def args_names(self):
+         """
+         Returns a comma-separated list of the argument names, for passing all the arguments

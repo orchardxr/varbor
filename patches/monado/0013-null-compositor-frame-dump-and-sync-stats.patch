@@ -1,0 +1,386 @@
+From: macvr
+Subject: [PATCH] null-compositor-frame-dump-and-sync-stats
+
+---
+ src/xrt/compositor/client/comp_vk_client.c       |  19 +++-
+ src/xrt/compositor/multi/comp_multi_compositor.c |  11 +++
+ src/xrt/compositor/multi/comp_multi_private.h    |   7 ++
+ src/xrt/compositor/null/CMakeLists.txt           |   1 +
+ src/xrt/compositor/null/null_compositor.c        | 114 +++++++++++++++++++++++
+ src/xrt/compositor/null/null_compositor.h        |   3 +
+ src/xrt/compositor/util/comp_sync_stats.h        |  68 ++++++++++++++
+ 7 files changed, 219 insertions(+), 4 deletions(-)
+
+diff --git a/src/xrt/compositor/client/comp_vk_client.c b/src/xrt/compositor/client/comp_vk_client.c
+index 8cdb66b2025d36dad997d63786079475ae08c0d8..3cf275273234ca8f69ea2edb2ea9f511d5c09d35 100644
+--- a/src/xrt/compositor/client/comp_vk_client.c
++++ b/src/xrt/compositor/client/comp_vk_client.c
+@@ -9,6 +9,8 @@
+  * @ingroup comp_client
+  */
+ 
++#include "os/os_time.h"
++#include "util/comp_sync_stats.h"
+ #include "vk/vk_compositor_flags.h"
+ 
+ #include "util/u_misc.h"
+@@ -642,18 +644,27 @@ client_vk_compositor_layer_commit(struct xrt_compositor *xc, xrt_graphics_sync_h
+ 	}
+ 
+ 	xrt_result_t xret = XRT_SUCCESS;
++	int64_t start_ns = os_monotonic_get_ns();
++	const char *path = NULL;
+ 	if (submit_handle(c, sync_handle, &xret)) {
+-		return xret;
++		path = "client commit (app sync handle)";
+ 	} else if (submit_semaphore(c, &xret)) {
+-		return xret;
++		path = "client commit (timeline semaphore)";
+ 	} else if (submit_fence(c, &xret)) {
+-		return xret;
++		path = "client commit (fence)";
+ 	} else if (submit_fallback(c, &xret)) {
+-		return xret;
++		path = "client commit (CPU wait)";
+ 	} else {
+ 		// Really bad state.
+ 		return XRT_ERROR_VULKAN;
+ 	}
++
++	if (comp_sync_stats_enabled()) {
++		static struct comp_sync_stats stats;
++		comp_sync_stats_add(&stats, path, os_monotonic_get_ns() - start_ns);
++	}
++
++	return xret;
+ }
+ 
+ static xrt_result_t
+diff --git a/src/xrt/compositor/multi/comp_multi_compositor.c b/src/xrt/compositor/multi/comp_multi_compositor.c
+index 71c5ebf9e28d09ec86c0cada6a2e41ccb6e93ff3..9c3cc19a61f47444fb1497b2648be18a900bd2cb 100644
+--- a/src/xrt/compositor/multi/comp_multi_compositor.c
++++ b/src/xrt/compositor/multi/comp_multi_compositor.c
+@@ -289,6 +289,7 @@ run_func(void *ptr)
+ 		struct xrt_compositor_fence *xcf = mc->wait_thread.xcf;
+ 		struct xrt_compositor_semaphore *xcsem = mc->wait_thread.xcsem; // No need to ref, a move.
+ 		uint64_t value = mc->wait_thread.value;
++		int64_t commit_ns = mc->wait_thread.commit_ns;
+ 
+ 		// Ok to clear these on spurious wakeup as they are empty then anyways.
+ 		mc->wait_thread.frame_id = 0;
+@@ -306,6 +307,7 @@ run_func(void *ptr)
+ 
+ 		os_thread_helper_unlock(&mc->wait_thread.oth);
+ 
++		bool waited_semaphore = xcsem != NULL;
+ 		if (xcsem != NULL) {
+ 			wait_semaphore(mc, &xcsem, value);
+ 		}
+@@ -316,6 +318,13 @@ run_func(void *ptr)
+ 		// Sample time outside of lock.
+ 		int64_t now_ns = os_monotonic_get_ns();
+ 
++		if (comp_sync_stats_enabled()) {
++			comp_sync_stats_add(&mc->sync_stats,
++			                    waited_semaphore ? "server commit->client GPU done (semaphore)"
++			                                  : "server commit->client GPU done (fence)",
++			                    now_ns - commit_ns);
++		}
++
+ 		os_mutex_lock(&mc->msc->list_and_timing_lock);
+ 		u_pa_mark_gpu_done(mc->upa, frame_id, now_ns);
+ 		os_mutex_unlock(&mc->msc->list_and_timing_lock);
+@@ -384,6 +393,7 @@ push_fence_to_wait_thread(struct multi_compositor *mc, int64_t frame_id, struct
+ 	assert(mc->wait_thread.xcf == NULL);
+ 
+ 	mc->wait_thread.frame_id = frame_id;
++	mc->wait_thread.commit_ns = os_monotonic_get_ns();
+ 	mc->wait_thread.xcf = xcf;
+ 
+ 	os_thread_helper_signal_locked(&mc->wait_thread.oth);
+@@ -406,6 +416,7 @@ push_semaphore_to_wait_thread(struct multi_compositor *mc,
+ 	assert(mc->wait_thread.xcsem == NULL);
+ 
+ 	mc->wait_thread.frame_id = frame_id;
++	mc->wait_thread.commit_ns = os_monotonic_get_ns();
+ 	xrt_compositor_semaphore_reference(&mc->wait_thread.xcsem, xcsem);
+ 	mc->wait_thread.value = value;
+ 
+diff --git a/src/xrt/compositor/multi/comp_multi_private.h b/src/xrt/compositor/multi/comp_multi_private.h
+index 588878e3848364b5fa609d21759508ecd23558de..88476c677399b58ef9d07837d30bedb3b1cde909 100644
+--- a/src/xrt/compositor/multi/comp_multi_private.h
++++ b/src/xrt/compositor/multi/comp_multi_private.h
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include "util/comp_sync_stats.h"
+ #include "xrt/xrt_compiler.h"
+ #include "xrt/xrt_defines.h"
+ #include "xrt/xrt_limits.h"
+@@ -146,6 +147,9 @@ struct multi_compositor
+ 		//! Frame id of frame being waited on.
+ 		int64_t frame_id;
+ 
++		//! When the client committed the frame, for MONADO_SYNC_STATS.
++		int64_t commit_ns;
++
+ 		//! The wait thread itself
+ 		struct os_thread_helper oth;
+ 
+@@ -189,6 +193,9 @@ struct multi_compositor
+ 
+ 	struct u_pacing_app *upa;
+ 
++	//! Client commit to GPU work done, MONADO_SYNC_STATS.
++	struct comp_sync_stats sync_stats;
++
+ 	float current_refresh_rate_hz;
+ };
+ 
+diff --git a/src/xrt/compositor/null/CMakeLists.txt b/src/xrt/compositor/null/CMakeLists.txt
+index 438d431aef8a9b00bf99ddd9bfb34f7a43eeffad..a7509d126a8ab413616dbe9d4904710ae7ec9cc8 100644
+--- a/src/xrt/compositor/null/CMakeLists.txt
++++ b/src/xrt/compositor/null/CMakeLists.txt
+@@ -12,6 +12,7 @@ target_link_libraries(
+ 		aux_vk
+ 		comp_util
+ 		comp_multi
++		xrt-external-stb
+ 	)
+ target_include_directories(comp_null PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+ 
+diff --git a/src/xrt/compositor/null/null_compositor.c b/src/xrt/compositor/null/null_compositor.c
+index 19e5025c77ad648a02bc804dfc9d8757da261fc4..e86f3d8c741487443be4916c2c4962bda2d543fc 100644
+--- a/src/xrt/compositor/null/null_compositor.c
++++ b/src/xrt/compositor/null/null_compositor.c
+@@ -33,6 +33,7 @@
+ #include "xrt/xrt_device.h"
+ 
+ 
++#include <inttypes.h>
+ #include <stdint.h>
+ #include <stdio.h>
+ 
+@@ -43,6 +44,110 @@ static const uint64_t MAX_VIEW_WIDTH = 1920;
+ static const uint64_t MAX_VIEW_HEIGHT = 1080;
+ 
+ DEBUG_GET_ONCE_LOG_OPTION(log, "XRT_COMPOSITOR_LOG", U_LOGGING_INFO)
++DEBUG_GET_ONCE_OPTION(dump_path, "XRT_COMPOSITOR_NULL_DUMP", NULL)
++DEBUG_GET_ONCE_NUM_OPTION(dump_frame, "XRT_COMPOSITOR_NULL_DUMP_FRAME", 60)
++
++
++/*
++ *
++ * Frame dump, reads the views of the first projection layer straight from
++ * their IOSurfaces and writes them side by side as a PNG.
++ *
++ */
++
++#if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_MACH_PORT)
++#include "util/comp_swapchain.h"
++
++#include <IOSurface/IOSurfaceRef.h>
++
++#define STB_IMAGE_WRITE_STATIC
++#define STB_IMAGE_WRITE_IMPLEMENTATION
++#include "stb_image_write.h"
++
++static void
++dump_frame(struct null_compositor *c, const char *path)
++{
++	struct comp_layer *layer = NULL;
++	for (uint32_t i = 0; i < c->base.layer_accum.layer_count && layer == NULL; i++) {
++		if (c->base.layer_accum.layers[i].data.type == XRT_LAYER_PROJECTION ||
++		    c->base.layer_accum.layers[i].data.type == XRT_LAYER_PROJECTION_DEPTH) {
++			layer = &c->base.layer_accum.layers[i];
++		}
++	}
++	if (layer == NULL) {
++		NULL_WARN(c, "Frame dump: no projection layer in frame %" PRIu64, c->commit_count);
++		return;
++	}
++
++	uint32_t view_count = layer->data.view_count < 2 ? layer->data.view_count : 2;
++	IOSurfaceRef surfaces[2] = {NULL, NULL};
++	uint32_t out_w = 0;
++	uint32_t out_h = 0;
++	for (uint32_t v = 0; v < view_count; v++) {
++		struct xrt_swapchain *xsc = comp_layer_get_swapchain(layer, v);
++		uint32_t index = layer->data.proj.v[v].sub.image_index;
++		if (xsc == NULL || index >= comp_swapchain(xsc)->vkic.image_count) {
++			continue;
++		}
++		surfaces[v] = (IOSurfaceRef)comp_swapchain(xsc)->vkic.images[index].iosurface;
++		if (surfaces[v] == NULL) {
++			continue;
++		}
++		out_w += (uint32_t)IOSurfaceGetWidth(surfaces[v]);
++		uint32_t h = (uint32_t)IOSurfaceGetHeight(surfaces[v]);
++		out_h = h > out_h ? h : out_h;
++	}
++	if (out_w == 0 || out_h == 0) {
++		NULL_WARN(c, "Frame dump: projection views are not IOSurface backed");
++		return;
++	}
++
++	uint8_t *rgba = U_TYPED_ARRAY_CALLOC(uint8_t, (size_t)out_w * out_h * 4);
++	uint32_t x0 = 0;
++	for (uint32_t v = 0; v < view_count; v++) {
++		IOSurfaceRef s = surfaces[v];
++		if (s == NULL) {
++			continue;
++		}
++		uint32_t pf = IOSurfaceGetPixelFormat(s);
++		uint32_t w = (uint32_t)IOSurfaceGetWidth(s);
++		uint32_t h = (uint32_t)IOSurfaceGetHeight(s);
++		size_t bpr = IOSurfaceGetBytesPerRow(s);
++
++		IOSurfaceLock(s, kIOSurfaceLockReadOnly, NULL);
++		const uint8_t *base = IOSurfaceGetBaseAddress(s);
++		for (uint32_t y = 0; y < h; y++) {
++			for (uint32_t x = 0; x < w; x++) {
++				uint8_t *dst = rgba + ((size_t)y * out_w + x0 + x) * 4;
++				if (pf == 'BGRA' || pf == 'RGBA') {
++					const uint8_t *src = base + y * bpr + x * 4;
++					bool bgra = pf == 'BGRA';
++					dst[0] = src[bgra ? 2 : 0];
++					dst[1] = src[1];
++					dst[2] = src[bgra ? 0 : 2];
++					dst[3] = 255;
++				} else {
++					// Only 8 bit formats are converted, mark others magenta.
++					dst[0] = 255, dst[1] = 0, dst[2] = 255, dst[3] = 255;
++				}
++			}
++		}
++		IOSurfaceUnlock(s, kIOSurfaceLockReadOnly, NULL);
++
++		char fourcc[5] = {(char)(pf >> 24), (char)(pf >> 16), (char)(pf >> 8), (char)pf, 0};
++		NULL_INFO(c, "Frame dump: view %u is %ux%u IOSurface '%s' bpr %zu image %u", v, w, h, fourcc, bpr,
++		          layer->data.proj.v[v].sub.image_index);
++		x0 += w;
++	}
++
++	if (stbi_write_png(path, (int)out_w, (int)out_h, 4, rgba, (int)out_w * 4) != 0) {
++		NULL_INFO(c, "Frame dump: wrote frame %" PRIu64 " (%ux%u) to %s", c->commit_count, out_w, out_h, path);
++	} else {
++		NULL_ERROR(c, "Frame dump: could not write %s", path);
++	}
++	free(rgba);
++}
++#endif
+ 
+ 
+ /*
+@@ -512,6 +617,14 @@ null_compositor_layer_commit(struct xrt_compositor *xc, xrt_graphics_sync_handle
+ 	// can just unref the sync handle. Otherwise please use it.
+ 	u_graphics_sync_unref(&sync_handle);
+ 
++	c->commit_count++;
++#if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_MACH_PORT)
++	const char *dump_path = debug_get_option_dump_path();
++	if (dump_path != NULL && c->commit_count == (uint64_t)debug_get_num_option_dump_frame()) {
++		dump_frame(c, dump_path);
++	}
++#endif
++
+ 	/*
+ 	 * Time keeping needed to keep the pacer happy.
+ 	 */
+@@ -544,6 +657,7 @@ null_compositor_destroy(struct xrt_compositor *xc)
+ 	struct vk_bundle *vk = get_vk(c);
+ 
+ 	NULL_DEBUG(c, "NULL_COMP_DESTROY");
++	NULL_INFO(c, "Null compositor: %" PRIu64 " layer commits", c->commit_count);
+ 
+ 	// Make sure we don't have anything to destroy.
+ 	comp_swapchain_shared_garbage_collect(&c->base.cscs);
+diff --git a/src/xrt/compositor/null/null_compositor.h b/src/xrt/compositor/null/null_compositor.h
+index b4c592b674fa8737b26dbb0ab0b5f7a20e721511..53994681437cee99ad08671ca3160dfc7d76c2de 100644
+--- a/src/xrt/compositor/null/null_compositor.h
++++ b/src/xrt/compositor/null/null_compositor.h
+@@ -103,6 +103,9 @@ struct null_compositor
+ 
+ 	//! @todo Insert your own required members here
+ 
++	//! Number of layer commits, used to pick the frame to dump.
++	uint64_t commit_count;
++
+ 	struct
+ 	{
+ 		struct null_comp_frame waited;
+diff --git a/src/xrt/compositor/util/comp_sync_stats.h b/src/xrt/compositor/util/comp_sync_stats.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..668af9c4b37c64af1326906b2dcfca48f05c1d7c
+--- /dev/null
++++ b/src/xrt/compositor/util/comp_sync_stats.h
+@@ -0,0 +1,68 @@
++// Copyright 2026, macvr contributors.
++// SPDX-License-Identifier: BSL-1.0
++/*!
++ * @file
++ * @brief  Tiny latency statistics, printed every N samples when MONADO_SYNC_STATS=1.
++ * @ingroup comp_util
++ */
++
++#pragma once
++
++#include "util/u_debug.h"
++#include "util/u_logging.h"
++
++#include <stdlib.h>
++
++#define COMP_SYNC_STATS_N 100
++
++struct comp_sync_stats
++{
++	double ms[COMP_SYNC_STATS_N];
++	int count;
++	uint64_t total;
++};
++
++static inline bool
++comp_sync_stats_enabled(void)
++{
++	static int enabled = -1;
++	if (enabled < 0) {
++		enabled = debug_string_to_bool(getenv("MONADO_SYNC_STATS")) ? 1 : 0;
++	}
++	return enabled == 1;
++}
++
++static inline int
++comp_sync_stats_cmp(const void *a, const void *b)
++{
++	double x = *(const double *)a, y = *(const double *)b;
++	return x < y ? -1 : x > y;
++}
++
++static inline void
++comp_sync_stats_flush(struct comp_sync_stats *st, const char *what)
++{
++	if (st->count == 0) {
++		return;
++	}
++	int n = st->count;
++	qsort(st->ms, n, sizeof(double), comp_sync_stats_cmp);
++	double sum = 0;
++	for (int i = 0; i < n; i++) {
++		sum += st->ms[i];
++	}
++	U_LOG_IFL_I(U_LOGGING_INFO, "sync-stats %s: n=%d median=%.3fms p90=%.3fms p99=%.3fms max=%.3fms mean=%.3fms (total %llu)", what, n,
++	        st->ms[n / 2], st->ms[(n * 9) / 10], st->ms[(n * 99) / 100], st->ms[n - 1], sum / n,
++	        (unsigned long long)st->total);
++	st->count = 0;
++}
++
++static inline void
++comp_sync_stats_add(struct comp_sync_stats *st, const char *what, int64_t ns)
++{
++	st->ms[st->count++] = (double)ns / 1e6;
++	st->total++;
++	if (st->count == COMP_SYNC_STATS_N) {
++		comp_sync_stats_flush(st, what);
++	}
++}

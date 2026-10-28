@@ -1,0 +1,197 @@
+From: macvr
+Subject: [PATCH] recenter-stage
+
+---
+ server/driver/recenter_stage.h  | 53 ++++++++++++++++++++++++++++
+ server/driver/wivrn_session.cpp | 78 +++++++++++++++++++++++++++++++++++++----
+ server/driver/wivrn_session.h   |  1 +
+ 3 files changed, 125 insertions(+), 7 deletions(-)
+
+diff --git a/server/driver/recenter_stage.h b/server/driver/recenter_stage.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..701fa1fd9aa1dace4becdc19310d9384c00bea49
+--- /dev/null
++++ b/server/driver/recenter_stage.h
+@@ -0,0 +1,53 @@
++/*
++ * WiVRn VR streaming
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "xrt/xrt_defines.h"
++
++#include <cmath>
++
++namespace wivrn
++{
++
++// Heading (rotation about +Y) of an orientation, from its forward (-Z) axis.
++// Looking straight up/down the forward axis has no heading, so the swing-twist
++// twist about Y is used instead.
++inline float yaw_of(const xrt_quat & q)
++{
++	float fx = -2.f * (q.x * q.z + q.w * q.y);
++	float fz = -(1.f - 2.f * (q.x * q.x + q.y * q.y));
++	if (fx * fx + fz * fz > 1e-6f)
++		return std::atan2(-fx, -fz);
++	if (q.y * q.y + q.w * q.w > 1e-12f)
++		return 2.f * std::atan2(q.y, q.w);
++	return 0.f;
++}
++
++// New STAGE offset (pose of the stage in the root space) that puts the stage
++// origin under the head and aligns its -Z with the head's heading, keeping the
++// stage's floor height and gravity alignment.
++inline xrt_pose recentered_stage_offset(const xrt_pose & head_in_root, const xrt_pose & old_stage)
++{
++	float half = 0.5f * yaw_of(head_in_root.orientation);
++	xrt_pose out{};
++	out.orientation = {0.f, std::sin(half), 0.f, std::cos(half)};
++	out.position = {head_in_root.position.x, old_stage.position.y, head_in_root.position.z};
++	return out;
++}
++
++} // namespace wivrn
+diff --git a/server/driver/wivrn_session.cpp b/server/driver/wivrn_session.cpp
+index c0735eface46092542a795adee46260785c7b111..9e9c3cc445b72c37aebfd1e2589c7b3d56423ed4 100644
+--- a/server/driver/wivrn_session.cpp
++++ b/server/driver/wivrn_session.cpp
+@@ -24,6 +24,7 @@
+ #include "application.h"
+ #include "configuration.h"
+ #include "driver/app_pacer.h"
++#include "driver/recenter_stage.h"
+ #include "driver/xrt_cast.h"
+ #include "server/ipc_server.h"
+ #include "utils/load_icon.h"
+@@ -47,6 +48,7 @@
+ #include "b_hand_tracker.h"
+ #include "b_system.h"
+ #include "target_builder_helpers.h"
++#include "util/u_debug.h"
+ #include "util/u_logging.h"
+ #include "xrt/xrt_defines.h"
+ #include "xrt/xrt_device.h"
+@@ -575,6 +577,56 @@ static xrt_device_name get_name(interaction_profile profile)
+ 	throw std::runtime_error("invalid interaction profile id " + std::to_string(int(profile)));
+ }
+ 
++
++DEBUG_GET_ONCE_BOOL_OPTION(recenter_stage, "WIVRN_RECENTER_STAGE", true)
++
++static constexpr int64_t recenter_retry_ns = 2'000'000'000;
++
++static bool try_recenter(xrt_space_overseer * xso)
++{
++	if (XRT_SUCCESS != xrt_space_overseer_recenter_local_spaces(xso))
++		return false;
++
++	if (not debug_get_bool_option_recenter_stage())
++		return true;
++
++	xrt_pose identity = XRT_POSE_IDENTITY;
++	xrt_space_relation head{};
++	auto xret = xrt_space_overseer_locate_space(xso, xso->semantic.root, &identity, os_monotonic_get_ns(), xso->semantic.view, &identity, &head);
++	const auto valid = XRT_SPACE_RELATION_POSITION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_VALID_BIT;
++	if (xret != XRT_SUCCESS or (head.relation_flags & valid) != valid)
++	{
++		U_LOG_W("recenter stage: head pose not valid");
++		return true;
++	}
++
++	xrt_pose old_stage;
++	xret = xrt_space_overseer_get_reference_space_offset(xso, XRT_SPACE_REFERENCE_TYPE_STAGE, &old_stage);
++	if (xret != XRT_SUCCESS)
++	{
++		U_LOG_W("recenter stage: cannot read stage offset: %s", u_str_xrt_result(xret));
++		return true;
++	}
++
++	auto stage = recentered_stage_offset(head.pose, old_stage);
++	xret = xrt_space_overseer_set_reference_space_offset(xso, XRT_SPACE_REFERENCE_TYPE_STAGE, &stage);
++	if (xret != XRT_SUCCESS)
++	{
++		U_LOG_W("recenter stage: cannot set stage offset: %s", u_str_xrt_result(xret));
++		return true;
++	}
++	U_LOG_I("recentered stage: origin (%.3f, %.3f, %.3f) yaw %.1f deg (was (%.3f, %.3f, %.3f) yaw %.1f deg)",
++	        stage.position.x,
++	        stage.position.y,
++	        stage.position.z,
++	        yaw_of(stage.orientation) * 180 / M_PI,
++	        old_stage.position.x,
++	        old_stage.position.y,
++	        old_stage.position.z,
++	        yaw_of(old_stage.orientation) * 180 / M_PI);
++	return true;
++}
++
+ void wivrn_session::operator()(const from_headset::tracking & tracking)
+ {
+ 	if (gamepad_device)
+@@ -639,13 +691,6 @@ void wivrn_session::operator()(const from_headset::tracking & tracking)
+ 
+ 		++roles.generation_id;
+ 	}
+-	if (tracking.state_flags & from_headset::tracking::state_flags::recentered)
+-	{
+-		U_LOG_I("recentering requested");
+-		if (XRT_SUCCESS != xrt_space_overseer_recenter_local_spaces(space_overseer))
+-			U_LOG_W("failed to recenter local spaces");
+-	}
+-
+ 	auto offset = offset_est.get_offset();
+ 
+ 	if (offset)
+@@ -655,6 +700,25 @@ void wivrn_session::operator()(const from_headset::tracking & tracking)
+ 	}
+ 
+ 	hmd.update_tracking(tracking, offset);
++
++	if (tracking.state_flags & from_headset::tracking::state_flags::recentered)
++	{
++		U_LOG_I("recentering requested");
++		recenter_deadline_ns = os_monotonic_get_ns() + recenter_retry_ns;
++	}
++	// The request often arrives with the first packet after the headset wakes, before the
++	// head pose is valid: keep retrying for a while.
++	if (recenter_deadline_ns)
++	{
++		if (try_recenter(space_overseer))
++			recenter_deadline_ns = 0;
++		else if (os_monotonic_get_ns() > recenter_deadline_ns)
++		{
++			U_LOG_W("failed to recenter local spaces");
++			recenter_deadline_ns = 0;
++		}
++	}
++
+ 	if (roles.left == left_hand_interaction_index)
+ 		left_hand_interaction.update_tracking(tracking, offset);
+ 	else
+diff --git a/server/driver/wivrn_session.h b/server/driver/wivrn_session.h
+index cd253bb5f0450e5263a235cbb66b3e8a52ede224..580b4ccb946eb1c3f2c07322a196ef3cd0b78acb 100644
+--- a/server/driver/wivrn_session.h
++++ b/server/driver/wivrn_session.h
+@@ -105,6 +105,7 @@ class wivrn_session : public xrt_system_devices
+ 	beman::inplace_vector::inplace_vector<wivrn_generic_tracker, from_headset::htc_body::max_tracked_poses> generic_trackers;
+ 	std::optional<wivrn_uinput> uinput_handler;
+ 	bool gamepad_connected = false; // network thread only
++	int64_t recenter_deadline_ns = 0; // network thread only
+ 
+ 	clock_offset_estimator offset_est;
+ 	std::atomic<XrDuration> tracking_latency; // production to reception time

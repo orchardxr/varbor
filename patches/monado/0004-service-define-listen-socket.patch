@@ -1,0 +1,23 @@
+From: macvr
+Subject: [PATCH] service-define-listen-socket
+
+---
+ src/xrt/targets/service/main.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/xrt/targets/service/main.c b/src/xrt/targets/service/main.c
+index 2929139bba56a30430fb93b648fd290ac64db37d..6552cf15caff767f8134b897695ec178ff2f8446 100644
+--- a/src/xrt/targets/service/main.c
++++ b/src/xrt/targets/service/main.c
+@@ -26,6 +26,11 @@
+ 
+ DEBUG_GET_ONCE_BOOL_OPTION(exit_on_disconnect, "IPC_EXIT_ON_DISCONNECT", false)
+ 
++#ifndef XRT_OS_WINDOWS
++// Pre-created listen socket used by the mainloop (WiVRn patch), none for the standalone service.
++int listen_socket = -1;
++#endif
++
+ 
+ // Insert the on load constructor to init trace marker.
+ U_TRACE_TARGET_SETUP(U_TRACE_WHICH_SERVICE)

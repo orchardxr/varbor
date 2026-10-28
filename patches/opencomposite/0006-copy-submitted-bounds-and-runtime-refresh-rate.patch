@@ -1,0 +1,137 @@
+From: macvr
+Subject: [PATCH] copy-submitted-bounds-and-runtime-refresh-rate
+
+---
+ DrvOpenXR/DrvOpenXR.cpp               |  3 +++
+ DrvOpenXR/XrHMD.cpp                   | 11 +++++++++--
+ OpenOVR/Compositor/compositor.cpp     |  2 ++
+ OpenOVR/Compositor/compositor.h       |  4 ++++
+ OpenOVR/Compositor/dx11compositor.cpp | 13 +++++++++++++
+ OpenOVR/Misc/Config.cpp               |  2 ++
+ OpenOVR/Misc/Config.h                 |  4 ++++
+ 7 files changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/DrvOpenXR/DrvOpenXR.cpp b/DrvOpenXR/DrvOpenXR.cpp
+index 7247f44ab28bd12c7f698946e42000d736e40f2c..9f8e17ab401a27c9e2630110230efd2a30f27a60 100644
+--- a/DrvOpenXR/DrvOpenXR.cpp
++++ b/DrvOpenXR/DrvOpenXR.cpp
+@@ -231,6 +231,9 @@ IBackend* DrvOpenXR::CreateOpenXRBackend(const char* startupInfo)
+ 	if (availableExtensions.contains(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME))
+ 		extensions.push_back(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME);
+ 
++	if (availableExtensions.contains("XR_FB_display_refresh_rate"))
++		extensions.push_back("XR_FB_display_refresh_rate");
++
+ 	const char* const layers[] = {
+ #ifdef XR_VALIDATION_LAYER_PATH
+ 		"XR_APILAYER_LUNARG_core_validation",
+diff --git a/DrvOpenXR/XrHMD.cpp b/DrvOpenXR/XrHMD.cpp
+index ffeab7972cfb815bedf967aef48d4ed325e821aa..d97238f4a04ddf2afbc19e4a9c8da64a5da40be6 100644
+--- a/DrvOpenXR/XrHMD.cpp
++++ b/DrvOpenXR/XrHMD.cpp
+@@ -328,8 +328,15 @@ float XrHMD::GetFloatTrackedDeviceProperty(vr::ETrackedDeviceProperty prop, vr::
+ 	TRY_PROFILE_PROP(float);
+ 
+ 	switch (prop) {
+-	case vr::Prop_DisplayFrequency_Float:
+-		return 90.0; // TODO use the real value
++	case vr::Prop_DisplayFrequency_Float: {
++		// The runtime's current rate (XR_FB_display_refresh_rate), 90 Hz without the extension or a session.
++		XrResult(XRAPI_PTR * get)(XrSession, float*) = nullptr;
++		float rate = 0.0f;
++		if (oovr_global_configuration.RuntimeRefreshRate() && xr_session.get() && XR_SUCCEEDED(xrGetInstanceProcAddr(xr_instance, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction*)&get))
++		    && get && XR_SUCCEEDED(get(xr_session.get(), &rate)) && rate > 0.0f)
++			return rate;
++		return 90.0;
++	}
+ 	case vr::Prop_LensCenterLeftU_Float:
+ 	case vr::Prop_LensCenterLeftV_Float:
+ 	case vr::Prop_LensCenterRightU_Float:
+diff --git a/OpenOVR/Compositor/compositor.cpp b/OpenOVR/Compositor/compositor.cpp
+index c9456b5355d9f7e59fd0e85251a1af2e0b1d8711..6b96f961377c902f590f33ae3cbfe58fdccadd33 100644
+--- a/OpenOVR/Compositor/compositor.cpp
++++ b/OpenOVR/Compositor/compositor.cpp
+@@ -16,7 +16,9 @@ void Compositor::Invoke(const vr::Texture_t* texture, const vr::VRTextureBounds_
+ 	bool invertInCompositor = oovr_global_configuration.InvertUsingShaders();
+ 	if (bounds && bounds->vMin == 0.0f && bounds->vMax == 1.0f && bounds->uMin == 0.0f && bounds->uMax == 1.0f)
+ 		bounds = nullptr;
++	copyBounds = invertInCompositor || !oovr_global_configuration.CopyBoundsOnly() ? nullptr : bounds;
+ 	CopyToSwapchain(texture, invertInCompositor ? bounds : nullptr, eye, submitFlags);
++	copyBounds = nullptr;
+ 	subImage.swapchain = GetSwapChain();
+ 	subImage.imageArrayIndex = 0; // This is *not* the swapchain index
+ 	XrExtent2Di src = GetSrcSize();
+diff --git a/OpenOVR/Compositor/compositor.h b/OpenOVR/Compositor/compositor.h
+index e83a16a983ebb984ab40c9ec8557784d147a13ad..9568cd2dd4958b9384610a9d912671aac96cd0a4 100644
+--- a/OpenOVR/Compositor/compositor.h
++++ b/OpenOVR/Compositor/compositor.h
+@@ -44,6 +44,10 @@ public:
+ protected:
+ 	virtual void CopyToSwapchain(const vr::Texture_t* texture, const vr::VRTextureBounds_t* bounds, std::optional<XruEye> eye, vr::EVRSubmitFlags submitFlags) = 0;
+ 
++	// The submitted bounds while CopyToSwapchain runs without them (no shader invert): compositors may copy only
++	// this part of the texture, at the same position, since the layer's imageRect covers only that part.
++	const vr::VRTextureBounds_t* copyBounds = nullptr;
++
+ 	XrSwapchain chain = XR_NULL_HANDLE;
+ 
+ 	// The request used to create the current swapchain. This can be used to check if the swapchain needs recreating.
+diff --git a/OpenOVR/Compositor/dx11compositor.cpp b/OpenOVR/Compositor/dx11compositor.cpp
+index 912217f5cd4a11cacea0d4828ab474436442a873..70ac1dd2d653c770d3009077ef632dade0d8f9db 100644
+--- a/OpenOVR/Compositor/dx11compositor.cpp
++++ b/OpenOVR/Compositor/dx11compositor.cpp
+@@ -392,6 +392,19 @@ void DX11Compositor::CopyToSwapchain(const vr::Texture_t* texture, const vr::VRT
+ 			resDesc.SampleDesc.Count = 1;
+ 			context->ResolveSubresource(resolvedMSAATextures[currentIndex], 0, src, arrayIndex, resDesc.Format);
+ 			context->CopySubresourceRegion(imagesHandles[currentIndex].texture, 0, 0, 0, 0, resolvedMSAATextures[currentIndex], arrayIndex, &sourceRegion);
++		} else if (copyBounds && srcDesc.MipLevels == 1) {
++			// Only the submitted part of the texture (e.g. one eye of a side-by-side texture, at the current render
++			// scale) is shown; copy that, plus a small margin for the compositor's filtering.
++			const int pad = 2;
++			D3D11_BOX box;
++			box.left = (UINT)std::max(0, (int)(std::min(copyBounds->uMin, copyBounds->uMax) * createInfo.width) - pad);
++			box.right = (UINT)std::min((int)createInfo.width, (int)(std::max(copyBounds->uMin, copyBounds->uMax) * createInfo.width + 0.5f) + pad);
++			box.top = (UINT)std::max(0, (int)(std::min(copyBounds->vMin, copyBounds->vMax) * createInfo.height) - pad);
++			box.bottom = (UINT)std::min((int)createInfo.height, (int)(std::max(copyBounds->vMin, copyBounds->vMax) * createInfo.height + 0.5f) + pad);
++			box.front = 0;
++			box.back = 1;
++			if (box.right > box.left && box.bottom > box.top)
++				context->CopySubresourceRegion(imagesHandles[currentIndex].texture, 0, box.left, box.top, 0, src, arrayIndex, &box);
+ 		} else {
+ 			context->CopySubresourceRegion(imagesHandles[currentIndex].texture, 0, 0, 0, 0, src, arrayIndex, &sourceRegion);
+ 		}
+diff --git a/OpenOVR/Misc/Config.cpp b/OpenOVR/Misc/Config.cpp
+index f4dff1034399afb9eccd0854599b6cf7fcbc4fb2..6e35d15589e7251448bdd6e7ae39c2f7e137b721 100644
+--- a/OpenOVR/Misc/Config.cpp
++++ b/OpenOVR/Misc/Config.cpp
+@@ -149,6 +149,8 @@ int Config::ini_handler(void* user, const char* pSection,
+ 		CFGOPT(bool, initUsingVulkan);
+ 		CFGOPT(float, hiddenMeshVerticalScale);
+ 		CFGOPT(bool, logAllOpenVRCalls);
++		CFGOPT(bool, copyBoundsOnly);
++		CFGOPT(bool, runtimeRefreshRate);
+ 	}
+ 
+ #undef CFGOPT
+diff --git a/OpenOVR/Misc/Config.h b/OpenOVR/Misc/Config.h
+index 1aecea03cef3f97298e09427f20b024af341d272..a415ac49d07f6a106a2aa85a9fd9e25ad9c2851f 100644
+--- a/OpenOVR/Misc/Config.h
++++ b/OpenOVR/Misc/Config.h
+@@ -18,6 +18,8 @@ public:
+ 	inline bool InitUsingVulkan() const { return initUsingVulkan; }
+ 	float HiddenMeshVerticalScale() const { return hiddenMeshVerticalScale; }
+ 	inline bool LogAllOpenVRCalls() const { return logAllOpenVRCalls; }
++	inline bool CopyBoundsOnly() const { return copyBoundsOnly; }
++	inline bool RuntimeRefreshRate() const { return runtimeRefreshRate; }
+ 
+ private:
+ 	static int ini_handler(
+@@ -38,6 +40,8 @@ private:
+ 	bool initUsingVulkan = false;
+ 	float hiddenMeshVerticalScale = 1.0f;
+ 	bool logAllOpenVRCalls = false;
++	bool copyBoundsOnly = true;
++	bool runtimeRefreshRate = true;
+ };
+ 
+ extern Config oovr_global_configuration;

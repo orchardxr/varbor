@@ -1,0 +1,37 @@
+From: macvr
+Subject: [PATCH] u-file-runtime-dir-on-osx
+
+---
+ src/xrt/auxiliary/util/u_file.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/xrt/auxiliary/util/u_file.c b/src/xrt/auxiliary/util/u_file.c
+index 2806f9aabd75c0d15835a47e80a63f141c0270bd..415567f80755fcbde7ef1caacf830c46309a7d8f 100644
+--- a/src/xrt/auxiliary/util/u_file.c
++++ b/src/xrt/auxiliary/util/u_file.c
+@@ -22,6 +22,7 @@
+ #ifdef XRT_OS_OSX
+ // For PATH_MAX
+ #include <sys/syslimits.h>
++#include <unistd.h>
+ #endif
+ 
+ #if defined(XRT_OS_WINDOWS) && !defined(XRT_ENV_MINGW)
+@@ -229,6 +230,17 @@ u_file_get_runtime_dir(char *out_path, size_t out_path_size)
+ #endif
+ 	return wcstombs(out_path, temp, out_path_size);
+ #endif // UNICODE
++#elif defined(XRT_OS_OSX)
++	// Per-user private temporary directory, the closest thing to XDG_RUNTIME_DIR.
++	char tmp[PATH_MAX];
++	size_t len = confstr(_CS_DARWIN_USER_TEMP_DIR, tmp, sizeof(tmp));
++	if (len == 0 || len > sizeof(tmp)) {
++		return -1;
++	}
++	if (len > 1 && tmp[len - 2] == '/') {
++		tmp[len - 2] = '\0';
++	}
++	return snprintf(out_path, out_path_size, "%s", tmp);
+ #else
+ 	const char *cache = "~/.cache";
+ 	return snprintf(out_path, out_path_size, "%s", cache);

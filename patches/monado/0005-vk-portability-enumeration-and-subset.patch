@@ -1,0 +1,138 @@
+From: macvr
+Subject: [PATCH] vk-portability-enumeration-and-subset
+
+---
+ src/xrt/compositor/main/comp_compositor.c |  6 ++++++
+ src/xrt/compositor/null/null_compositor.c |  6 ++++++
+ src/xrt/compositor/util/comp_vulkan.c     |  8 ++++++++
+ src/xrt/include/xrt/xrt_vulkan_includes.h |  5 +++++
+ src/xrt/state_trackers/oxr/oxr_vulkan.c   | 11 +++++++++++
+ 5 files changed, 36 insertions(+)
+
+diff --git a/src/xrt/compositor/main/comp_compositor.c b/src/xrt/compositor/main/comp_compositor.c
+index 88e43be1916ad699534ed465dfb5f5b5829aa326..b98a133de1f443a67a985f73331f186467e5f0f2 100644
+--- a/src/xrt/compositor/main/comp_compositor.c
++++ b/src/xrt/compositor/main/comp_compositor.c
+@@ -652,6 +652,9 @@ static const char *optional_device_extensions[] = {
+ #ifdef VK_KHR_shared_presentable_image
+     VK_KHR_SHARED_PRESENTABLE_IMAGE_EXTENSION_NAME,
+ #endif
++#ifdef VK_KHR_portability_subset
++    VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
++#endif
+ };
+ 
+ static bool
+@@ -659,6 +662,9 @@ select_instances_extensions(struct comp_compositor *c,
+                             struct u_extension_list_builder *required_builder,
+                             struct u_extension_list_builder *optional_builder)
+ {
++#ifdef VK_KHR_portability_enumeration
++	u_extension_list_builder_append(optional_builder, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
++#endif
+ #ifdef XRT_FEATURE_WINDOW_PEEK
+ 	if (!comp_window_peek_get_vk_instance_exts(required_builder)) {
+ 		COMP_WARN(c, "Failed to get vulkan instance extensions for peek window.");
+diff --git a/src/xrt/compositor/null/null_compositor.c b/src/xrt/compositor/null/null_compositor.c
+index 30779967c7150f671b94cb0a77f944988475fa60..cbc328ec575ffa6cad30f9d085264855b794064e 100644
+--- a/src/xrt/compositor/null/null_compositor.c
++++ b/src/xrt/compositor/null/null_compositor.c
+@@ -147,6 +147,9 @@ static const char *optional_device_extensions[] = {
+ #ifdef VK_EXT_robustness2
+     VK_EXT_ROBUSTNESS_2_EXTENSION_NAME,
+ #endif
++#ifdef VK_KHR_portability_subset
++    VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
++#endif
+ };
+ 
+ static VkResult
+@@ -154,6 +157,9 @@ select_instances_extensions(struct null_compositor *c,
+                             struct u_extension_list_builder *required_builder,
+                             struct u_extension_list_builder *optional_builder)
+ {
++#ifdef VK_KHR_portability_enumeration
++	u_extension_list_builder_append(optional_builder, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
++#endif
+ #ifdef VK_KHR_get_surface_capabilities2
+ 	u_extension_list_builder_append(optional_builder, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+ #endif
+diff --git a/src/xrt/compositor/util/comp_vulkan.c b/src/xrt/compositor/util/comp_vulkan.c
+index 42c612f38d347f815a2db41c66cea933382769ca..7743654e8ccbab58c78b14edf55eb7b596934f5c 100644
+--- a/src/xrt/compositor/util/comp_vulkan.c
++++ b/src/xrt/compositor/util/comp_vulkan.c
+@@ -214,8 +214,16 @@ create_instance(struct vk_bundle *vk, const struct comp_vulkan_arguments *vk_arg
+ 	    .apiVersion = vk_args->required_instance_version,
+ 	};
+ 
++	VkInstanceCreateFlags instance_flags = 0;
++#ifdef VK_KHR_portability_enumeration
++	if (u_extension_list_contains(instance_ext_list, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
++		instance_flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++	}
++#endif
++
+ 	VkInstanceCreateInfo instance_info = {
+ 	    .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
++	    .flags = instance_flags,
+ 	    .pApplicationInfo = &app_info,
+ 	    .enabledExtensionCount = u_extension_list_get_size(instance_ext_list),
+ 	    .ppEnabledExtensionNames = u_extension_list_get_data(instance_ext_list),
+diff --git a/src/xrt/include/xrt/xrt_vulkan_includes.h b/src/xrt/include/xrt/xrt_vulkan_includes.h
+index 6bfa32fd2e9eb249ae3a3f18ed1173a69b604010..c8811a84f6906b3c81f48c9a43e52cdcdd096673 100644
+--- a/src/xrt/include/xrt/xrt_vulkan_includes.h
++++ b/src/xrt/include/xrt/xrt_vulkan_includes.h
+@@ -12,12 +12,17 @@
+ 
+ #include "xrt/xrt_config_vulkan.h"
+ #include "xrt/xrt_config_have.h"
++#include "xrt/xrt_config_os.h"
+ 
+ #ifdef XRT_HAVE_VULKAN
+ // preemptively include windows.h if applicable so we can specify our own flags for it.
+ #include "xrt/xrt_windows.h"
+ 
+ #define VK_NO_PROTOTYPES
++#ifdef XRT_OS_OSX
++// VK_KHR_portability_subset is still a beta extension.
++#define VK_ENABLE_BETA_EXTENSIONS
++#endif
+ #include <vulkan/vulkan.h> // IWYU pragma: export
+ 
+ // Dealing with underscore compat.
+diff --git a/src/xrt/state_trackers/oxr/oxr_vulkan.c b/src/xrt/state_trackers/oxr/oxr_vulkan.c
+index 71244264ee62f01b580418f32036cb1f606ca5c4..1a61eac0df9f451accdd2c4beec3f1f4870665c4 100644
+--- a/src/xrt/state_trackers/oxr/oxr_vulkan.c
++++ b/src/xrt/state_trackers/oxr/oxr_vulkan.c
+@@ -115,6 +115,9 @@ static const char *optional_vk_instance_extensions[] = {
+ #if defined(VK_EXT_debug_utils)
+     VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+ #endif
++#if defined(VK_KHR_portability_enumeration)
++    VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
++#endif
+ };
+ 
+ // The device extensions do vary by platform, but in a very regular way.
+@@ -175,6 +178,9 @@ static const char *optional_device_extensions[] = {
+ #else
+     NULL, // avoid zero sized array with UB
+ #endif
++#ifdef VK_KHR_portability_subset
++    VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
++#endif
+ };
+ 
+ static bool
+@@ -282,6 +288,11 @@ oxr_vk_create_vulkan_instance(struct oxr_logger *log,
+ 	VkInstanceCreateInfo modified_info = *createInfo->vulkanCreateInfo;
+ 	modified_info.ppEnabledExtensionNames = u_extension_list_get_data(instance_ext_list);
+ 	modified_info.enabledExtensionCount = u_extension_list_get_size(instance_ext_list);
++#if defined(VK_KHR_portability_enumeration)
++	if (u_extension_list_contains(instance_ext_list, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
++		modified_info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
++	}
++#endif
+ 
+ 	*vulkanResult = loaded_CreateInstance(&modified_info, createInfo->vulkanAllocator, vulkanInstance);
+ 

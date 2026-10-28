@@ -1,0 +1,7 @@
+{
+    "file_format_version": "1.0.0",
+    "runtime": {
+        "name": "macvr wineopenxr (Monado)",
+        "library_path": "wineopenxr.dll"
+    }
+}

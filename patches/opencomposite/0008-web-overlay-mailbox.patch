@@ -1,0 +1,724 @@
+From: macvr
+Subject: [PATCH] web-overlay-mailbox
+
+---
+ CMakeLists.txt                                     |   4 +
+ OpenOVR/Misc/Config.cpp                            |   1 +
+ OpenOVR/Misc/Config.h                              |   2 +
+ OpenOVR/Misc/WebMailbox.cpp                        | 443 +++++++++++++++++++++
+ OpenOVR/Misc/WebMailbox.h                          |  42 ++
+ OpenOVR/Reimpl/BaseControlPanel.cpp                |   8 +-
+ OpenOVR/Reimpl/BaseControlPanel.h                  |   2 +-
+ OpenOVR/Reimpl/BaseMailbox.cpp                     |  67 +++-
+ .../custom_interfaces/IVRControlPanel_006.h        |   2 +-
+ 9 files changed, 546 insertions(+), 25 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 297cc638bf6cad82e3c4403a6df8af5b7e9000a9..b8255ab2491d814a46d0bcfb77e77bfec0332b1b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -308,6 +308,7 @@ add_library(OCCore STATIC
+ 	OpenOVR/linux_funcs.cpp
+ 	OpenOVR/Misc/backtrace.cpp
+ 	OpenOVR/Misc/Config.cpp
++	OpenOVR/Misc/WebMailbox.cpp
+ 	OpenOVR/Misc/debug_helper.cpp
+ 	OpenOVR/Misc/xrutil.cpp
+ 	OpenOVR/Misc/xrmoreutils.cpp
+@@ -427,6 +428,9 @@ target_include_directories(OCCore PRIVATE BundledLibs OpenVRHeaders)
+ target_compile_definitions(OCCore PRIVATE ${GRAPHICS_API_SUPPORT_FLAGS})
+ 
+ target_link_libraries(OCCore PRIVATE OpenVR Vulkan ${XrLib} ${glmLib})
++if (WIN32)
++	target_link_libraries(OCCore PRIVATE ws2_32)
++endif ()
+ 
+ if (NOT WIN32 AND NOT ANDROID)
+ 	find_package(OpenGL REQUIRED) # for glGetError()
+diff --git a/OpenOVR/Misc/Config.cpp b/OpenOVR/Misc/Config.cpp
+index 3c7da1863d4b1aa31662af67b0317b247f73db7a..6b124c12b2a333f3c6836b67489d0296f4e97b0e 100644
+--- a/OpenOVR/Misc/Config.cpp
++++ b/OpenOVR/Misc/Config.cpp
+@@ -152,6 +152,7 @@ int Config::ini_handler(void* user, const char* pSection,
+ 		CFGOPT(bool, copyBoundsOnly);
+ 		CFGOPT(bool, runtimeRefreshRate);
+ 		CFGOPT(float, runtimeLostExitSeconds);
++		CFGOPT(bool, webOverlays);
+ 	}
+ 
+ #undef CFGOPT
+diff --git a/OpenOVR/Misc/Config.h b/OpenOVR/Misc/Config.h
+index a3cebcf07449202ca9d9ef6285c714fb85fdb6c5..643005600e4874cb67322adc92632324a3fbaf40 100644
+--- a/OpenOVR/Misc/Config.h
++++ b/OpenOVR/Misc/Config.h
+@@ -21,6 +21,7 @@ public:
+ 	inline bool CopyBoundsOnly() const { return copyBoundsOnly; }
+ 	inline bool RuntimeRefreshRate() const { return runtimeRefreshRate; }
+ 	inline float RuntimeLostExitSeconds() const { return runtimeLostExitSeconds; }
++	inline bool WebOverlays() const { return webOverlays; }
+ 
+ private:
+ 	static int ini_handler(
+@@ -44,6 +45,7 @@ private:
+ 	bool copyBoundsOnly = true;
+ 	bool runtimeRefreshRate = true;
+ 	float runtimeLostExitSeconds = 10.0f;
++	bool webOverlays = true;
+ };
+ 
+ extern Config oovr_global_configuration;
+diff --git a/OpenOVR/Misc/WebMailbox.cpp b/OpenOVR/Misc/WebMailbox.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..5a14ab19cd3d9e97a346641caf3e4a24d6247e4a
+--- /dev/null
++++ b/OpenOVR/Misc/WebMailbox.cpp
+@@ -0,0 +1,443 @@
++#include "stdafx.h"
++
++#include "WebMailbox.h"
++
++#include "Misc/Config.h"
++
++#include "json/json.h"
++
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <deque>
++#include <mutex>
++#include <random>
++#include <thread>
++
++#ifdef _WIN32
++#include <winsock2.h>
++#include <ws2tcpip.h>
++typedef SOCKET sock_t;
++#define closesock closesocket
++#else
++#include <arpa/inet.h>
++#include <fcntl.h>
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <poll.h>
++#include <sys/socket.h>
++#include <unistd.h>
++typedef int sock_t;
++#define INVALID_SOCKET (-1)
++#define closesock close
++#endif
++
++struct WebMailbox::Impl {
++	sock_t s = INVALID_SOCKET;
++	std::mutex sendLock;
++	std::mutex lock;
++	std::condition_variable cv;
++	std::deque<std::string> queue;
++	std::atomic<bool> open{ false };
++	std::string name;
++
++	~Impl()
++	{
++		if (s != INVALID_SOCKET)
++			closesock(s);
++	}
++
++	bool SendFrame(int opcode, const std::string& payload)
++	{
++		std::string f;
++		f.push_back((char)(0x80 | opcode));
++		size_t n = payload.size();
++		if (n < 126) {
++			f.push_back((char)(0x80 | n));
++		} else if (n < 65536) {
++			f.push_back((char)(0x80 | 126));
++			f.push_back((char)(n >> 8));
++			f.push_back((char)n);
++		} else {
++			f.push_back((char)(0x80 | 127));
++			for (int i = 7; i >= 0; i--)
++				f.push_back((char)((uint64_t)n >> (i * 8)));
++		}
++		static std::mt19937 rng{ std::random_device{}() };
++		uint8_t mask[4];
++		{
++			std::lock_guard<std::mutex> g(sendLock);
++			for (auto& m : mask)
++				m = (uint8_t)rng();
++		}
++		f.append((const char*)mask, 4);
++		for (size_t i = 0; i < n; i++)
++			f.push_back((char)(payload[i] ^ mask[i & 3]));
++		std::lock_guard<std::mutex> g(sendLock);
++		const char* p = f.data();
++		size_t left = f.size();
++		while (left) {
++			int r = send(s, p, (int)left, 0);
++			if (r <= 0)
++				return false;
++			p += r;
++			left -= r;
++		}
++		return true;
++	}
++
++	bool ReadExact(char* p, size_t n)
++	{
++		while (n) {
++			int r = recv(s, p, (int)n, 0);
++			if (r <= 0)
++				return false;
++			p += r;
++			n -= r;
++		}
++		return true;
++	}
++
++	void Reader()
++	{
++		std::string message;
++		for (;;) {
++			uint8_t h[2];
++			if (!ReadExact((char*)h, 2))
++				break;
++			int opcode = h[0] & 0x0f;
++			bool fin = h[0] & 0x80;
++			uint64_t len = h[1] & 0x7f;
++			if (len == 126) {
++				uint8_t b[2];
++				if (!ReadExact((char*)b, 2))
++					break;
++				len = ((uint64_t)b[0] << 8) | b[1];
++			} else if (len == 127) {
++				uint8_t b[8];
++				if (!ReadExact((char*)b, 8))
++					break;
++				len = 0;
++				for (int i = 0; i < 8; i++)
++					len = (len << 8) | b[i];
++			}
++			uint8_t mask[4] = {};
++			if ((h[1] & 0x80) && !ReadExact((char*)mask, 4))
++				break;
++			if (len > (64u << 20))
++				break;
++			std::string payload(len, '\0');
++			if (len && !ReadExact(&payload[0], len))
++				break;
++			if (h[1] & 0x80)
++				for (size_t i = 0; i < len; i++)
++					payload[i] ^= mask[i & 3];
++			if (opcode == 0x8)
++				break;
++			if (opcode == 0x9) {
++				SendFrame(0xA, payload);
++				continue;
++			}
++			if (opcode == 0x1 || opcode == 0x0) {
++				message += payload;
++				if (fin) {
++					std::lock_guard<std::mutex> g(lock);
++					queue.push_back(std::move(message));
++					message.clear();
++					cv.notify_all();
++				}
++			}
++		}
++		open = false;
++		cv.notify_all();
++		OOVR_LOGF("Mailbox '%s': connection closed", name.c_str());
++	}
++};
++
++static std::atomic<bool> serverUnavailable{ false };
++
++static int MailboxPort()
++{
++	const char* env = getenv("OC_MAILBOX_PORT");
++	return env && atoi(env) > 0 ? atoi(env) : 27062;
++}
++
++static sock_t ConnectLoopback(int port, int timeoutMs)
++{
++#ifdef _WIN32
++	static bool wsaInit = false;
++	if (!wsaInit) {
++		WSADATA wsa;
++		if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
++			return INVALID_SOCKET;
++		wsaInit = true;
++	}
++#endif
++	sock_t s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
++	if (s == INVALID_SOCKET)
++		return s;
++	sockaddr_in a = {};
++	a.sin_family = AF_INET;
++	a.sin_port = htons((uint16_t)port);
++	a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
++#ifdef _WIN32
++	u_long nb = 1;
++	ioctlsocket(s, FIONBIO, &nb);
++	connect(s, (sockaddr*)&a, sizeof(a));
++	fd_set wr, ex;
++	FD_ZERO(&wr);
++	FD_ZERO(&ex);
++	FD_SET(s, &wr);
++	FD_SET(s, &ex);
++	timeval tv = { timeoutMs / 1000, (timeoutMs % 1000) * 1000 };
++	int r = select(0, NULL, &wr, &ex, &tv);
++	int err = 0;
++	int errlen = sizeof(err);
++	getsockopt(s, SOL_SOCKET, SO_ERROR, (char*)&err, &errlen);
++	if (r <= 0 || FD_ISSET(s, &ex) || err) {
++		closesock(s);
++		return INVALID_SOCKET;
++	}
++	nb = 0;
++	ioctlsocket(s, FIONBIO, &nb);
++#else
++	int fl = fcntl(s, F_GETFL, 0);
++	fcntl(s, F_SETFL, fl | O_NONBLOCK);
++	connect(s, (sockaddr*)&a, sizeof(a));
++	pollfd p = { s, POLLOUT, 0 };
++	int err = 0;
++	socklen_t errlen = sizeof(err);
++	if (poll(&p, 1, timeoutMs) <= 0 || getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &errlen) || err) {
++		closesock(s);
++		return INVALID_SOCKET;
++	}
++	fcntl(s, F_SETFL, fl);
++#endif
++	int one = 1;
++	setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&one, sizeof(one));
++	return s;
++}
++
++static bool Handshake(sock_t s, int port)
++{
++	static const char* b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
++	std::mt19937 rng{ std::random_device{}() };
++	std::string key;
++	for (int i = 0; i < 21; i++)
++		key.push_back(b64[rng() % 64]);
++	key += "A==";
++	std::string req = "GET / HTTP/1.1\r\nHost: localhost:" + std::to_string(port)
++	    + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key
++	    + "\r\nSec-WebSocket-Version: 13\r\n\r\n";
++	if (send(s, req.data(), (int)req.size(), 0) != (int)req.size())
++		return false;
++	std::string resp;
++	char c;
++	while (resp.size() < 4096 && resp.find("\r\n\r\n") == std::string::npos) {
++		if (recv(s, &c, 1, 0) != 1)
++			return false;
++		resp.push_back(c);
++	}
++	return resp.rfind("HTTP/1.1 101", 0) == 0;
++}
++
++std::unique_ptr<WebMailbox> WebMailbox::Open(const std::string& name)
++{
++	if (!oovr_global_configuration.WebOverlays())
++		return nullptr;
++	int port = MailboxPort();
++	sock_t s = ConnectLoopback(port, 300);
++	if (s == INVALID_SOCKET || !Handshake(s, port)) {
++		if (s != INVALID_SOCKET)
++			closesock(s);
++		if (!serverUnavailable.exchange(true))
++			OOVR_LOGF("Mailbox server on 127.0.0.1:%d not reachable: no web overlays", port);
++		return nullptr;
++	}
++	std::unique_ptr<WebMailbox> mb(new WebMailbox());
++	mb->name = name;
++	mb->impl = std::make_shared<Impl>();
++	mb->impl->s = s;
++	mb->impl->name = name;
++	mb->impl->open = true;
++	std::shared_ptr<Impl> impl = mb->impl;
++	std::thread([impl]() { impl->Reader(); }).detach();
++	if (!impl->SendFrame(0x1, "mailbox_open " + name))
++		return nullptr;
++	OOVR_LOGF("Mailbox '%s' opened on 127.0.0.1:%d", name.c_str(), port);
++	return mb;
++}
++
++WebMailbox::~WebMailbox()
++{
++	if (impl && impl->open) {
++		impl->SendFrame(0x1, "mailbox_close " + name);
++		impl->SendFrame(0x8, "");
++#ifdef _WIN32
++		shutdown(impl->s, SD_BOTH);
++#else
++		shutdown(impl->s, SHUT_RDWR);
++#endif
++	}
++}
++
++bool WebMailbox::Send(const std::string& mailbox, const std::string& json)
++{
++	return impl->open && impl->SendFrame(0x1, "mailbox_send " + mailbox + " " + json);
++}
++
++bool WebMailbox::Peek(std::string& out)
++{
++	std::lock_guard<std::mutex> g(impl->lock);
++	if (impl->queue.empty())
++		return false;
++	out = impl->queue.front();
++	return true;
++}
++
++void WebMailbox::Pop()
++{
++	std::lock_guard<std::mutex> g(impl->lock);
++	if (!impl->queue.empty())
++		impl->queue.pop_front();
++}
++
++bool WebMailbox::Connected() const
++{
++	return impl->open;
++}
++
++bool WebMailbox::WaitFor(const std::string& type, int ms, std::string& out)
++{
++	auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
++	std::unique_lock<std::mutex> g(impl->lock);
++	for (;;) {
++		for (auto it = impl->queue.begin(); it != impl->queue.end(); ++it) {
++			Json::Value v;
++			Json::CharReaderBuilder b;
++			std::string errs;
++			std::unique_ptr<Json::CharReader> r(b.newCharReader());
++			if (r->parse(it->data(), it->data() + it->size(), &v, &errs) && v.isObject() && v["type"].asString() == type) {
++				out = *it;
++				impl->queue.erase(it);
++				return true;
++			}
++		}
++		if (!impl->open || impl->cv.wait_until(g, deadline) == std::cv_status::timeout)
++			return false;
++	}
++}
++
++namespace web_overlays {
++
++bool Unavailable()
++{
++	return serverUnavailable;
++}
++
++#ifdef _WIN32
++typedef char*(__cdecl* wine_get_unix_file_name_t)(const wchar_t*);
++
++static std::string UnixPath(const std::string& win)
++{
++	static wine_get_unix_file_name_t fn = (wine_get_unix_file_name_t)GetProcAddress(GetModuleHandleA("kernel32"), "wine_get_unix_file_name");
++	if (!fn)
++		return "";
++	int n = MultiByteToWideChar(CP_ACP, 0, win.c_str(), -1, NULL, 0);
++	std::wstring w(n, L'\0');
++	MultiByteToWideChar(CP_ACP, 0, win.c_str(), -1, &w[0], n);
++	char* u = fn(w.c_str());
++	if (!u)
++		return "";
++	std::string r = u;
++	HeapFree(GetProcessHeap(), 0, u);
++	return r;
++}
++#else
++static std::string UnixPath(const std::string& p)
++{
++	return p;
++}
++#endif
++
++bool RegisterExternalWebRoot(const char* path)
++{
++	if (!path)
++		return false;
++	// Kept open for the life of the process: the server destroys the overlays when it closes.
++	static std::unique_ptr<WebMailbox> control;
++	static std::mutex controlLock;
++	std::lock_guard<std::mutex> g(controlLock);
++
++	std::string p = path;
++	for (auto& c : p)
++		if (c == '/')
++			c = '\\';
++	while (!p.empty() && p.back() == '\\')
++		p.pop_back();
++	// vrserver names a web root after its last two path components ("hlvr/webui").
++	std::string name = p;
++	size_t last = p.find_last_of('\\');
++	if (last != std::string::npos && last > 0) {
++		size_t prev = p.find_last_of('\\', last - 1);
++		name = p.substr(prev == std::string::npos ? 0 : prev + 1);
++		for (auto& c : name)
++			if (c == '\\')
++				c = '/';
++	}
++
++	std::string unix = UnixPath(p);
++	if (unix.empty()) {
++		OOVR_LOGF("RegisterExternalWebRoot('%s'): no unix path for it", path);
++		return false;
++	}
++	if (!control) {
++#ifdef _WIN32
++		control = WebMailbox::Open("vrclient/" + std::to_string(GetCurrentProcessId()));
++#else
++		control = WebMailbox::Open("vrclient/" + std::to_string(getpid()));
++#endif
++	}
++	if (!control)
++		return false;
++
++	Json::Value msg;
++	msg["type"] = "register_external_webroot";
++	msg["name"] = name;
++	msg["path"] = p;
++	msg["unix_path"] = unix;
++	msg["returnAddress"] = control->Name();
++	msg["message_id"] = 1;
++	Json::Value drives(Json::objectValue);
++#ifdef _WIN32
++	DWORD mask = GetLogicalDrives();
++	for (int i = 0; i < 26; i++) {
++		if (!(mask & (1u << i)))
++			continue;
++		std::string root = std::string(1, (char)('A' + i)) + ":\\";
++		std::string u = UnixPath(root);
++		if (!u.empty())
++			drives[std::string(1, (char)('a' + i))] = u;
++	}
++#endif
++	msg["drives"] = drives;
++	Json::StreamWriterBuilder w;
++	w["indentation"] = "";
++	auto t0 = std::chrono::steady_clock::now();
++	if (!control->Send("web_server_mailbox", Json::writeString(w, msg)))
++		return false;
++	std::string resp;
++	bool ok = control->WaitFor("register_external_webroot_response", 15000, resp);
++	int ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
++	OOVR_LOGF("RegisterExternalWebRoot('%s') as '%s' (%s): %s after %d ms", p.c_str(), name.c_str(), unix.c_str(),
++	    ok ? resp.c_str() : "no response", ms);
++	if (!ok)
++		return false;
++	Json::Value v;
++	Json::CharReaderBuilder b;
++	std::string errs;
++	std::unique_ptr<Json::CharReader> r(b.newCharReader());
++	return r->parse(resp.data(), resp.data() + resp.size(), &v, &errs) && v["result"].asInt() == 0;
++}
++
++} // namespace web_overlays
+diff --git a/OpenOVR/Misc/WebMailbox.h b/OpenOVR/Misc/WebMailbox.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..6ce930cbf9159bef4b64e99b1f6ee7f5173e8263
+--- /dev/null
++++ b/OpenOVR/Misc/WebMailbox.h
+@@ -0,0 +1,42 @@
++#pragma once
++
++#include <memory>
++#include <string>
++
++// SteamVR's mailbox protocol (vrserver's web server, ws://127.0.0.1:27062): one WebSocket per mailbox, text frames
++// "mailbox_open <name>", "mailbox_send <name> <json>"; received frames are the JSON messages sent to <name>.
++// Loopback only, no TLS. MacVR's macvr-broker plays SteamVR's server.
++class WebMailbox {
++public:
++	// Connects and opens `name`. Returns null when the server isn't reachable (short timeout).
++	static std::unique_ptr<WebMailbox> Open(const std::string& name);
++	~WebMailbox();
++
++	bool Send(const std::string& mailbox, const std::string& json);
++
++	// Next received message; false if none. With `peek`, the message stays queued.
++	bool Peek(std::string& out);
++	void Pop();
++
++	// Waits up to `ms` for a message of JSON type `type` (other messages stay queued).
++	bool WaitFor(const std::string& type, int ms, std::string& out);
++
++	bool Connected() const;
++	const std::string& Name() const { return name; }
++
++	struct Impl;
++
++private:
++	WebMailbox() = default;
++	std::string name;
++	std::shared_ptr<Impl> impl;
++};
++
++namespace web_overlays {
++// IVRControlPanel::RegisterExternalWebRoot: asks the server to create the overlays of <path>\vrwebui.config.json and
++// waits until they are loaded (as vrserver does). Returns false if no server or it failed; never blocks long.
++bool RegisterExternalWebRoot(const char* path);
++
++// True once the server was found unreachable, so mailboxes fall back to upstream's fake "ready".
++bool Unavailable();
++}
+diff --git a/OpenOVR/Reimpl/BaseControlPanel.cpp b/OpenOVR/Reimpl/BaseControlPanel.cpp
+index 115533b8673664451902b94c210818f556210d23..47f9aeff79df63acccf7ccbb7fed138e19e45b8e 100644
+--- a/OpenOVR/Reimpl/BaseControlPanel.cpp
++++ b/OpenOVR/Reimpl/BaseControlPanel.cpp
+@@ -1,14 +1,18 @@
+ #include "stdafx.h"
+ #define BASE_IMPL
+ #include "BaseControlPanel.h"
++#include "Misc/WebMailbox.h"
+ 
+ // These functions are used in HL:A - See #176
+-// Nooping both of these should be fine.
+ void BaseControlPanel::SetDashBoardUserToggleEnabled(bool status)
+ {
+ }
+-OOVR_EVR_ControlPanel_Error BaseControlPanel::RegisterExternalWebRoot()
++
++// HL:A registers <game>\hlvr\webui (its loading screens). The mailbox server creates the overlays of its
++// vrwebui.config.json; without one this is a quiet no-op, as before.
++OOVR_EVR_ControlPanel_Error BaseControlPanel::RegisterExternalWebRoot(const char* pchPath)
+ {
++	web_overlays::RegisterExternalWebRoot(pchPath);
+ 	return VR_ControlPanelError_None;
+ }
+ 
+diff --git a/OpenOVR/Reimpl/BaseControlPanel.h b/OpenOVR/Reimpl/BaseControlPanel.h
+index 1cb58146ab8120b31d1327891aa339c9a4488d5c..4b10b3d13548b6ec2a044aa21142d79547f407cd 100644
+--- a/OpenOVR/Reimpl/BaseControlPanel.h
++++ b/OpenOVR/Reimpl/BaseControlPanel.h
+@@ -35,7 +35,7 @@ public:
+ 	void UknFunc23();
+ 	void UknFunc24();
+ 	void UknFunc25();
+-	OOVR_EVR_ControlPanel_Error RegisterExternalWebRoot();
++	OOVR_EVR_ControlPanel_Error RegisterExternalWebRoot(const char* pchPath);
+ 	void UknFunc27();
+ 	void UknFunc28();
+ 	void UknFunc29();
+diff --git a/OpenOVR/Reimpl/BaseMailbox.cpp b/OpenOVR/Reimpl/BaseMailbox.cpp
+index 2512022035a5bc44684186e02b42e2463eccd4ad..c4e179dd4dc6c39c54c173113deb95a532b54d46 100644
+--- a/OpenOVR/Reimpl/BaseMailbox.cpp
++++ b/OpenOVR/Reimpl/BaseMailbox.cpp
+@@ -3,56 +3,81 @@
+ #define BASE_IMPL
+ 
+ #include "BaseMailbox.h"
++#include "Misc/WebMailbox.h"
++
++#include <map>
++#include <memory>
++#include <mutex>
+ 
+ typedef BaseMailbox::MboxErr MboxErr;
+ 
++namespace {
++std::mutex mailboxLock;
++std::map<OOVR_mbox_handle, std::unique_ptr<WebMailbox>> mailboxes;
++OOVR_mbox_handle nextHandle = 1;
++} // namespace
++
+ MboxErr BaseMailbox::RegisterMailbox(const char* name, OOVR_mbox_handle* handle)
+ {
+-	*handle = 123;
+-
+-	// Ignore it for now
+-	OOVR_LOGF("Pretending to register mailbox '%s'", name);
+-
++	std::lock_guard<std::mutex> g(mailboxLock);
++	*handle = nextHandle++;
++	std::unique_ptr<WebMailbox> mb = WebMailbox::Open(name ? name : "");
++	if (!mb)
++		OOVR_LOGF("Pretending to register mailbox '%s'", name);
++	mailboxes[*handle] = std::move(mb);
+ 	return VR_MBox_None;
+ }
+ 
+ MboxErr BaseMailbox::UnregisterMailbox(OOVR_mbox_handle mbox)
+ {
+-	OOVR_LOGF("Pretending to unregister mailbox ID %d", (int)mbox);
++	std::lock_guard<std::mutex> g(mailboxLock);
++	mailboxes.erase(mbox);
+ 	return VR_MBox_None;
+ }
+ 
+ MboxErr BaseMailbox::SendMessage(OOVR_mbox_handle mbox, const char* type, const char* message)
+ {
+-	OOVR_LOGF("Pretending to send mailbox message, type '%s' contents '%s'", type, message);
++	std::lock_guard<std::mutex> g(mailboxLock);
++	auto it = mailboxes.find(mbox);
++	if (it == mailboxes.end() || !it->second || !type || !message) {
++		OOVR_LOGF("Pretending to send mailbox message, type '%s' contents '%s'", type, message);
++		return VR_MBox_None;
++	}
++	OOVR_LOGF("Mailbox message to '%s': %s", type, message);
++	it->second->Send(type, message);
+ 	return VR_MBox_None;
+ }
+ 
+ MboxErr BaseMailbox::ReadMessage(OOVR_mbox_handle mboxHandle, char* outBuf, uint32_t outBufLen, uint32_t* msgLen)
+ {
+-	// Read message function
+-	// If we have a message available (IDK what the mailbox is even supposed to do), try to read a message.
+-	// If the message fits within the output buffer, copy it in and return 0.
+-	// Otherwise if it doesn't fit, return 2.
+-	// In both cases, set msgLen
+-	// If we don't have a message, return an unknown error code other than 0 and 2 (HL:A doesn't care).
++	// Returns 0 with the message if it fits, 2 (message kept) if it doesn't; msgLen is set in both cases.
++	// Any other code means no message (HL:A doesn't care which).
++	std::lock_guard<std::mutex> g(mailboxLock);
++	auto it = mailboxes.find(mboxHandle);
++	if (it != mailboxes.end() && it->second) {
++		std::string msg;
++		if (!it->second->Peek(msg))
++			return VR_MBox_NoMessage;
++		*msgLen = (uint32_t)msg.size();
++		if (outBufLen < msg.size() + 1)
++			return VR_MBox_BufferTooShort;
++		memcpy(outBuf, msg.c_str(), msg.size() + 1);
++		it->second->Pop();
++		OOVR_LOGF("Mailbox '%s' received: %s", it->second->Name().c_str(), msg.c_str());
++		return VR_MBox_None;
++	}
+ 
++	// No mailbox server (upstream behaviour): HL:A waits for its interstitials page's "ready".
+ 	static bool recvdReadyMsg = false;
+ 	if (!recvdReadyMsg) {
+-		recvdReadyMsg = true;
+-
+ 		const std::string msg = R"({ "type": "ready", })";
+ 		*msgLen = msg.size();
+-
+-		if (outBufLen < msg.size() + 1) {
++		if (outBufLen < msg.size() + 1)
+ 			return VR_MBox_BufferTooShort;
+-		}
++		recvdReadyMsg = true;
+ 		strcpy(outBuf, msg.c_str());
+-
+ 		OOVR_LOGF("Sending fake ready message '%s'", msg.c_str());
+ 		return VR_MBox_None;
+ 	}
+-
+-	// For now, just say we don't have a message
+ 	return VR_MBox_NoMessage;
+ }
+diff --git a/OpenVRHeaders/custom_interfaces/IVRControlPanel_006.h b/OpenVRHeaders/custom_interfaces/IVRControlPanel_006.h
+index 255dfb04f43b4c09a94f130166d3f9874218dafc..2cc92a745f667567f12d73d9125989a7314da8df 100644
+--- a/OpenVRHeaders/custom_interfaces/IVRControlPanel_006.h
++++ b/OpenVRHeaders/custom_interfaces/IVRControlPanel_006.h
+@@ -41,7 +41,7 @@ public:
+ 	virtual void UknFunc23() = 0;
+ 	virtual void UknFunc24() = 0;
+ 	virtual void UknFunc25() = 0;
+-	virtual EVR_ControlPanel_Error RegisterExternalWebRoot() = 0;
++	virtual EVR_ControlPanel_Error RegisterExternalWebRoot(const char* pchPath) = 0;
+ 	virtual void UknFunc27() = 0;
+ 	virtual void UknFunc28() = 0;
+ 	virtual void UknFunc29() = 0;

@@ -1,0 +1,144 @@
+diff --git a/server/driver/app_pacer.cpp b/server/driver/app_pacer.cpp
+index af8b2444..01b43b66 100644
+--- a/server/driver/app_pacer.cpp
++++ b/server/driver/app_pacer.cpp
+@@ -26,9 +26,34 @@
+ #include <cassert>
+ #include <cmath>
+ #include <ranges>
++#include <cstdio>
++#include <cstdlib>
++#include "os/os_time.h"
++
++static FILE * diag_trace()
++{
++	static FILE * f = [] {
++		const char * p = getenv("WIVRN_PACER_TRACE");
++		return p ? fopen(p, "w") : (FILE *)nullptr;
++	}();
++	return f;
++}
++#define DIAG(...)                                    \
++	do                                           \
++	{                                            \
++		if (FILE * f_ = diag_trace())        \
++		{                                    \
++			fprintf(f_, __VA_ARGS__);    \
++			fflush(f_);                  \
++		}                                    \
++	} while (0)
+ 
+ // Default value is half the compositor margin
+ DEBUG_GET_ONCE_FLOAT_OPTION(min_margin_ms, "U_PACING_APP_MIN_MARGIN_MS", 1.5f)
++DEBUG_GET_ONCE_BOOL_OPTION(comp_envelope, "WIVRN_PACER_COMP_ENVELOPE", true)
++DEBUG_GET_ONCE_BOOL_OPTION(late_tolerance, "WIVRN_PACER_LATE_TOLERANCE", true)
++DEBUG_GET_ONCE_FLOAT_OPTION(comp_rise_ms, "WIVRN_PACER_COMP_RISE_MS", 1.0f)
++DEBUG_GET_ONCE_FLOAT_OPTION(comp_decay_ms, "WIVRN_PACER_COMP_DECAY_MS", 0.1f)
+ 
+ namespace wivrn
+ {
+@@ -53,6 +78,7 @@ class app_pacer : public u_pacing_app
+ 		int64_t frame_id;
+ 		int64_t wake_up;
+ 		int64_t delivered;
++		int64_t submitted;
+ 	};
+ 	std::array<frame, 16> frames{};
+ 
+@@ -134,13 +160,19 @@ void app_pacer::predict(int64_t now_ns,
+ 
+ 	// no need to lock, called in same thread as writes
+ 	auto min_ready = now_ns + cpu_time + gpu_time + compositor_time;
++	// The wake time below keeps a margin, so an app that starts up to that margin late still makes its slot.
++	// Moving it to the next slot instead costs a whole period and a long wait on the following frame.
++	if (debug_get_bool_option_late_tolerance())
++		min_ready -= int64_t(U_TIME_1MS_IN_NS * min_margin_ms.val);
+ 	// The ideal display time: one frame after the last
+ 	last_display_time += period;
+ 	// Sync phase with compositor
+ 	last_display_time = compositor_display_time + period * ((period / 2 + last_display_time - compositor_display_time) / period);
+ 
++	int64_t diag_l = last_display_time;
+ 	if (cpu_time > period or gpu_time > period or (min_ready > last_display_time and min_ready < last_display_time + period))
+ 	{
++		DIAG("P %lld now %lld cpu %lld gpu %lld comp %lld cd %lld L %lld minr %lld imm\n", (long long)frame_id, (long long)now_ns, (long long)cpu_time, (long long)gpu_time, (long long)compositor_time, (long long)compositor_display_time, (long long)diag_l, (long long)min_ready);
+ 		// We are limited by app time, don't wait
+ 		*out_wake_up_time = now_ns;
+ 		*out_predicted_display_period = period; // FIXME: may be more than one frame
+@@ -157,7 +189,9 @@ void app_pacer::predict(int64_t now_ns,
+ 		*out_predicted_display_time = last_display_time;
+ 		*out_predicted_display_period = period;
+ 		*out_wake_up_time = last_display_time - (cpu_time + gpu_time + compositor_time + int64_t(U_TIME_1MS_IN_NS * min_margin_ms.val));
++		DIAG("P %lld now %lld cpu %lld gpu %lld comp %lld cd %lld L %lld minr %lld wait\n", (long long)frame_id, (long long)now_ns, (long long)cpu_time, (long long)gpu_time, (long long)compositor_time, (long long)compositor_display_time, (long long)diag_l, (long long)min_ready);
+ 	}
++	DIAG("R %lld wake %lld disp %lld\n", (long long)frame_id, (long long)*out_wake_up_time, (long long)*out_predicted_display_time);
+ }
+ 
+ void app_pacer::mark_point(int64_t frame_id, enum u_timing_point point, int64_t when_ns)
+@@ -169,10 +203,14 @@ void app_pacer::mark_point(int64_t frame_id, enum u_timing_point point, int64_t
+ 	{
+ 		case U_TIMING_POINT_WAKE_UP:
+ 			frame.wake_up = when_ns;
++			DIAG("W %lld %lld\n", (long long)frame_id, (long long)when_ns);
++			break;
++		case U_TIMING_POINT_SUBMIT_END:
++			frame.submitted = when_ns;
++			DIAG("S %lld %lld\n", (long long)frame_id, (long long)when_ns);
+ 			break;
+ 		case U_TIMING_POINT_BEGIN:
+ 		case U_TIMING_POINT_SUBMIT_BEGIN:
+-		case U_TIMING_POINT_SUBMIT_END:
+ 			break;
+ 	}
+ }
+@@ -183,6 +221,7 @@ void app_pacer::mark_delivered(int64_t frame_id, int64_t when_ns, int64_t displa
+ 	if (frame.frame_id != frame_id)
+ 		return;
+ 	frame.delivered = when_ns;
++	DIAG("D %lld %lld disp %lld\n", (long long)frame_id, (long long)when_ns, (long long)display_time_ns);
+ }
+ 
+ void app_pacer::mark_discarded(int64_t frame_id, int64_t when_ns)
+@@ -197,9 +236,24 @@ void app_pacer::info(int64_t predicted_display_time_ns,
+                      int64_t predicted_display_period_ns,
+                      int64_t extra_ns)
+ {
++	DIAG("I %lld disp %lld period %lld extra %lld\n", (long long)os_monotonic_get_ns(), (long long)predicted_display_time_ns, (long long)predicted_display_period_ns, (long long)extra_ns);
+ 	compositor_display_time = predicted_display_time_ns;
+ 	period = predicted_display_period_ns;
+-	compositor_time = std::max<int64_t>(0, extra_ns);
++	int64_t extra = std::max<int64_t>(0, extra_ns);
++	if (not debug_get_bool_option_comp_envelope() or compositor_time == 0)
++	{
++		compositor_time = extra;
++		return;
++	}
++	// extra_ns is measured from the compositor's actual wake, so it drops whenever the compositor wakes late and
++	// moves the app's wake target by as much, frame to frame. Follow its upper envelope, with a bounded rise so
++	// an increase can't make an on-time app late.
++	auto rise = int64_t(debug_get_float_option_comp_rise_ms() * U_TIME_1MS_IN_NS);
++	auto decay = int64_t(debug_get_float_option_comp_decay_ms() * U_TIME_1MS_IN_NS);
++	if (extra > compositor_time)
++		compositor_time += std::min(extra - compositor_time, rise);
++	else
++		compositor_time -= std::min(compositor_time - extra, decay);
+ }
+ 
+ int64_t lerp0(int64_t a, int64_t b, double t)
+@@ -212,12 +266,15 @@ int64_t lerp0(int64_t a, int64_t b, double t)
+ void app_pacer::mark_gpu_done(int64_t frame_id, int64_t when_ns)
+ {
+ 	auto & frame = get_frame(frame_id);
++	DIAG("G %lld %lld\n", (long long)frame_id, (long long)when_ns);
+ 	if (frame.frame_id != frame_id or not(frame.wake_up and frame.delivered))
+ 		return;
+ 
+ 	std::lock_guard lock(mutex);
+ 	cpu_time = lerp0(cpu_time, std::min(3 * period, frame.delivered - frame.wake_up), 0.1);
+-	gpu_time = lerp0(gpu_time, std::min(3 * period, when_ns - frame.delivered), 0.1);
++	// Not from delivery: the compositor only starts waiting for this frame's GPU work once the previous frame has
++	// been picked up, and counting that wait makes the app look slower the further ahead it is.
++	gpu_time = lerp0(gpu_time, std::min(3 * period, when_ns - std::max(frame.delivered, frame.submitted)), 0.1);
+ }
+ 
+ pacing_app_factory::pacing_app_factory() :

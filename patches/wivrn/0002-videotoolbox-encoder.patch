@@ -1,0 +1,641 @@
+From: macvr
+Subject: [PATCH] videotoolbox-encoder
+
+---
+ CMakeLists.txt                      |  11 +-
+ common/wivrn_config.h.in            |   1 +
+ server/CMakeLists.txt               |   6 +
+ server/compositor/compositor.cpp    |  49 +++++-
+ server/encoder/encoder_settings.cpp |  30 ++++
+ server/encoder/video_encoder.cpp    |  12 ++
+ server/encoder/video_encoder.h      |   1 +
+ server/encoder/video_encoder_vt.cpp | 305 ++++++++++++++++++++++++++++++++++++
+ server/encoder/video_encoder_vt.h   |  72 +++++++++
+ 9 files changed, 482 insertions(+), 5 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index eb0c19d8b6b5e07111ff37ad66163514c33680a6..05695359de77369f4c21581c656768d71dffa42f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -63,6 +63,8 @@ option(WIVRN_USE_NVENC "Enable nvenc (Nvidia) hardware encoder" ${_wivrn_linux_d
+ option(WIVRN_USE_VAAPI "Enable vaapi (AMD/Intel) hardware encoder" ${_wivrn_linux_default})
+ option(WIVRN_USE_VULKAN_ENCODE "Enable vulkan video encoder" ${_wivrn_linux_default})
+ option(WIVRN_USE_X264 "Enable x264 software encoder" ON)
++option(WIVRN_USE_VIDEOTOOLBOX "Enable VideoToolbox (macOS) hardware encoder" ${APPLE})
++set(WIVRN_MVT_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../encoder" CACHE PATH "Source directory of libmvt (VideoToolbox session library)")
+ 
+ option(WIVRN_USE_PERFETTO "Enable Perfetto tracing via the Perfetto SDK (server only)" OFF)
+ option(WIVRN_TRACE_MONADO "Also instrument Monado (percetto) under the same WIVRN_TRACING switch; pulls in a second Perfetto runtime, system backend only. Requires WIVRN_USE_PERFETTO" OFF)
+@@ -138,8 +140,12 @@ if (WIVRN_BUILD_SERVER)
+         message(FATAL_ERROR "Vulkan version must be at least 1.4.304, found ${Vulkan_VERSION}")
+     endif()
+ 
+-    if (NOT WIVRN_USE_NVENC AND NOT WIVRN_USE_VAAPI AND NOT WIVRN_USE_X264 AND NOT WIVRN_USE_VULKAN_ENCODE)
+-        message(FATAL_ERROR "No encoder selected, use at least one of WIVRN_USE_NVENC, WIVRN_USE_VAAPI, WIVRN_USE_VULKAN_ENCODE or WIVRN_USE_X264")
++    if (NOT WIVRN_USE_NVENC AND NOT WIVRN_USE_VAAPI AND NOT WIVRN_USE_X264 AND NOT WIVRN_USE_VULKAN_ENCODE AND NOT WIVRN_USE_VIDEOTOOLBOX)
++        message(FATAL_ERROR "No encoder selected, use at least one of WIVRN_USE_NVENC, WIVRN_USE_VAAPI, WIVRN_USE_VULKAN_ENCODE, WIVRN_USE_VIDEOTOOLBOX or WIVRN_USE_X264")
++    endif()
++
++    if (WIVRN_USE_VIDEOTOOLBOX AND NOT EXISTS "${WIVRN_MVT_SOURCE_DIR}/include/mvt.h")
++        message(FATAL_ERROR "WIVRN_USE_VIDEOTOOLBOX needs libmvt, set WIVRN_MVT_SOURCE_DIR")
+     endif()
+ 
+     if (WIVRN_USE_VAAPI)
+@@ -326,6 +332,7 @@ if (WIVRN_BUILD_SERVER OR WIVRN_BUILD_SERVER_LIBRARY)
+         message(STATUS "\tVAAPI : ${WIVRN_USE_VAAPI}")
+         message(STATUS "\tVulkan: ${WIVRN_USE_VULKAN_ENCODE}")
+         message(STATUS "\tx264  : ${WIVRN_USE_X264}")
++        message(STATUS "\tVideoToolbox: ${WIVRN_USE_VIDEOTOOLBOX}")
+         message(STATUS "")
+         message(STATUS "Audio backends:")
+         message(STATUS "\tPipewire  : ${WIVRN_USE_PIPEWIRE}")
+diff --git a/common/wivrn_config.h.in b/common/wivrn_config.h.in
+index cf5ffa2bdcf573d6932e7fe9d2c514b240227774..fb6fa6a6b185a640962311bae637a844b47e764a 100644
+--- a/common/wivrn_config.h.in
++++ b/common/wivrn_config.h.in
+@@ -32,6 +32,7 @@ static const int64_t max_extrapolation_ns = 80'000'000;
+ #cmakedefine01 WIVRN_USE_VAAPI
+ #cmakedefine01 WIVRN_USE_VULKAN_ENCODE
+ #cmakedefine01 WIVRN_USE_X264
++#cmakedefine01 WIVRN_USE_VIDEOTOOLBOX
+ 
+ #cmakedefine01 WIVRN_USE_PIPEWIRE
+ 
+diff --git a/server/CMakeLists.txt b/server/CMakeLists.txt
+index 6960ab7bae649804cb7cf2f96a2adbb65e8dfc2e..8fb7d14c2747d707e01095ea124bbba82b25bb61 100644
+--- a/server/CMakeLists.txt
++++ b/server/CMakeLists.txt
+@@ -195,6 +195,12 @@ if (WIVRN_BUILD_SERVER)
+ 		target_link_libraries(wivrn-server PRIVATE PkgConfig::X264)
+ 	endif()
+ 
++	if(WIVRN_USE_VIDEOTOOLBOX)
++		add_subdirectory(${WIVRN_MVT_SOURCE_DIR} mvt)
++		target_sources(wivrn-server PRIVATE encoder/video_encoder_vt.cpp)
++		target_link_libraries(wivrn-server PRIVATE mvt)
++	endif()
++
+ 	if(WIVRN_USE_PERFETTO)
+ 		find_path(PERFETTO_SDK_DIR
+ 			NAMES perfetto.h
+diff --git a/server/compositor/compositor.cpp b/server/compositor/compositor.cpp
+index 3958cadbf1ec9bfdc2d19ac288f835af8f9269cd..4e9b00822997b6e077080d29ac81e65f4583ac60 100644
+--- a/server/compositor/compositor.cpp
++++ b/server/compositor/compositor.cpp
+@@ -38,6 +38,8 @@
+ #include "utils/wivrn_trace.h"
+ 
+ #include "xrt/xrt_config_build.h" // IWYU pragma: keep
++
++#include <future>
+ #ifdef XRT_FEATURE_RENDERDOC
+ #include "renderdoc_app.h"
+ 
+@@ -694,6 +696,11 @@ int compositor::acquire_image()
+ 
+ void compositor::encoder_work(std::stop_token tok)
+ {
++	// VideoToolbox sessions run at full speed side by side but take 2x as long back to back,
++	// so encode the streams in parallel. Each encoder only touches its own state; the sender
++	// queue is shared and locked.
++	const bool parallel = std::ranges::all_of(settings, [](const encoder_settings & s) { return s.encoder_name == encoder_videotoolbox; });
++
+ 	while (not tok.stop_requested())
+ 	{
+ 		auto req = encode_request.exchange(-1);
+@@ -711,10 +718,46 @@ void compositor::encoder_work(std::stop_token tok)
+ 
+ 		try
+ 		{
+-			for (auto & encoder: encoders)
++			if (parallel)
++			{
++				std::array<std::future<void>, std::tuple_size_v<decltype(encoders)>> pending;
++				for (auto [i, encoder]: std::ranges::enumerate_view(encoders))
++				{
++					if (i == 0 or not(encoder->stream_idx < 2 or image.view_info.alpha))
++						continue;
++					pending[i] = std::async(std::launch::async, [&, e = encoder.get()] { e->encode(session, image.view_info, image.frame_index); });
++				}
++				std::exception_ptr error;
++				try
++				{
++					encoders[0]->encode(session, image.view_info, image.frame_index);
++				}
++				catch (...)
++				{
++					error = std::current_exception();
++				}
++				for (auto & f: pending)
++				{
++					try
++					{
++						if (f.valid())
++							f.get();
++					}
++					catch (...)
++					{
++						error = std::current_exception();
++					}
++				}
++				if (error)
++					std::rethrow_exception(error);
++			}
++			else
+ 			{
+-				if (encoder->stream_idx < 2 or image.view_info.alpha)
+-					encoder->encode(session, image.view_info, image.frame_index);
++				for (auto & encoder: encoders)
++				{
++					if (encoder->stream_idx < 2 or image.view_info.alpha)
++						encoder->encode(session, image.view_info, image.frame_index);
++				}
+ 			}
+ 		}
+ 		catch (std::exception & e)
+diff --git a/server/encoder/encoder_settings.cpp b/server/encoder/encoder_settings.cpp
+index 7b0922ef9abf5c10c92114541092d81316c53401..8288b49cc5d97d9c8d235c540d5e1dd7c5f88ab2 100644
+--- a/server/encoder/encoder_settings.cpp
++++ b/server/encoder/encoder_settings.cpp
+@@ -38,6 +38,10 @@
+ #include "ffmpeg/video_encoder_va.h"
+ #include <libavutil/ffversion.h>
+ #endif
++#if WIVRN_USE_VIDEOTOOLBOX
++#include "video_encoder_vt.h"
++#include <cmath>
++#endif
+ 
+ namespace wivrn
+ {
+@@ -97,6 +101,18 @@ static void check_video_size(std::string_view encoder_name, video_codec codec, u
+ 		height = std::min<uint16_t>(max[1], height);
+ 	}
+ #endif
++#if WIVRN_USE_VIDEOTOOLBOX
++	if (encoder_name == encoder_videotoolbox and uint32_t(width) * height > video_encoder_vt::max_pixels)
++	{
++		// keep the aspect ratio and the 64 pixel alignment
++		double scale = std::sqrt(double(video_encoder_vt::max_pixels) / (uint32_t(width) * height));
++		uint16_t w = std::max(64, int(width * scale) / 64 * 64);
++		uint16_t h = std::max(64, int(height * scale) / 64 * 64);
++		U_LOG_I("videotoolbox: stream size %dx%d clamped to %dx%d", width, height, w, h);
++		width = w;
++		height = h;
++	}
++#endif
+ }
+ 
+ namespace
+@@ -255,6 +271,20 @@ public:
+ 			}
+ 		}
+ #endif
++#if WIVRN_USE_VIDEOTOOLBOX
++		if (config.name.empty() or config.name == encoder_videotoolbox)
++		{
++			// VideoToolbox has no AV1 encoder; prefer HEVC
++			auto codecs = config.codec ? std::vector{*config.codec} : info.supported_codecs;
++			for (auto codec: {h265, h264})
++			{
++				if (std::ranges::contains(codecs, codec))
++					return {encoder_videotoolbox, codec};
++			}
++			U_LOG_I("videotoolbox: client supports neither HEVC nor H.264");
++		}
++#endif
++
+ 		U_LOG_W("No suitable hardware accelerated codec found");
+ #if WIVRN_USE_X264
+ 		if (config.name.empty() or config.name == encoder_x264)
+diff --git a/server/encoder/video_encoder.cpp b/server/encoder/video_encoder.cpp
+index 5d7c37a80b259defb7cf284ff75f5168c06f830d..a6bfafe89a8c48e7c6bc4c4b11e3fb496d3a186b 100644
+--- a/server/encoder/video_encoder.cpp
++++ b/server/encoder/video_encoder.cpp
+@@ -43,6 +43,9 @@
+ #include "video_encoder_vulkan_h265.h"
+ #endif
+ #include "video_encoder_raw.h"
++#if WIVRN_USE_VIDEOTOOLBOX
++#include "video_encoder_vt.h"
++#endif
+ 
+ namespace wivrn
+ {
+@@ -153,6 +156,15 @@ std::unique_ptr<video_encoder> video_encoder::create(
+ #endif
+ 	}
+ 
++	if (settings.encoder_name == encoder_videotoolbox)
++	{
++#if WIVRN_USE_VIDEOTOOLBOX
++		res = std::make_unique<video_encoder_vt>(wivrn_vk, settings, stream_idx);
++#else
++		throw std::runtime_error("videotoolbox support not enabled");
++#endif
++	}
++
+ 	if (settings.encoder_name == encoder_raw)
+ 	{
+ 		res = std::make_unique<video_encoder_raw>(wivrn_vk, settings, stream_idx);
+diff --git a/server/encoder/video_encoder.h b/server/encoder/video_encoder.h
+index 33729e5c486f6ac710d3a536bf6db0a3b8ba5bc6..e2a0b26dd8fb2425c4dc7d31f61dc127d9bffd63 100644
+--- a/server/encoder/video_encoder.h
++++ b/server/encoder/video_encoder.h
+@@ -45,6 +45,7 @@ inline const char * encoder_vaapi = "vaapi";
+ inline const char * encoder_x264 = "x264";
+ inline const char * encoder_vulkan = "vulkan";
+ inline const char * encoder_raw = "raw";
++inline const char * encoder_videotoolbox = "videotoolbox";
+ 
+ class video_encoder
+ {
+diff --git a/server/encoder/video_encoder_vt.cpp b/server/encoder/video_encoder_vt.cpp
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f66b62e3e398353ed35da56da847ca7708c5f09
+--- /dev/null
++++ b/server/encoder/video_encoder_vt.cpp
+@@ -0,0 +1,305 @@
++/*
++ * WiVRn VR streaming
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#include "video_encoder_vt.h"
++
++#include "encoder_settings.h"
++#include "os/os_time.h"
++#include "util/u_debug.h"
++#include "util/u_logging.h"
++#include "utils/wivrn_vk_bundle.h"
++
++#include <mvt.h>
++
++#include <algorithm>
++#include <format>
++#include <stdexcept>
++
++DEBUG_GET_ONCE_BOOL_OPTION(vt_log_timing, "WIVRN_VT_LOG_TIMING", false)
++
++namespace wivrn
++{
++
++namespace
++{
++uint32_t queue_family(wivrn::vk_bundle & vk)
++{
++	return vk.transfer_queue ? vk.transfer_queue.family_index : vk.queue.family_index;
++}
++
++vk::raii::CommandPool make_cmd_pool(wivrn::vk_bundle & vk, uint8_t stream_idx)
++{
++	auto res = vk.device.createCommandPool(vk::CommandPoolCreateInfo{
++	        .flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer | vk::CommandPoolCreateFlagBits::eTransient,
++	        .queueFamilyIndex = queue_family(vk),
++	});
++	vk.name(res, std::format("videotoolbox encoder {} command pool", stream_idx));
++	return res;
++}
++} // namespace
++
++video_encoder_vt::video_encoder_vt(wivrn::vk_bundle & vk, const encoder_settings & settings, uint8_t stream_idx) :
++        video_encoder(vk, stream_idx, queue_family(vk), settings, std::make_unique<default_idr_handler>(), true),
++        vk(vk),
++        cmd_pool(make_cmd_pool(vk, stream_idx)),
++        bytes_per_sample(settings.bit_depth == 10 ? 2 : 1)
++{
++	mvt_params p;
++	mvt_params_default(&p, settings.width, settings.height);
++	p.fps = settings.fps;
++	p.bitrate_bps = settings.bitrate;
++	p.ten_bit = settings.bit_depth == 10;
++	switch (settings.codec)
++	{
++		case video_codec::h265:
++			p.codec = MVT_CODEC_HEVC;
++			break;
++		case video_codec::h264:
++			p.codec = MVT_CODEC_H264;
++			if (p.ten_bit)
++				throw std::runtime_error("videotoolbox: 10-bit H.264 is not supported");
++			break;
++		default:
++			throw std::runtime_error("videotoolbox: unsupported codec");
++	}
++
++	stats_start = os_monotonic_get_ns();
++	int32_t status = 0;
++	enc = mvt_encoder_create(&p, &status);
++	if (not enc)
++		throw std::runtime_error(std::format("videotoolbox: cannot create {}x{} encoder (OSStatus {})", settings.width, settings.height, status));
++
++	auto command_buffers = vk.device.allocateCommandBuffers({
++	        .commandPool = *cmd_pool,
++	        .commandBufferCount = num_slots,
++	});
++
++	const vk::DeviceSize luma_size = vk::DeviceSize(extent.width) * extent.height * bytes_per_sample;
++	for (size_t i = 0; i < num_slots; ++i)
++	{
++		in[i].cmd = std::move(command_buffers[i]);
++		vk.name(in[i].cmd, std::format("videotoolbox {} transfer command buffer {}", stream_idx, i));
++		in[i].fence = vk::raii::Fence(vk.device, vk::FenceCreateInfo{.flags = vk::FenceCreateFlagBits::eSignaled});
++		in[i].luma = buffer_allocation(
++		        vk.device,
++		        {
++		                .size = luma_size,
++		                .usage = vk::BufferUsageFlagBits::eTransferDst,
++		        },
++		        {
++		                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
++		                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
++		        },
++		        "videotoolbox luma buffer");
++		in[i].chroma = buffer_allocation(
++		        vk.device,
++		        {
++		                .size = luma_size / 2,
++		                .usage = vk::BufferUsageFlagBits::eTransferDst,
++		        },
++		        {
++		                .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
++		                .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
++		        },
++		        "videotoolbox chroma buffer");
++	}
++	U_LOG_I("videotoolbox: stream %d %dx%d %s %d-bit %.1f Mbit/s",
++	        stream_idx,
++	        extent.width,
++	        extent.height,
++	        p.codec == MVT_CODEC_HEVC ? "HEVC" : "H.264",
++	        settings.bit_depth,
++	        settings.bitrate / 1e6);
++}
++
++void video_encoder_vt::log_stats(uint64_t duration_ns)
++{
++	if (stats.empty())
++		return;
++	uint64_t bytes = 0;
++	for (auto & s: stats)
++		bytes += s.bytes;
++	std::ranges::sort(stats, {}, &stat::encode_ms);
++	auto pct = [&](double p) { return stats[std::min(stats.size() - 1, size_t(p * stats.size()))].encode_ms; };
++	U_LOG_I("videotoolbox: stream %d: %zu frames in %.1f s (%.1f fps), %.1f Mbit/s, encode p50 %.2f p95 %.2f max %.2f ms",
++	        stream_idx,
++	        stats.size(),
++	        duration_ns / 1e9,
++	        stats.size() / (duration_ns / 1e9),
++	        bytes * 8 / (duration_ns / 1e9) / 1e6,
++	        pct(0.5),
++	        pct(0.95),
++	        stats.back().encode_ms);
++	stats.clear();
++}
++
++video_encoder_vt::~video_encoder_vt()
++{
++	for (auto & i: in)
++		(void)vk.device.waitForFences(*i.fence, true, 1'000'000'000);
++	if (enc)
++		mvt_encoder_destroy(enc);
++}
++
++void video_encoder_vt::present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo compositor_sem, uint8_t slot, uint64_t)
++{
++	if (vk.device.waitForFences(*in[slot].fence, true, 1'000'000'000) == vk::Result::eTimeout)
++	{
++		U_LOG_E("videotoolbox: timeout on stream %d", stream_idx);
++		return;
++	}
++
++	auto & cmd = in[slot].cmd;
++	cmd.begin({.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
++
++	if (need_transfer)
++	{
++		vk::ImageMemoryBarrier2 barrier{
++		        .dstStageMask = vk::PipelineStageFlagBits2KHR::eTransfer,
++		        .dstAccessMask = vk::AccessFlagBits2::eTransferRead,
++		        .srcQueueFamilyIndex = vk.queue.family_index,
++		        .dstQueueFamilyIndex = target_queue,
++		        .image = y_cbcr,
++		        .subresourceRange = {.aspectMask = vk::ImageAspectFlagBits::eColor,
++		                             .baseMipLevel = 0,
++		                             .levelCount = 1,
++		                             .baseArrayLayer = stream_idx,
++		                             .layerCount = 1},
++		};
++		cmd.pipelineBarrier2({
++		        .imageMemoryBarrierCount = 1,
++		        .pImageMemoryBarriers = &barrier,
++		});
++	}
++
++	// Either one multi-planar image, or (MoltenVK) a luma image and a chroma image.
++	// bufferRowLength is in texels of the plane format: R8/R16 for luma, RG8/RG16 for chroma
++	const bool planar = not cbcr_image;
++	cmd.copyImageToBuffer(
++	        y_cbcr,
++	        vk::ImageLayout::eGeneral,
++	        in[slot].luma,
++	        vk::BufferImageCopy{
++	                .bufferRowLength = extent.width,
++	                .imageSubresource = {
++	                        .aspectMask = planar ? vk::ImageAspectFlagBits::ePlane0 : vk::ImageAspectFlagBits::eColor,
++	                        .baseArrayLayer = stream_idx,
++	                        .layerCount = 1,
++	                },
++	                .imageExtent = {
++	                        .width = extent.width,
++	                        .height = extent.height,
++	                        .depth = 1,
++	                }});
++	cmd.copyImageToBuffer(
++	        planar ? y_cbcr : cbcr_image,
++	        vk::ImageLayout::eGeneral,
++	        in[slot].chroma,
++	        vk::BufferImageCopy{
++	                .bufferRowLength = extent.width / 2,
++	                .imageSubresource = {
++	                        .aspectMask = planar ? vk::ImageAspectFlagBits::ePlane1 : vk::ImageAspectFlagBits::eColor,
++	                        .baseArrayLayer = stream_idx,
++	                        .layerCount = 1,
++	                },
++	                .imageExtent = {
++	                        .width = extent.width / 2,
++	                        .height = extent.height / 2,
++	                        .depth = 1,
++	                }});
++
++	cmd.end();
++
++	auto & queue = vk.transfer_queue ? vk.transfer_queue : vk.queue;
++	std::unique_lock lock(queue.mutex);
++	vk::CommandBufferSubmitInfo cmd_info{
++	        .commandBuffer = *cmd,
++	};
++	compositor_sem.stageMask = vk::PipelineStageFlagBits2::eTransfer;
++
++	vk.device.resetFences(*in[slot].fence);
++	queue.queue.submit2(vk::SubmitInfo2{
++	                            .waitSemaphoreInfoCount = 1,
++	                            .pWaitSemaphoreInfos = &compositor_sem,
++	                            .commandBufferInfoCount = 1,
++	                            .pCommandBufferInfos = &cmd_info,
++	                    },
++	                    *in[slot].fence);
++}
++
++std::optional<video_encoder::data> video_encoder_vt::encode(uint8_t slot, uint64_t frame_index)
++{
++	if (auto bitrate = pending_bitrate.exchange(0))
++		mvt_set_bitrate(enc, bitrate, MVT_RATE_IMMEDIATE);
++	if (auto framerate = pending_framerate.exchange(0))
++		mvt_set_framerate(enc, framerate);
++
++	bool force_idr = static_cast<default_idr_handler &>(*idr).get_type(frame_index) == default_idr_handler::frame_type::i;
++
++	auto t0 = os_monotonic_get_ns();
++	if (vk.device.waitForFences(*in[slot].fence, true, 1'000'000'000) == vk::Result::eTimeout)
++	{
++		U_LOG_E("videotoolbox: timeout on stream %d", stream_idx);
++		return {};
++	}
++	auto t1 = os_monotonic_get_ns();
++
++	const size_t stride = size_t(extent.width) * bytes_per_sample;
++	mvt_frame f{};
++	int32_t err = mvt_encode_nv12_sync(enc,
++	                                   (const uint8_t *)in[slot].luma.map(),
++	                                   stride,
++	                                   (const uint8_t *)in[slot].chroma.map(),
++	                                   stride,
++	                                   t1,
++	                                   force_idr,
++	                                   &f);
++	if (err != 0 or f.status != 0 or f.size == 0)
++	{
++		U_LOG_W("videotoolbox: stream %d frame %ld encode failed (%d/%d)", stream_idx, frame_index, err, f.status);
++		return {};
++	}
++
++	auto t2 = os_monotonic_get_ns();
++	stats.push_back({.encode_ms = float((t2 - t1) / 1e6), .bytes = uint32_t(f.size)});
++	if (t2 - stats_start > 10'000'000'000)
++	{
++		log_stats(t2 - stats_start);
++		stats_start = t2;
++	}
++
++	if (debug_get_bool_option_vt_log_timing())
++	{
++		U_LOG_I("videotoolbox: stream %d frame %ld %s %zu bytes, readback wait %.2f ms, encode %.2f ms (VT %.2f ms)",
++		        stream_idx,
++		        frame_index,
++		        f.is_idr ? "IDR" : "P",
++		        f.size,
++		        (t1 - t0) / 1e6,
++		        (t2 - t1) / 1e6,
++		        f.encode_ns / 1e6);
++	}
++
++	return data{
++	        .encoder = this,
++	        .span = std::span<uint8_t>(const_cast<uint8_t *>(f.data), f.size),
++	        .mem = nullptr,
++	        .prefer_control = f.is_idr,
++	};
++}
++
++} // namespace wivrn
+diff --git a/server/encoder/video_encoder_vt.h b/server/encoder/video_encoder_vt.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..c7c022149c3d82f5d07f629f7d15ab108d65ad2e
+--- /dev/null
++++ b/server/encoder/video_encoder_vt.h
+@@ -0,0 +1,72 @@
++/*
++ * WiVRn VR streaming
++ *
++ * This program is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "video_encoder.h"
++#include "vk/allocation.h"
++
++#include <array>
++#include <vector>
++#include <vulkan/vulkan_raii.hpp>
++
++struct mvt_encoder;
++
++namespace wivrn
++{
++
++// VideoToolbox HEVC/H.264 through libmvt. The encode image layer is read back to host
++// NV12 (8-bit) or P010-like (10-bit, = xf20) buffers, then copied into a VT pool buffer.
++class video_encoder_vt : public video_encoder
++{
++	wivrn::vk_bundle & vk;
++	vk::raii::CommandPool cmd_pool;
++	mvt_encoder * enc = nullptr;
++	uint32_t bytes_per_sample;
++
++	struct in_t
++	{
++		vk::raii::Fence fence = nullptr;
++		vk::raii::CommandBuffer cmd = nullptr;
++		buffer_allocation luma;
++		buffer_allocation chroma;
++	};
++	std::array<in_t, num_slots> in;
++
++	// encode time and size, logged every 10 s
++	struct stat
++	{
++		float encode_ms;
++		uint32_t bytes;
++	};
++	std::vector<stat> stats;
++	uint64_t stats_start;
++	void log_stats(uint64_t duration_ns);
++
++public:
++	// Largest frame VideoToolbox encodes at full speed (M4 Max: slow path above ~5.3 MP)
++	static constexpr uint32_t max_pixels = 5'200'000;
++
++	video_encoder_vt(wivrn::vk_bundle & vk, const encoder_settings & settings, uint8_t stream_idx);
++	~video_encoder_vt();
++
++	void present_image(vk::Image y_cbcr, vk::SemaphoreSubmitInfo, uint8_t slot, uint64_t frame_index) override;
++
++	std::optional<data> encode(uint8_t slot, uint64_t frame_index) override;
++};
++
++} // namespace wivrn

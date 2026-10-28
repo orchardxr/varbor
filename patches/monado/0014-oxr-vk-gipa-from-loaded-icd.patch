@@ -1,0 +1,154 @@
+From: macvr
+Subject: [PATCH] oxr-vk-gipa-from-loaded-icd
+
+---
+ src/xrt/auxiliary/vk/vk_metal_apple.m           |  6 ++--
+ src/xrt/state_trackers/oxr/oxr_api_system.c     |  7 ++--
+ src/xrt/state_trackers/oxr/oxr_objects.h        |  3 ++
+ src/xrt/state_trackers/oxr/oxr_session_gfx_vk.c |  6 ++--
+ src/xrt/state_trackers/oxr/oxr_vulkan.c         | 45 +++++++++++++++++++++++++
+ 5 files changed, 55 insertions(+), 12 deletions(-)
+
+diff --git a/src/xrt/auxiliary/vk/vk_metal_apple.m b/src/xrt/auxiliary/vk/vk_metal_apple.m
+index 726fd83362472c18f7e59d8fea02f6b9e42a5bfe..1a25a475f7003a752acd8af30b47569ce824a9ce 100644
+--- a/src/xrt/auxiliary/vk/vk_metal_apple.m
++++ b/src/xrt/auxiliary/vk/vk_metal_apple.m
+@@ -228,10 +228,8 @@ vk_metal_create_timeline_semaphore_and_port(struct vk_bundle *vk, VkSemaphore *o
+ VkResult
+ vk_metal_import_timeline_semaphore_from_port(struct vk_bundle *vk, mach_port_t port, VkSemaphore *out_sem)
+ {
+-	if (vk->vkExportMetalObjectsEXT == NULL) {
+-		return VK_ERROR_EXTENSION_NOT_PRESENT;
+-	}
+-
++	// No vkExportMetalObjectsEXT check: MoltenVK honours the import struct even when the app's device (DXVK's in the
++	// Wine bridge) didn't enable VK_EXT_metal_objects.
+ 	id<MTLDevice> dev = get_mtl_device();
+ 	if (dev == nil || ![dev respondsToSelector:@selector(newSharedEventWithMachPort:)]) {
+ 		VK_ERROR(vk, "No MTLDevice or no newSharedEventWithMachPort:");
+diff --git a/src/xrt/state_trackers/oxr/oxr_api_system.c b/src/xrt/state_trackers/oxr/oxr_api_system.c
+index a260335640b9522db60c14fb5ab06929a7d3e47c..3341f3b6e37865b7342e6fb40b79d652a9a44914 100644
+--- a/src/xrt/state_trackers/oxr/oxr_api_system.c
++++ b/src/xrt/state_trackers/oxr/oxr_api_system.c
+@@ -303,10 +303,6 @@ oxr_xrGetVulkanDeviceExtensionsKHR(XrInstance instance,
+ 	return oxr_vk_get_device_exts(&log, sys, namesCapacityInput, namesCountOutput, namesString);
+ }
+ 
+-// NOLINTNEXTLINE // don't remove the forward decl.
+-VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+-vkGetInstanceProcAddr(VkInstance instance, const char *pName); // NOLINT
+-
+ XRAPI_ATTR XrResult XRAPI_CALL
+ oxr_xrGetVulkanGraphicsDeviceKHR(XrInstance instance,
+                                  XrSystemId systemId,
+@@ -322,7 +318,8 @@ oxr_xrGetVulkanGraphicsDeviceKHR(XrInstance instance,
+ 	OXR_VERIFY_ARG_NOT_NULL(&log, vkPhysicalDevice);
+ 	OXR_VERIFY_XSYSC(&log, sys);
+ 
+-	return oxr_vk_get_physical_device(&log, inst, sys, vkInstance, vkGetInstanceProcAddr, vkPhysicalDevice);
++	return oxr_vk_get_physical_device(&log, inst, sys, vkInstance, oxr_vk_get_instance_proc_addr(),
++	                                  vkPhysicalDevice);
+ }
+ 
+ XRAPI_ATTR XrResult XRAPI_CALL
+diff --git a/src/xrt/state_trackers/oxr/oxr_objects.h b/src/xrt/state_trackers/oxr/oxr_objects.h
+index c8fbdadcda99a4131b939bc480a7f54cca1b7498..796c83584c78d7996c52b1a903ea8c142772bd29 100644
+--- a/src/xrt/state_trackers/oxr/oxr_objects.h
++++ b/src/xrt/state_trackers/oxr/oxr_objects.h
+@@ -909,6 +909,9 @@ oxr_vk_create_vulkan_device(struct oxr_logger *log,
+                             VkDevice *vulkanDevice,
+                             VkResult *vulkanResult);
+ 
++PFN_vkGetInstanceProcAddr
++oxr_vk_get_instance_proc_addr(void);
++
+ XrResult
+ oxr_vk_get_physical_device(struct oxr_logger *log,
+                            struct oxr_instance *inst,
+diff --git a/src/xrt/state_trackers/oxr/oxr_session_gfx_vk.c b/src/xrt/state_trackers/oxr/oxr_session_gfx_vk.c
+index a31b5435cca956f82d1590c8e12261299eef5ae4..15689158e9c7ae59a2fdaaaa0f7d8084ee2c438c 100644
+--- a/src/xrt/state_trackers/oxr/oxr_session_gfx_vk.c
++++ b/src/xrt/state_trackers/oxr/oxr_session_gfx_vk.c
+@@ -37,8 +37,8 @@ check_for_layer_mnd_enable_timeline_semaphore(struct oxr_logger *log,
+                                               VkInstance instance,
+                                               VkPhysicalDevice physical_device)
+ {
+-	PFN_vkEnumerateDeviceLayerProperties func =
+-	    (PFN_vkEnumerateDeviceLayerProperties)vkGetInstanceProcAddr(instance, "vkEnumerateDeviceLayerProperties");
++	PFN_vkEnumerateDeviceLayerProperties func = (PFN_vkEnumerateDeviceLayerProperties)oxr_vk_get_instance_proc_addr()(
++	    instance, "vkEnumerateDeviceLayerProperties");
+ 	uint32_t prop_count = 0;
+ 	VkResult ret = VK_SUCCESS;
+ 
+@@ -143,7 +143,7 @@ oxr_session_populate_vk(struct oxr_logger *log,
+ 	struct xrt_compositor_vk *xcvk = xrt_gfx_vk_provider_create( //
+ 	    xcn,                                                     //
+ 	    next->instance,                                          //
+-	    vkGetInstanceProcAddr,                                   //
++	    oxr_vk_get_instance_proc_addr(),                         //
+ 	    next->physicalDevice,                                    //
+ 	    next->device,                                            //
+ 	    external_fence_fd_enabled,                               //
+diff --git a/src/xrt/state_trackers/oxr/oxr_vulkan.c b/src/xrt/state_trackers/oxr/oxr_vulkan.c
+index e631812683001beb9f65b46b59396e658ddda443..6c9840eae3d05fc8ae5b3aaf944330fde0a6be11 100644
+--- a/src/xrt/state_trackers/oxr/oxr_vulkan.c
++++ b/src/xrt/state_trackers/oxr/oxr_vulkan.c
+@@ -13,6 +13,12 @@
+ #include <string.h>
+ #include <stdlib.h>
+ 
++#include "xrt/xrt_config_os.h"
++
++#ifdef XRT_OS_OSX
++#include <dlfcn.h>
++#endif
++
+ #include "util/u_misc.h"
+ #include "util/u_debug.h"
+ #include "util/u_extension_list.h"
+@@ -36,6 +42,45 @@
+ 
+ #define UUID_STR_SIZE (XRT_UUID_SIZE * 3 + 1)
+ 
++#ifdef XRT_OS_OSX
++/*
++ * The app's process may have no Vulkan loader, e.g. the Wine bridge where winevulkan drives MoltenVK directly:
++ * XRT_VK_GIPA_LIBRARY names the already loaded ICD library whose vkGetInstanceProcAddr to use.
++ */
++DEBUG_GET_ONCE_OPTION(vk_gipa_library, "XRT_VK_GIPA_LIBRARY", NULL)
++
++PFN_vkGetInstanceProcAddr
++oxr_vk_get_instance_proc_addr(void)
++{
++	static PFN_vkGetInstanceProcAddr gipa = NULL;
++	if (gipa != NULL) {
++		return gipa;
++	}
++
++	const char *lib = debug_get_option_vk_gipa_library();
++	void *handle = RTLD_DEFAULT;
++	if (lib != NULL) {
++		handle = dlopen(lib, RTLD_NOW | RTLD_NOLOAD);
++	}
++	if (handle != NULL) {
++		gipa = (PFN_vkGetInstanceProcAddr)dlsym(handle, "vkGetInstanceProcAddr");
++	}
++	if (gipa == NULL && lib == NULL && (handle = dlopen("libvulkan.1.dylib", RTLD_NOW)) != NULL) {
++		gipa = (PFN_vkGetInstanceProcAddr)dlsym(handle, "vkGetInstanceProcAddr");
++	}
++	if (gipa == NULL) {
++		U_LOG_E("No vkGetInstanceProcAddr (XRT_VK_GIPA_LIBRARY=%s)", lib != NULL ? lib : "");
++	}
++	return gipa;
++}
++#else
++PFN_vkGetInstanceProcAddr
++oxr_vk_get_instance_proc_addr(void)
++{
++	return vkGetInstanceProcAddr;
++}
++#endif
++
+ static void
+ snprint_uuid(char *str, size_t size, const xrt_uuid_t *uuid)
+ {

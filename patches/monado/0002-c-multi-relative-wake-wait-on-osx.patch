@@ -1,0 +1,29 @@
+From: macvr
+Subject: [PATCH] c-multi-relative-wake-wait-on-osx
+
+---
+ src/xrt/compositor/multi/comp_multi_system.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/xrt/compositor/multi/comp_multi_system.c b/src/xrt/compositor/multi/comp_multi_system.c
+index 8c02280b0b1c4db9b0fc55eb3f4d7cfa9b7fd092..57ebcbbf6468dfed07e8a0de9d00d28a3e3ad27a 100644
+--- a/src/xrt/compositor/multi/comp_multi_system.c
++++ b/src/xrt/compositor/multi/comp_multi_system.c
+@@ -449,10 +449,16 @@ wait_frame(struct multi_system_compositor *msc, struct xrt_compositor *xc, int64
+ 
+ 	// When we should wake up is in the past:ish.
+ 	if (! fuzzy_in_the_past) {
++		os_mutex_lock(&msc->wake_mutex);
++#ifdef XRT_OS_OSX
++		struct timespec rel_ts;
++		os_ns_to_timespec(wake_up_time_ns - now_ns, &rel_ts);
++		pthread_cond_timedwait_relative_np(&msc->wake_cond.cond, &msc->wake_mutex.mutex, &rel_ts);
++#else
+ 		struct timespec wake_ts;
+ 		os_ns_to_timespec(wake_up_time_ns, &wake_ts);
+-		os_mutex_lock(&msc->wake_mutex);
+ 		pthread_cond_clockwait(&msc->wake_cond.cond, &msc->wake_mutex.mutex, CLOCK_MONOTONIC, &wake_ts);
++#endif
+ 		os_mutex_unlock(&msc->wake_mutex);
+ 	}
+ }

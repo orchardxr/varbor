@@ -1,0 +1,147 @@
+name: Build MacVR.app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LLVM_MINGW_VERSION: "20260922"
+  LLVM_MINGW_SHA256: 52e5f5a7b131021d0c39a37a38fa380a1da7885cd04bd61afd0cd4ecfb8bc1f3
+  VULKAN_SDK_VERSION: 1.4.304.0
+  VULKAN_SDK_SHA256: d8909362c8cd6a61a33f8ab21240c6d3f38c3818f443f52939a9ac198ad0e539
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select the newest Xcode
+        run: |
+          xcode="$(find /Applications -maxdepth 1 -name 'Xcode_*.app' | sort -V | tail -1)"
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+          echo "macOS SDK $(xcrun --show-sdk-version)"
+          swift --version
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Brewfile') }}
+          restore-keys: brew-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Homebrew dependencies
+        run: brew bundle --file=Brewfile --no-upgrade
+
+      # Installs the universal loader, headers and glslc into /usr/local (the x86_64 IPC client links the x86_64
+      # slice). The installer's component names are LunarG's; not exercised outside CI.
+      - name: Cache Vulkan SDK download
+        uses: actions/cache@v4
+        with:
+          path: ~/vulkansdk-dl
+          key: vulkansdk-${{ env.VULKAN_SDK_VERSION }}
+      - name: Vulkan SDK
+        run: |
+          mkdir -p ~/vulkansdk-dl && cd ~/vulkansdk-dl
+          zip="vulkansdk-macos-$VULKAN_SDK_VERSION.zip"
+          [[ -f "$zip" ]] || curl -fsSLo "$zip" "https://sdk.lunarg.com/sdk/download/$VULKAN_SDK_VERSION/mac/$zip"
+          echo "$VULKAN_SDK_SHA256  $zip" | shasum -a 256 -c -
+          rm -rf InstallVulkan.app && unzip -q "$zip"
+          sudo ./InstallVulkan.app/Contents/MacOS/InstallVulkan --root "$HOME/VulkanSDK/$VULKAN_SDK_VERSION" \
+            --accept-licenses --default-answer --confirm-command install com.lunarg.vulkan.core com.lunarg.vulkan.usr
+          lipo -archs /usr/local/lib/libvulkan.dylib
+          ls /usr/local/include/vulkan/vulkan_core.h /usr/local/bin/glslc
+
+      - name: Cache llvm-mingw
+        id: llvm-mingw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/toolchains/llvm-mingw-${{ env.LLVM_MINGW_VERSION }}-ucrt-macos-universal
+          key: llvm-mingw-${{ env.LLVM_MINGW_VERSION }}-${{ env.LLVM_MINGW_SHA256 }}
+      - name: llvm-mingw
+        run: |
+          dir="$HOME/toolchains/llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal"
+          if [[ ! -x "$dir/bin/x86_64-w64-mingw32-clang" ]]; then
+            mkdir -p ~/toolchains && cd ~/toolchains
+            tarball="llvm-mingw-$LLVM_MINGW_VERSION-ucrt-macos-universal.tar.xz"
+            curl -fsSLo "$tarball" "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VERSION/$tarball"
+            echo "$LLVM_MINGW_SHA256  $tarball" | shasum -a 256 -c -
+            tar -xJf "$tarball" && rm "$tarball"
+          fi
+          echo "LLVM_MINGW=$dir" >> "$GITHUB_ENV"
+
+      - name: Apply patches
+        run: |
+          scripts/patches.sh apply
+          scripts/patches.sh status
+
+      # Build dirs are reused only for the exact same sources (submodule pins, patches, our code, scripts).
+      - name: Submodule pins
+        id: pins
+        run: echo "hash=$(git submodule status --recursive | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Cache CMake build dirs
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/monado-snapshot
+            build/openxr-sdk
+            build/bridge/openxr-sdk-win
+            build/m3/oc
+            build/wivrn-next
+            build/wivrn-client-x86_64
+            build/wivrn-client-arm64
+          key: cmake-${{ runner.arch }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('patches/**', 'encoder/**', 'bridge/**', 'cmake/**', 'scripts/**', 'Brewfile') }}-${{ env.VULKAN_SDK_VERSION }}-${{ env.LLVM_MINGW_VERSION }}
+
+      - name: OpenXR SDK (native loader for the server's test programs)
+        run: scripts/build.sh openxr-sdk
+
+      - name: OpenXR SDK for Windows (loader, generated headers, Vulkan import library)
+        run: scripts/build-bridge.sh openxr-sdk-win
+
+      - name: OpenComposite
+        run: scripts/build-opencomposite.sh
+
+      - name: WiVRn server
+        run: WIVRN_BUILD_DIR="$PWD/build/wivrn-next" scripts/build-wivrn.sh --snapshot
+
+      # x86_64 slice: Monado's client only needs the universal Vulkan SDK in /usr/local and Eigen's headers, so no
+      # x86_64 Homebrew is needed.
+      - name: WiVRn IPC client (x86_64, Rosetta runners)
+        run: scripts/build-wivrn.sh --client-x86_64
+
+      - name: WiVRn IPC client (arm64, FEX runners)
+        run: scripts/build-wivrn.sh --client-arm64
+
+      - name: Bridge
+        run: scripts/build-bridge.sh bridge
+
+      - name: MacVR.app
+        run: WIVRN_BUILD_DIR="$PWD/build/wivrn-next" scripts/build-app.sh --test
+
+      - name: Build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/logs
+
+      - name: Zip MacVR.app
+        run: ditto -c -k --keepParent build/app/MacVR.app build/MacVR.app.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MacVR.app
+          path: build/MacVR.app.zip

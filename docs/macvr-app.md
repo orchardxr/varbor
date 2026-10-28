@@ -284,7 +284,7 @@ excluded as a Tool, truncated data) and `vrGames` (appinfo first, DLL only for a
 GUI check: `MACVR_SUPPORT=… MACVR_STEAM_ROOT=… MACVR_RUNNERS=… MACVR_NO_SYSTEM=1 MACVR_NO_SERVER=1
 build/app/MacVR.app/Contents/MacOS/MacVR`, `screencapture -x`, then kill that pid.
 
-Scratch tree (`app/Tests/scratch.sh setup`): APFS clones of the 546560 (VR, legacy install) and 1903340 (flat)
+Scratch tree (`app/Tests/scratch.sh setup`): APFS clones of the 546560 (VR, legacy install) and a non-VR game's (flat)
 prefixes, the x86_64 template and the `crossover-27.0.0.41073-fex` runner under
 `~/Library/Application Support/macvr-test/app`, with a fake Steam library. `eval "$(app/Tests/scratch.sh env)"`
 points the CLI at it. Done 2026-10-26:
@@ -294,16 +294,16 @@ points the CLI at it. Done 2026-10-26:
   `cmd /c echo %VR_OVERRIDE%` etc. shows all three in a Windows process.
 - Busy: with `wineserver -p` holding the clone, the rescan skipped it ("busy, retry later"); after the server exited
   it was fine (Wine had written its in-memory registry back, which is why we skip).
-- Runner mode load test (`xr_path_test.exe` in the 1903340 clone, only the runner dirs on WINEDLLPATH, support =
+- Runner mode load test (`xr_path_test.exe` in the flat game's clone, only the runner dirs on WINEDLLPATH, support =
   the real `~/Library/Application Support/macvr`): see the hierarchy section.
-- `uninstall`: template byte-identical to before; prefixes have our values gone (the 1903340 diff is only Wine's own
+- `uninstall`: template byte-identical to before; prefixes have our values gone (the flat game's diff is only Wine's own
   timestamps from the test runs); runner files removed.
 
 ## Real install (2026-10-26, verified)
 
 `build/app/MacVR.app` copied to /Applications and opened, with the dev server stopped and no game running:
 - New version deployed; 4 runner files added (`crossover-27.0.0.41073` and `-fex`); both templates (`aarch64-unix`,
-  `x86_64-unix`) and the 546560, 1903340 and 250820 prefixes updated; 546560's legacy install kept. A second rescan:
+  `x86_64-unix`) and the 546560, 250820 and flat game prefixes updated; 546560's legacy install kept. A second rescan:
   0 changed. `wivrn-server` runs as a child of MacVR.app.
 - The Quest connected (the first session dropped while the server re-exec'd; reconnecting with the `wivrn://` URI
   worked). Audio is tapped and flows, so the system-audio grant for MacVR is in place.
@@ -311,7 +311,7 @@ points the CLI at it. Done 2026-10-26:
   and `x86_64-windows/wineopenxr.dll`, `macvr/versions/<stamp>/bridge/x86_64-unix/libopenxr_monado.dylib`,
   `macvr/versions/<stamp>/opencomposite/bin/vrclient_x64.dll`. Bridge log: `ipc-stamp match`. Server: 90 fps per eye,
   ~21 Mbit/s, `tapping clients: <pid> (hlvr.exe)`. OpenComposite log: `Interstitial: show_message -> shown`
-  ("Press Trigger To Start"). The user checked the start screen and the game in the headset.
+  ("Press Trigger To Start"). The start screen and the game were checked in the headset.
 - Fix found on the way: Wine overwrites the process's environment area, so `ps eww` shows nothing for game
   processes. The game probe now takes the appid from the mapped `compatdata/<appid>/` files and the backend from the
   runner's `lib/dxmt`, `lib/dxvk` or `apple_gptk` mappings. `macvr server status [--record-proof]` prints the probe.

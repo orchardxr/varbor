@@ -97,9 +97,9 @@ game registers a web root and the helper exits when the game is gone. Logs: `~/L
 - Alyx end to end (MacVR.app from /Applications, WiVRn, Quest 3S): OpenComposite registered `hlvr/webui` (page loaded
   in 0.47 s), the game read the page's real `ready`, the page received `set_paths`/`begin_loading`/`show_message`/
   `end_loading`, the overlay session opened on WiVRn and closed after `end_loading`, and the helper exited with the
-  game. The user checked in the headset: "Press Trigger To Start" size and position OK; LOADING with spinning arcs and
+  game. Checked in the headset: "Press Trigger To Start" size and position OK; LOADING with spinning arcs and
   the animated dots good; only the font differs (Arial, accepted). Screencaps: `build/logs/web-overlay-alyx-load-*.png`,
-  `web-overlay-alyx-loading-*.png` (head not facing the panel in those; the check is the user's).
+  `web-overlay-alyx-loading-*.png` (head not facing the panel in those; the check was done in the headset).
 - Headless panel dumps: `~/Library/Application Support/macvr-test/webui-dump/` (`*-over-grey.png`).
 - Cost (screen sharing off): loading screen with spinner, about 23 panel changes/s. macvr-webhelper ~3 %, WebContent
   ~2 %, WebKit GPU process 8-13 % of one core; conversion 15-30 ms CPU per second; GPU copy ~0.35-0.75 ms per new
@@ -116,7 +116,7 @@ game registers a web root and the helper exits when the game is gone. Logs: `~/L
 
 Alyx's `webui/fonts/raju-*.otf` (and SteamVR's own `motiva-sans-*.ttf`) are not plain font files: a 4-byte plaintext
 size followed by 8-byte cipher blocks. vrserver's `get_font` decrypts them ("Invalid encrypted font file %s"). MacVR
-doesn't decrypt them (that would mean extracting SteamVR's key; the user chose the fallback, 2026-10-26). The page then uses its CSS
+doesn't decrypt them (that would mean extracting SteamVR's key; the fallback was chosen, 2026-10-26). The page then uses its CSS
 fallback (`"Raju", "Arial"`), so the text is Arial, not Raju. A plain `raju-*.otf` put into
 `~/Library/Application Support/macvr/fonts/` is used instead (served by the same `get_font` URL).
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scratch tree for MacVR tests (docs/macvr-app.md "Testing"): APFS clones of real prefixes, a template and a runner
 # under ~/Library/Application Support/macvr-test/app, plus a fake Steam library. Prints the env for the CLI.
-#   app/Tests/scratch.sh setup | env | check-reg <prefix dir> | clean
+#   FLAT_APPID=<appid of an installed non-VR game> app/Tests/scratch.sh setup | env | check-reg <prefix dir> | clean
 set -euo pipefail
 S="$HOME/Library/Application Support/Steam"
 T="$HOME/Library/Application Support/macvr-test/app"
@@ -10,13 +10,14 @@ TEMPLATE=crossover-27.0.0.41073-fex-x86_64-unix
 
 case "${1:-}" in
 	setup)
+		flat="${FLAT_APPID:?set FLAT_APPID to an installed non-VR game}"
 		rm -rf "$T"
 		mkdir -p "$T/Steam/steamapps/compatdata/notproton-template" "$T/Steam/steamapps/common/Half-Life Alyx/game/bin/win64" \
 			"$T/runners"
 		cp -cR "$S/steamapps/compatdata/546560" "$T/Steam/steamapps/compatdata/546560"
-		cp -cR "$S/steamapps/compatdata/1903340" "$T/Steam/steamapps/compatdata/1903340"
+		cp -cR "$S/steamapps/compatdata/$flat" "$T/Steam/steamapps/compatdata/$flat"
 		cp -cR "$S/steamapps/compatdata/notproton-template/$TEMPLATE" "$T/Steam/steamapps/compatdata/notproton-template/"
-		cp "$S/steamapps/appmanifest_546560.acf" "$S/steamapps/appmanifest_1903340.acf" "$T/Steam/steamapps/"
+		cp "$S/steamapps/appmanifest_546560.acf" "$S/steamapps/appmanifest_$flat.acf" "$T/Steam/steamapps/"
 		touch "$T/Steam/steamapps/common/Half-Life Alyx/game/bin/win64/openvr_api.dll"
 		for u in "$S"/userdata/*/config/localconfig.vdf; do
 			d="$T/Steam/userdata/$(basename "$(dirname "$(dirname "$u")")")/config"

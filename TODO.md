@@ -11,7 +11,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
 - [x] M1 step 3: Monado out-of-process: Mach side channel, own IOSurfaces, MTLSharedEvent sync; hello_xr arm64 + x86_64/Rosetta render (see Step 3 notes)
 - [x] M1 step 4: WiVRn server builds/runs on macOS (patches/wivrn 0001-0003 (0004 in step 7), docs/wivrn.md; Bonjour, pairing, Quest connects)
 - [x] M1 step 5: VideoToolbox encoder backend `videotoolbox` (readback; streams encoded in parallel; ffprobe-clean HEVC dump)
-- [x] M1 step 6: user checked the headset (2026-10-25): Alyx via the full stack "looks good" after the pacing fix. Agent check done: out-of-process hello_xr streams to the Quest at 90 fps (screencap build/logs/quest-hello-xr.png)
+- [x] M1 step 6: headset check (2026-10-25): Alyx via the full stack "looks good" after the pacing fix. Agent check done: out-of-process hello_xr streams to the Quest at 90 fps (screencap build/logs/quest-hello-xr.png)
 - [x] M1 step 7: zero-copy encode + measurements (MTLSharedEvent sync done in step 3)
   - [x] Stability/performance (2026-10-24): startup stall root-caused and fixed, IDR cap evaluated, GPU sync verified in
     WiVRn, latency breakdown logged, 5-min soak. WiVRn patch 0004, libmvt PTS timeline. See "Step 7 notes".
@@ -57,7 +57,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
   - [x] Deploy the system32 legacy-detection fix (deployed 2026-10-29 with 7e9b30b9180c).
 - [x] ~~M4 design (2026-10-24, [docs/m4-notproton.md](docs/m4-notproton.md))~~ superseded by the MacVR app: hook.sh sourced by a 5-hunk patch to NotProton's `run` (patches/notproton on a local snapshot repo), per-prefix install + `macvr-vr` record, WiVRn as LaunchAgent `org.macvr.wivrn`, 250820 guard; next: build helpers/hook, tests T0–T4 on scratch clones
 - [x] M3: Half-Life: Alyx (2026-10-24/25, real prefix 546560): D3D11 on stock DXMT through OpenComposite → bridge → WiVRn
-  → Quest; menu and game play, user checked "looks good" (2026-10-25). Fixes: OpenComposite 0005 (MinGW/MSVC struct-return
+  → Quest; menu and game play, checked in the headset: "looks good" (2026-10-25). Fixes: OpenComposite 0005 (MinGW/MSVC struct-return
   ABI), WiVRn 0006 (recenter) / 0007 + Monado 0015 (pacing). `-vulkan` blocked: MoltenVK lacks `multiviewGeometryShader`
   (no CrossOver patches). See "M3 Alyx notes" and [docs/m3-opencomposite.md](docs/m3-opencomposite.md).
 - [x] No VR is quiet (2026-10-26, OpenComposite patch 0007): with no server or no headset, `VR_IsHmdPresent` returns false
@@ -74,10 +74,10 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
   `ready`, Alyx's message sequence through OpenComposite in Wine, panel dumps (spinner arcs, ellipsis, "Press Trigger To
   Start"), overlay session + images against monado-service. Cost (loading screen, screen sharing off): helper ~3 %,
   WebContent ~2 %, WebKit GPU 8-13 % of a core; ~0.75 ms GPU copy per changed image.
-  - [x] Headset (user, 2026-10-26): Alyx end to end through WiVRn; "Press Trigger To Start" size/position OK, LOADING
+  - [x] Headset check (2026-10-26): Alyx end to end through WiVRn; "Press Trigger To Start" size/position OK, LOADING
     with spinning arcs and dots good. Details and cost in the doc's Status.
-  - [x] Fonts: Raju is Valve-encrypted (vrserver's `get_font` decrypts it); the page uses its Arial fallback. User:
-    leave it (2026-10-26). A plain `raju-*.otf` in `~/Library/Application Support/macvr/fonts/` would be used.
+  - [x] Fonts: Raju is Valve-encrypted (vrserver's `get_font` decrypts it); the page uses its Arial fallback. Decision
+    (2026-10-26): leave it. A plain `raju-*.otf` in `~/Library/Application Support/macvr/fonts/` would be used.
   - [ ] Re-check the App Nap fix in a game (capture fell to ~2/s after minutes before it).
   - [ ] Render models (holograms, `play_space_center_feet` on every loading screen, the city map in a2+): parsed, not
     drawn. SteamVR's shaders are in `SteamVR/resources/shaders/vulkan` (SPIR-V); the uniform mapping is unknown.
@@ -114,9 +114,9 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
   and measurements in docs/wivrn.md (0009) and Measurements below. Tried and dropped: user-interactive QoS on the
   compositor/encoder/sender/network threads (no measurable change).
 
-- [x] Recenter for room-scale games (user, 2026-10-24; confirmed working in Alyx by the user, WiVRn patch 0006, build/wivrn-next). A Quest recenter (holding Meta) reaches the server, but WiVRn only recenters LOCAL spaces, and Alyx/OpenComposite uses STAGE, so nothing changes. SteamVR's "reset view" used to fix this. Fix done, not yet deployed: WiVRn patch 0006-recenter-stage re-origins STAGE to the current head pose on recenter (heading only, floor height kept; `WIVRN_RECENTER_STAGE=0` disables) and retries recenters for 2 s, which fixes the wake-time "failed to recenter local spaces". Offset math tested by `tests/wivrn/recenter_stage_test.cpp` (ALL PASS). Built in build/wivrn-next (`WIVRN_BUILD_DIR` in build-wivrn.sh). Details in [docs/wivrn.md](docs/wivrn.md) under 0006. Next: user switches the server (server and Alyx restart), then holds Meta in Alyx and checks the log for `recentered stage`.
+- [x] Recenter for room-scale games (2026-10-24; confirmed working in Alyx, WiVRn patch 0006, build/wivrn-next). A Quest recenter (holding Meta) reaches the server, but WiVRn only recenters LOCAL spaces, and Alyx/OpenComposite uses STAGE, so nothing changes. SteamVR's "reset view" used to fix this. Fix done, not yet deployed: WiVRn patch 0006-recenter-stage re-origins STAGE to the current head pose on recenter (heading only, floor height kept; `WIVRN_RECENTER_STAGE=0` disables) and retries recenters for 2 s, which fixes the wake-time "failed to recenter local spaces". Offset math tested by `tests/wivrn/recenter_stage_test.cpp` (ALL PASS). Built in build/wivrn-next (`WIVRN_BUILD_DIR` in build-wivrn.sh). Details in [docs/wivrn.md](docs/wivrn.md) under 0006. Next: switch the server (server and Alyx restart), then holds Meta in Alyx and checks the log for `recentered stage`.
 
-- [x] Audio (2026-10-25, WiVRn patch 0008-macos-coreaudio, build/wivrn-next; user confirmed in the headset 2026-10-25): game audio
+- [x] Audio (2026-10-25, WiVRn patch 0008-macos-coreaudio, build/wivrn-next; confirmed in the headset 2026-10-25): game audio
   goes to the Quest over WiVRn's normal audio stream and is muted on the Mac while the headset is connected. A Core Audio
   process tap (`CATapMutedWhenTapped`, private, macOS 14.2+) → a private aggregate device holding only that tap, with
   5 ms buffers (240 frames) → AudioConverter float32 → the headset's S16 format and rate → `audio_data` per buffer.
@@ -134,7 +134,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
     the destructor destroys both. `MutedWhenTapped` unmutes as soon as reading stops. SIGTERM, SIGKILL and the
     session-end `execv` all gave Mac audio back within 1 s (coreaudiod drops a dead client's taps).
   - TCC: the first `AudioDeviceStart` on a tap asked "Terminal.app would like access to record your system audio"
-    (the user clicked Allow). The grant goes to the responsible process (Terminal), so the bare CLI server needs no
+    (answered with Allow). The grant goes to the responsible process (Terminal), so the bare CLI server needs no
     Info.plist, usage string or signature when started from Terminal. A LaunchAgent (M4) will need its own grant: an
     embedded `__TEXT,__info_plist` with `NSAudioCaptureUsageDescription` + signature, and a one-time Allow.
   - Verified: `build/tests/audio_tone` plays into Steam Streaming Speakers and records its loopback input. Tapped by
@@ -145,7 +145,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
     max 5.1 ms. Network adds ~2-4 ms. The Quest client's jitter buffer is 5-50 ms (it trims to 30 ms above 50), plus
     AAudio output. End-to-end is not measured. CPU (tone, no app): server +0.6 points (1.4 vs 0.8 %), coreaudiod +1.6
     points of one core.
-  - Leftovers: no Quest mic on the Mac (needs a virtual input device); the user's listening test; the LaunchAgent TCC
+  - Leftovers: no Quest mic on the Mac (needs a virtual input device); a listening test; the LaunchAgent TCC
     grant (M4); the client ignores the packet timestamp (as with PipeWire), so there is no A/V sync beyond its jitter
     buffer.
 - [x] Matching x86_64 IPC client (2026-10-26): the bridge's `libopenxr_monado.dylib` is now WiVRn's `libopenxr_wivrn`
@@ -189,7 +189,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
   `VR_LOG_PATH` (HKLM Session Manager\Environment) into the prefix templates, then into game prefixes that miss them
   (skipped while a wineserver runs), start wivrn-server as the app's child. Bridge `.so` falls back to the client in
   `macvr/current/bridge/x86_64-unix`. Tested: 17 unit tests and scratch clones (idempotence, `wine reg query`, busy
-  skip, runner-mode `xrCreateInstance` = 0, uninstall round trip). **Real install verified** (user in the headset): Alyx
+  skip, runner-mode `xrCreateInstance` = 0, uninstall round trip). **Real install verified** (checked in the headset): Alyx
   started normally from Steam loads the runner's `wineopenxr.so`, the client and `vrclient_x64.dll` from
   `macvr/versions/…`, `ipc-stamp match`, 90 fps, audio tapped from hlvr.exe, OpenComposite shows the text-only "Press
   Trigger To Start" interstitial. Left:
@@ -221,15 +221,15 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
     Timings graphs show Predicted ~40 ms on Linux).
   - [ ] Re-check the Windows Air Link/Steam Link numbers, which used the same old 100 Mbit link.
 ## Decisions
-- 2026-10-29 (user): main window + menu bar; users can add CrossOver bottles and extra Steam libraries.
-- 2026-10-28 (user): main work and measurements on FEX (`notproton-fex`); finish each piece of work with a Rosetta
+- Decision (2026-10-29): main window + menu bar; users can add CrossOver bottles and extra Steam libraries.
+- Decision (2026-10-28): main work and measurements on FEX (`notproton-fex`); finish each piece of work with a Rosetta
   check; both runners stay supported.
-- 2026-10-26 (user): MacVR app: install-and-run, no edits by the user. Don't modify NotProton/CrossOver files, except
+- Decision (2026-10-26): MacVR app: install-and-run, no edits by the user. Don't modify NotProton/CrossOver files, except
   adding our 2 bridge files to the runners (add-only). No login item or LaunchAgent, no global (launchctl) variables.
   Registry values go into the prefix template first, game prefixes only as a fallback. Don't set
   `CX_GRAPHICS_BACKEND`; document DXMT (preferred) / DXVK, D3DMetal unsupported. Quit stops the server.
-- 2026-10-24 (user): don't patch any CrossOver/NotProton component (DXMT, DXVK, MoltenVK, Wine). Alyx under DXVK loses its menu background: CrossOver's MoltenVK geometry-shader emulation emits invalid Metal for 4 pipelines. So Alyx moves to stock DXMT, and the bridge gets a DXMT D3D11 path built on DXMT's stock shared textures. Changes go only in our code and our Monado patches.
-- 2026-10-24 (user): no DXMT patches. Milestone 2 uses stock DXVK (D3D11→Vulkan via winevulkan→MoltenVK) and DXVK's existing interop (ID3D11VkInteropDevice1::CreateTexture2DFromVkImage etc., as Proton's wineopenxr does). This replaces the "stock DXMT + interop API" plan.
+- Decision (2026-10-24): don't patch any CrossOver/NotProton component (DXMT, DXVK, MoltenVK, Wine). Alyx under DXVK loses its menu background: CrossOver's MoltenVK geometry-shader emulation emits invalid Metal for 4 pipelines. So Alyx moves to stock DXMT, and the bridge gets a DXMT D3D11 path built on DXMT's stock shared textures. Changes go only in our code and our Monado patches.
+- Decision (2026-10-24): no DXMT patches. Milestone 2 uses stock DXVK (D3D11→Vulkan via winevulkan→MoltenVK) and DXVK's existing interop (ID3D11VkInteropDevice1::CreateTexture2DFromVkImage etc., as Proton's wineopenxr does). This replaces the "stock DXMT + interop API" plan.
 - D1 IOSurface Mach port as graphics buffer handle, IOSurface allocated by us with a real pixel format;
   D2 Mach side channel via bootstrap service (name derived from the socket path) + socket nonce;
   D3 MTLSharedEvent timeline semaphores (server exports, client imports), CPU wait as fallback; D4 pin wivrn tag = client APK, patches staged not committed;
@@ -239,8 +239,8 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
 - (resolved) Quest 3S runs WiVRn client 26.9 (versionCode 5527) → server pinned to v26.9, monado f037264d.
 
 ## Headset access
-- Quest 3S on Wi-Fi. Since 2026-10-25 it charges from a 140 W charger, not the laptop. adb over TCP lasts until the Quest reboots; after a reboot re-enable it over USB from a Mac (`adb tcpip 5555`), e.g. from the laptop.
-- adb from this Mac: on the laptop `adb tcpip 5555`, here `adb connect <quest address>:5555`.
+- Quest 3S on Wi-Fi. adb over TCP lasts until the Quest reboots; after a reboot re-enable it over USB (`adb tcpip 5555`).
+- adb over the network: `adb connect <quest address>:5555`.
 - If adb connect says "No route to host" while `nc -z` works, it's Local Network privacy on a stale adb server: `adb kill-server` and reconnect.
 
 - Kept awake (2026-10-24): `am broadcast -a com.oculus.vrpowermanager.prox_close`, `svc power stayon true`,
@@ -361,7 +361,7 @@ Decisions:
 - New test helper `tests/wivrn/xr_empty_frames.c`: a session with no layers. Combine it with `WIVRN_DEBUG_TEST_PATTERN=1` to stream a colour field.
 
 Evidence:
-- `dns-sd -L`: `SoloMacbook._wivrn._tcp` port 9757, TXT `protocol=fc26e619b7ab80f8 version=26.9 cookie=…`. The 26.9 client accepted the protocol.
+- `dns-sd -L`: `<computer name>._wivrn._tcp` port 9757, TXT `protocol=fc26e619b7ab80f8 version=26.9 cookie=…`. The 26.9 client accepted the protocol.
 - Test pattern seen on the Quest: build/logs/quest-screencap.png and quest-screenrecord.mp4 (the colour changes over time).
 - hello_xr (Vulkan2, out-of-process, 2198×2302 swapchains) in the headset: build/logs/quest-hello-xr.png.
 - `WIVRN_DUMP_VIDEO` stream: ffprobe reports `hevc Main 10 1152x1152 yuv420p10le pc/bt709`, 986 frames, 0 decode errors.
@@ -421,7 +421,7 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
   present>decoded p99.5 28.9 vs 20.3, medians equal), stale-pose spikes in the 1-s max +7.1 (19 of 30 windows in one
   run, 2 in another), app margin +2.5 (0007), app CPU +2.6 (Alyx D3D11 under Wine before the 2nd Submit; p95 11 ms puts
   40 % of frames in the pacer's no-wait branch), pose age +1.0. Low-latency estimator: Mac 72.6-74 vs Linux 65.3
-  (gap 7-9 ms). Margin 1.5 A/B: no gain (75.8 vs 72.6). 40 W charger, battery 100→99 %, screen sharing off.
+  (gap 7-9 ms). Margin 1.5 A/B: no gain (75.8 vs 72.6). On AC power, screen sharing off.
   - [ ] Stale poses: they also hit Linux during packet loss (lin-hevc1: 20 of 30 windows), so most likely uplink
     stalls; log tracking-packet arrival next to the trace to confirm before touching `history.h`.
   - [x] Decode tail cause (2026-10-28): Linux NVENC HEVC shows the same Quest decode tail as the Mac (clean part: p95
@@ -431,17 +431,17 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
     Candidate: `kVTVideoEncoderSpecification_EnableLowLatencyRateControl` in encoder/src/mvt.c (env opt-in, fall back if
     session creation fails), possibly AverageBitRate + DataRateLimits instead of ConstantBitRate. First check with a traced
     Linux HEVC run whether the tail is HEVC decode itself or our bitstream.
-  - ~~Client that shows the newest decoded frame~~ dropped: the Quest client stays stock (user, 2026-10-28).
+  - ~~Client that shows the newest decoded frame~~ dropped: the Quest client stays stock (decision 2026-10-28).
 - [ ] **Alyx 26227071 + macOS 27.2: 1-2 fps under NotProton/DXMT (2026-10-28)**, VR and `-novr`, GPU idle, one core busy;
   not WiVRn/bridge/OpenComposite/controllers/shader cache/AVX. Mac rolled back to 25487405 (depot 546563 only, manifest
-  1898649366808652836): 61 files, backup `~/Library/Application Support/macvr-alyx-rollback/20261028-26227071/`
+  1898649366808652836): 61 files, backed up outside the game dir
   (`files.txt`); undo = copy back or Steam "Verify". Steam still says 26227071, so a verify or the next update brings
   the slow build back. Linux 26227071 is fine. Find what in the new Windows build stalls under Wine/Rosetta.
 - Rule (2026-10-26): macOS screen sharing shares the VT encoder, GPU and network. Before any timing or performance
   number, check `pgrep -x screensharingd` and label numbers "screen sharing on" if it is active. The 2026-10-25 latency
   and pacing numbers (0009 table, 85 vs 88 ms) were taken with it off.
 - **Motion-to-photon latency (2026-10-25, WiVRn 0009):** Alyx s6/steamvr_quit, 90 Hz, fidelity 3 pinned, bridge stats
-  on, Mac on Ethernet (45 W adapter, battery 35 → 23 %), Quest on 5 GHz Wi-Fi, ~71 Mbit/s per eye. Same binary,
+  on, Mac on Ethernet (underpowered adapter, battery draining), Quest on 5 GHz Wi-Fi, ~71 Mbit/s per eye. Same binary,
   estimator via env, interleaved; each run = server restart + Alyx reload + 20 s settle + 30 s
   (`tools/mql-ab/latrun.sh`, `latstats.py`; raw `build/lat/*`). Log columns are p50/p95 ms of stream 0; "both eyes"
   is the per-frame max of the two eyes from the diag dump; late / repeats per 30 s.
@@ -465,7 +465,7 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
   - Network 4.9 vs the earlier 2.1 ms: the earlier figure was the loading screen at low bitrate. Now ~71 Mbit/s per
     eye (client setting 200 Mbit/s total), and it swings with the Wi-Fi (same session: 4.5 → 15 ms at constant bitrate).
   - pre0007 / cand1 runs (`build/lat/`) are invalid: the Mac was power-limited at 6 % battery (Alyx 18 fps, GPU idle).
-- 2026-10-25, user in the headset: Alyx (DXMT bridge + pacing fix 0007/0015, 90 Hz) "looks good".
+- 2026-10-25, headset check: Alyx (DXMT bridge + pacing fix 0007/0015, 90 Hz) "looks good".
 - **Alyx A/B after pacing fix (2026-10-25, [docs/ab-alyx.md](docs/ab-alyx.md#ab-after-pacing-fix-2026-10-25)):** Metal HUD log for both, 30 s after 20 s settle + gpustress. 72 Hz: A 67.3/69.7 fps (lowest 1-s 57.8/66.1), B 72.0/72.0 (71.1/70.1); HUD GPU 8.55-8.69 vs 8.45-8.49 ms, P15 52-94 vs 87-88 %. 90 Hz: A 45.0/39.6 (half rate, GPU 8.3-8.7 ms), B 89.4/89.8. Runtime CPU A 72-78 % vs B 44-48 %; hlvr 294-304 vs 340-359 %. Quest had lost positional tracking (Guardian paused for A), so the head pose differed.
 - **Alyx A/B vs the SteamVR/Steam Link reference stack (2026-10-24, [docs/ab-alyx.md](docs/ab-alyx.md)):** balcony save, 72 Hz, ~4.56 MP/eye base, fidelity 3, 30 s each: game 69.6 (A) vs 66.5 fps (B); HUD GPU 8.45 vs 13.95 ms; hlvr 303 vs 310 %, wineserver 47 vs 35 %, runtime 71 vs 47 % CPU; encode 7.6 ms vs 2.8/3.3 ms p50/p95; 52 vs 2×72 Mbit/s.
 - **Alyx GPU bottleneck (2026-10-25, [docs/ab-alyx.md](docs/ab-alyx.md#gpu-bottleneck-2026-10-25)):** B's 13.95 ms HUD GPU time came from the GPU running at P1/P2 (338-618 MHz). At P15 the same work takes 8.2-8.7 ms (A: 8.45). Bridge copy 0.44 ms and WiVRn 0.15 ms per frame; the GPU is busy with the game. Keyed-mutex mode gives 69 fps at P2/P3 and 56-62 at P15. CPU-wait sync gives 72 at P15 but collapses to 37 at P1. Kept: OpenComposite 0006 (bounded copy, real refresh rate), bridge deferred imageRect copy, `C:\macvr\wineopenxr.env`, `WINEOPENXR_LOG`.
@@ -530,7 +530,7 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
 
 - IOSurface spike: cross-process Mach round trip 4-7 µs; per-frame message 7-17 µs. Client blocks 0.6-0.8 ms per frame with CPU-wait sync vs 0.04-0.12 ms with MTLSharedEvent GPU wait.
 
-- Windows comparison (2026-10-26, PC: Ryzen 7 9800X3D, RTX 5070 Ti, wired; same Quest 3S on 5 GHz ch44, same Alyx save s6/steamvr_quit, 90 Hz, fidelity 3, ~3.1k x 3.2k per eye; summary on PC: D:\macvr\latency\summary.md):
+- Windows comparison (2026-10-26, PC: the RTX 5070 Ti test PC, wired; same Quest 3S on 5 GHz Wi-Fi, same Alyx save s6/steamvr_quit, 90 Hz, fidelity 3, ~3.1k x 3.2k per eye):
   | | Air Link | Steam Link | WiVRn on Mac |
   |---|---|---|---|
   | end-to-end motion→photon p50 | 91.2 ms (Meta sensor_to_illumination; p95 94.5) | no number (SteamVR predicts 3–4 extra frames, Air Link 2) | 85–88 ms (WiVRn overlay estimate) |
@@ -545,13 +545,13 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
   `GameMenuOptionRenderingFoveatedTogglePanel`, which the rolled-back 25487405 `client.dll` doesn't have (the 26227071 one
   does); console.log: `Parsing error on panorama\layout\game_menus\child02.xml(244): ... unknown panel type`. The
   other `child02` pages (Preferences, Interface, Accessibility, Subtitles, Audio, Spectator) may be broken too; check in
-  the headset. Fix (user's call, game files): back to 26227071 binaries (backup `macvr-alyx-rollback/20261028-26227071`
+  the headset. Fix options (game files): back to 26227071 binaries (from the backup
   or Steam Verify; fine on FEX, 1-2 fps on Rosetta), or also roll back 546561 to its 25487405 manifest (not in
   depotcache, id needed). No OpenComposite change. Details: docs/m3-opencomposite.md "Not done / open".
-  Fixed 2026-10-29 (user: roll back): content also at 25487405. Manifest 546561 = 1436897171613240821 (from the
-  reference bottle's 25487405 appmanifest, read only); instead of downloading 72 GB, the 10 differing paks
-  (pak01_112/167/170/173/174/186/457, pak01_dir, shaders_vulkan_006/_dir) were cloned from that bottle's install. Ours
-  backed up in `macvr-alyx-rollback/20261029-26227071-content/` (`files.txt`). Launch check: 0 Panorama parse errors
+  Fixed 2026-10-29 (rolled back): content also at 25487405. Manifest 546561 = 1436897171613240821 (from a
+  second Alyx install's 25487405 appmanifest, read only); instead of downloading 72 GB, the 10 differing paks
+  (pak01_112/167/170/173/174/186/457, pak01_dir, shaders_vulkan_006/_dir) were cloned from that install. Ours
+  backed up (`files.txt`). Launch check: 0 Panorama parse errors
   (13 before). Steam still records 26227071, so Verify/update brings it back. Headset check of the page pending.
 - Server stuck after a network change (2026-10-24): when the Mac moved from Wi-Fi to Ethernet, the old session's UDP socket stayed bound to the Wi-Fi address and TCP 9757 stopped listening, so the client couldn't reconnect until the server was restarted. Fix: detect the dead client, end the session and listen again. 2026-10-29: Ethernet → Wi-Fi with no game running: the server kept listening on *:9757 and the Quest reconnected to the new address (sent via adb; the client doesn't follow by itself), so the hang may need an active session.
 - Ethernet vs Wi-Fi (Mac side, Alyx loading screen, p50/p95 ms): network 2.1/3.3 vs 5.5/17.3; present>decoded 12.6/14.8 vs 14.1/28.8.
@@ -561,10 +561,10 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
 - (2026-10-25) After a server restart the stock Quest client does not reconnect on its own (5/5 restarts, 60 s each):
   it sends `_wivrn._tcp` PTR queries every 5 s but never connects. `adb shell am start -d wivrn://<mac>:9757 ...` brings
   it back in ~1 s (wivrn-restart.sh, latrun.sh). Not investigated (client autoconnect setting or mDNS replies).
-- (2026-10-25) The Mac on its 45 W adapter drains under Alyx (M4 Max draws more): at 6 % battery macOS power-limits
-  and Alyx drops to ~18 fps with the GPU idle. Measurements need the full-power charger.
+- (2026-10-25) On an underpowered adapter the Mac drains under Alyx (the M4 Max draws more): at 6 % battery macOS power-limits
+  and Alyx drops to ~18 fps with the GPU idle. Measurements need a full-power charger.
 - (done 2026-10-25, see Status "Audio") Audio: game audio played on the Mac, not the Quest.
-- 2026-10-24 ~18:40: Rosetta hangs every newly built x86_64 Mach-O binary (state U, can't be killed: pids 87853, 87948, 98261, 1147). Binaries translated before the hang, including Wine, still run. Also stuck in state U: Time Machine `backupd` (pid 498) and `diskimagesiod` (pid 13860). The cause is likely a stuck Time Machine or disk-image I/O operation, not Rosetta itself. Fix: reboot, which needs the user since the agents and caffeinate run in this session. Until then: no new x86_64 builds (bridge .so, x86_64 Monado client for WiVRn).
+- 2026-10-24: Rosetta hangs every newly built x86_64 Mach-O binary (state U, can't be killed). Binaries translated before the hang, including Wine, still run. Also stuck in state U: Time Machine `backupd` and `diskimagesiod`. The cause is likely a stuck Time Machine or disk-image I/O operation, not Rosetta itself. Fix: reboot. Until then: no new x86_64 builds (bridge .so, x86_64 Monado client for WiVRn).
 - (2026-10-26: freshly built x86_64 binaries run fine again; the WiVRn x86_64 client loaded in 9 ms.)
 - Rosetta stalled freshly built x86_64 executables for ~40 min on 2026-10-24 (state `U`); it cleared on its own. If `make` in spikes/bridge or a test hangs at launch, that's the cause.
 - Bridge: Monado's suggested-GPU check fails across MoltenVK versions (1.2.10 vs 1.4.2 device UUIDs) and falls back
@@ -628,7 +628,7 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
 
 ## DXMT bridge notes (2026-10-24)
 - Why: under DXVK, CrossOver's MoltenVK geometry-shader emulation emits invalid Metal for 4 Alyx pipelines, so the menu
-  background is missing. The user ruled out patching any CrossOver/NotProton part; Alyx moved to stock DXMT.
+  background is missing. Patching any CrossOver/NotProton part is ruled out; Alyx moved to stock DXMT.
 - DXMT in runner 27.0.0.41073 has no version string; `third_party/dxmt` (v0.80-339-ga148782, read-only) matches its
   imports (keyed mutex + D3DKMT shared-resource calls, `WMTBootstrapRegister/LookUp`).
 - Mechanism (all in `bridge/`, no Monado/OpenComposite change): the unix side makes its own Vulkan device on CrossOver's
@@ -720,5 +720,5 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   - Vulkan games need `initUsingVulkan=true` in `opencomposite.ini`.
 - Real-resolution numbers (2×~1830² at 72–90 Hz through WiVRn): the bridge adds flush + lock + one semaphore signal,
   but D3D11 service-commit → GPU-done is already 0.5 ms at 320×240, so measure DXVK's queue depth at Alyx's load.
-- A real game prefix install (copy placeholder + json + registry key, `CX_GRAPHICS_BACKEND=dxvk %command%`) only with
-  the user's go-ahead (step 7). The FEX flavor (step 6): done 2026-10-28.
+- A real game prefix install (copy placeholder + json + registry key, `CX_GRAPHICS_BACKEND=dxvk %command%`)
+  (step 7). The FEX flavor (step 6): done 2026-10-28.

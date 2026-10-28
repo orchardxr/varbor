@@ -55,7 +55,7 @@ final class AppInfoTests: XCTestCase {
                                ("onlyvrsupport", .u(1)), ("size", .u64(1 << 40))])
         w.add(250820, common: [("name", .s("SteamVR")), ("type", .s("Tool")),
                                ("category", .d([("category_53", .u(1))]))])
-        w.add(1903340, common: [("name", .s("Clair Obscur: Expedition 33")), ("type", .s("Game")),
+        w.add(1000001, common: [("name", .s("Flat Game")), ("type", .s("Game")),
                                 ("controllervr", .d([("steamvr", .u(1))])), ("openvrsupport", .s("0"))])
         w.add(739630, common: [("name", .s("Phasmophobia")), ("type", .s("game")),
                                ("category", .d([("category_2", .u(1)), ("category_53", .u(1))]))])
@@ -69,8 +69,8 @@ final class AppInfoTests: XCTestCase {
         XCTAssertTrue(info[546560]!.isVRGame)
         XCTAssertEqual(info[250820]?.vrFlag, "category_53")
         XCTAssertFalse(info[250820]!.isVRGame)
-        XCTAssertNil(info[1903340]?.vrFlag)
-        XCTAssertFalse(info[1903340]!.isVRGame)
+        XCTAssertNil(info[1000001]?.vrFlag)
+        XCTAssertFalse(info[1000001]!.isVRGame)
         XCTAssertTrue(info[739630]!.isVRGame)
     }
 
@@ -91,13 +91,13 @@ final class AppInfoTests: XCTestCase {
         let root = fm.temporaryDirectory.appendingPathComponent("macvr-appinfo-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: root) }
         let sa = root.appendingPathComponent("steamapps")
-        for (id, dir) in [("546560", "Alyx"), ("250820", "SteamVR"), ("1903340", "E33"), ("42", "Unknown")] {
+        for (id, dir) in [("546560", "Alyx"), ("250820", "SteamVR"), ("1000001", "Flat"), ("42", "Unknown")] {
             try fm.createDirectory(at: sa.appendingPathComponent("common/\(dir)/bin"), withIntermediateDirectories: true)
             try "\"AppState\"\n{\n\t\"appid\"\t\t\"\(id)\"\n\t\"name\"\t\t\"\(dir)\"\n\t\"installdir\"\t\t\"\(dir)\"\n}\n"
                 .write(to: sa.appendingPathComponent("appmanifest_\(id).acf"), atomically: true, encoding: .utf8)
         }
         // in appinfo as flat: the DLL doesn't matter; 42 isn't in appinfo: the DLL decides
-        try Data().write(to: sa.appendingPathComponent("common/E33/bin/openvr_api.dll"))
+        try Data().write(to: sa.appendingPathComponent("common/Flat/bin/openvr_api.dll"))
         try Data().write(to: sa.appendingPathComponent("common/Unknown/bin/openvr_api.dll"))
         try fm.createDirectory(at: root.appendingPathComponent("appcache"), withIntermediateDirectories: true)
         try sample(version: 41).write(to: root.appendingPathComponent("appcache/appinfo.vdf"))

@@ -1,18 +1,17 @@
 # Linux WiVRn 26.9 vs macOS WiVRn port (2026-10-26, re-run 2026-10-28)
 
-Same Quest 3S (client WiVRn 26.9, Wi-Fi 5 GHz ch44; 160 MHz/2401 Mbps on 10-28), Half-Life: Alyx buildid 25487405 (Linux re-run: 26227071, see notes), save
+Same Quest 3S (client WiVRn 26.9, 5 GHz Wi-Fi; 160 MHz channel on 10-28), Half-Life: Alyx buildid 25487405 (Linux re-run: 26227071, see notes), save
 `s6/steamvr_quit` (4558941 B, sha256 8fabf613…c8a0, identical on both), 90 Hz, `vr_fidelity_level_auto 0`,
 `vr_fidelity_level 3` (renders 2198×2302 per eye on both: WiVRn recommends that size on both servers).
 
 ## Linux setup
-- PC: CachyOS, kernel 7.3.0-5-cachyos, RTX 5070 Ti, NVIDIA 615.78.08, wired eno1 (Realtek RTL8125D, r8169).
-- WiVRn: Flathub `io.github.wivrn.wivrn` 26.9 (user install, commit 61d58e18, "Update xrizer to 0.6"), stock config
+- PC: the Linux test PC (RTX 5070 Ti, NVIDIA proprietary driver), wired Ethernet.
+- WiVRn: Flathub `io.github.wivrn.wivrn` 26.9 (`--user` install, commit 61d58e18, "Update xrizer to 0.6"), stock config
   (no config.json), started with `systemd-run --user flatpak run --command=wivrn-server io.github.wivrn.wivrn`.
   Paired with `wivrnctl pair` PIN.
 - Runtime: `~/.config/openxr/1/active_runtime.json` → flatpak `openxr_wivrn.json`; OpenVR layer: **xrizer 0.6**
   (`~/.config/openvr/openvrpaths.vrpath` written by wivrn-server). OpenComposite is shipped but not used.
-- Alyx: **native Linux Vulkan build** in SteamLinuxRuntime_4 (not Proton; default compat tool would be
-  proton-cachyos-10.0-20260320-slr-x86_64_v4). Launch options
+- Alyx: **native Linux Vulkan build** in SteamLinuxRuntime_4 (not Proton). Launch options
   `PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1 %command% -condebug -vconsole +vr_fidelity_level_auto 0 +vr_fidelity_level 3`.
 - Encoder: **NVENC AV1 10-bit** (stock WiVRn picked AV1; the Mac uses HEVC 10-bit), streams 2×1152×1152 at
   98.7 Mbit/s + 1152×576 at 2.4 Mbit/s, 90 fps.
@@ -35,7 +34,7 @@ for AV1).
 | Ping Linux PC→Quest while streaming | 0 % loss / 150, RTT avg 3.8 ms (max 8.9) | 0 % / 150, avg 3.8 ms (max 8.3) | — | — | — |
 | GPU busy / NVENC busy | 28 % / 12 % | 28 % / 14 % | — | — | — |
 
-- Overlay graphs (`a-av1-15-ov.png`, `b-hevc-15-ov.png` in the session scratchpad `linux-bench/`): network flat at
+- Overlay graphs (`a-av1-15-ov.png`, `b-hevc-15-ov.png`, not committed): network flat at
   ~200 Mbit/s download in both (AV1 smoother, HEVC a bit noisier); Timings: Predicted ~40 ms, Blitted/Displayed
   ~20-25 ms, the stacked encode+send+receive+decode band ~10-15 ms, with a few isolated spikes to 50-55 ms; Defoveate
   1.1-1.5 ms; client CPU time 1.5-2 ms. HEVC's predicted line was still stepping down from ~55 to ~40 ms after the
@@ -72,23 +71,22 @@ for AV1).
 - Raw TCP (ssh, no stream running):
   - PC→Mac: ~73 Mbit/s;
   - Mac→PC: ~83 Mbit/s;
-  - both NICs report 1000/full, while PC→lancache runs at 1 Gbps.
+  - both NICs report 1000/full, while PC→another wired host runs at 1 Gbps.
 
   Under that TCP load, PC→router RTT rose from 1.5 to 4.5 ms (max 18 ms), with 0.4% retransmits. Mac→router stayed at
   0.9 ms with no loss. So the PC side reaches the Mac/router side through a ~80–100 Mbit/s bottleneck, most likely a
-  100 Mbit inter-switch link or a bad cable. WiVRn asks for ~200 Mbit/s (2×98.7 + 2.4).
-- **Confirmed by the user (2026-10-26):** the cause is a 100 Mbit link between the PC and the router.
-- **Fixed (2026-10-28):** the Linux PC ↔ another wired host now runs at 930–941 Mbit/s both ways (eno1 1000/full), and Mac (Wi‑Fi, 160 MHz) ↔ Linux PC at 420–910 Mbit/s. The Quest is on 160 MHz at 2401 Mbps. Ready for a valid Linux re-run.
-- Quest Wi-Fi was healthy: Wi-Fi 6, 5220 MHz, RSSI −33, link 1200/1200 Mbit/s.
+  100 Mbit link or a bad cable. WiVRn asks for ~200 Mbit/s (2×98.7 + 2.4).
+- **Confirmed (2026-10-26):** the cause is a 100 Mbit link between the PC and the router.
+- **Fixed (2026-10-28):** the Linux PC ↔ another wired host now runs at 930–941 Mbit/s both ways, and Mac (Wi‑Fi, 160 MHz) ↔ Linux PC at 420–910 Mbit/s. The Quest is on a 160 MHz channel. Ready for a valid Linux re-run.
+- Quest Wi-Fi was healthy: Wi-Fi 6, 5 GHz, RSSI −33, link 1200/1200 Mbit/s.
 - The NIC itself looks clean:
-  - Realtek RTL8125D on r8169, fw rtl8125d-1_0.0.7;
   - `ethtool -S` shows 0 tx/rx errors and 0 rx_missed;
   - fq_codel shows 0 drops;
   - ASPM is already off;
   - rings are at the 256 maximum.
 
-  Turning EEE off (user, `sudo ethtool --set-eee eno1 eee off`) did not change the loss. CachyOS offers
-  `linux-cachyos-r8125` 7.3.0-5 (Realtek's driver), which was not tried.
+  Turning EEE off (`ethtool --set-eee <nic> eee off`) did not change the loss. The vendor's out-of-tree NIC driver
+  was not tried.
 - **The Windows runs probably went through the same path**: Air Link (~71 Mbit/s) and Steam Link (capped ~55 Mbit/s,
   "bad link") were probably limited by it too.
 
@@ -100,21 +98,15 @@ for AV1).
 - Fidelity 3 gives 2198×2302 per eye on both. Mac's 6224×3259 is the swapchain allocated at the max level (1.416×).
 - GPU was ~25% busy on the PC, so it was not a bottleneck.
 
-## State left on the PC (after the 2026-10-28 re-run)
-- The WiVRn flatpak stays installed (user). The server is stopped, the headset is paired (`known_keys.json` was
-  rewritten on 10-28).
-- Restored: Alyx's Linux launch options are empty again; `~/.config/openxr/1/active_runtime.json` and
-  `~/.config/openvr/openvrpaths.vrpath` are deleted; no `config.json` in the flatpak's WiVRn config dir (as found).
-- Alyx quit, Steam shut down (it was not running before). Alyx is now on buildid 26227071.
-- ufw rules (persistent) stay. Undo with `sudo ufw delete allow 9757` and `sudo ufw delete allow 5353/udp`.
-- Gotcha: killing a stale wivrn-server unlinks `/run/user/1000/wivrn/comp_ipc` even if a newer server created it, and
+## Linux gotchas
+- The firewall must allow TCP 9757 and UDP 5353 (mDNS) for the headset to find and reach the server.
+- Killing a stale wivrn-server unlinks `$XDG_RUNTIME_DIR/wivrn/comp_ipc` even if a newer server created it, and
   the game then fails with `VRInitError_Init_VRServiceStartupFailed`. Stop every wivrn-server before starting one.
-  Steam would not log in while the Plasma session was locked.
 
 ## Where the Mac loses time (2026-10-28)
 
 Same Quest 3S (client 26.9, Wi-Fi, 160 MHz), save `s6/steamvr_quit`, 90 Hz, fidelity 3, headset at rest, 20 s
-settle + 30 s record. Mac: M4 Max on Ethernet, **40 W charger, battery 100→99 %**, screen sharing off, Alyx rolled
+settle + 30 s record. Mac: M4 Max on Ethernet, **on AC power**, screen sharing off, Alyx rolled
 back to 25487405 (see below). Linux: the Linux PC, wired, Alyx 26227071 native Vulkan via xrizer.
 
 ### What the overlay number is
@@ -133,7 +125,7 @@ hold of an early frame (= safe − actual arrival). The client's display-slot ho
 ### Method
 Identical logging on both: stock v26.9 tree + `patches/wivrn` 0004 (pacer log hunks) + 0009 + `patches/diag/
 wivrn-feedback-dump.patch` + `wivrn-m2p-trace.patch` (Mac on top of 0001-0009: `build/wivrn-m2p`; Linux
-`wivrn-m2p-trace-stock.patch`, built in `flatpak run --devel io.github.wivrn.wivrn` with org.kde.Sdk//6.10 (user
+`wivrn-m2p-trace-stock.patch`, built in `flatpak run --devel io.github.wivrn.wivrn` with org.kde.Sdk//6.10 (`--user`
 install, no sudo; header-only deps in `~/m2p`) and run in the same sandbox in place of the stock server; the
 flatpak's own client library stays). The trace's `M` line is the exact value the overlay shows, so no headset
 interaction is needed. Runs: `tools/mql-ab/m2prun.sh` (Mac; gate: ≥ 80 fps, session FOCUSED, no Guardian dialog),
@@ -183,7 +175,7 @@ used; Linux 10-28 overlay readings (63-74 AV1) agree with `lin-stock2`.
 2. **Stale poses in the 1-s max, +7.1 ms of overlay (run-dependent).** In `mac-stock7` 19 of 30 overlay values were
    set by a head query whose pose was 10-63 ms old (gaps of up to 70 ms between new head samples), so the overlay
    over-states the typical frame by 18 ms vs Linux's 11. `mac-ll2` had only 2 such windows. 10-s tracking latency is
-   the same on both (1.8-2.0 ms), so these are tail events: either uplink stalls into the Mac (Quest → AP → en7) or the
+   the same on both (1.8-2.0 ms), so these are tail events: either uplink stalls into the Mac (Quest → AP → Mac) or the
    history lookup (10 samples per device in `history.h`) losing the needed future-time sample when the Mac's horizon
    varies more. Not yet separated.
 3. **App margin +2.5 ms (our 0007 default 4 vs stock 1.5).** A/B `mac-ll-m15` (low-lat + margin 1.5): horizon p50
@@ -245,14 +237,14 @@ Controller state: all traced runs above (Mac and Linux) had the Quest controller
 pose queries), so the comparisons are like-for-like; no row needed correcting.
 
 ### Alyx 26227071 on macOS 27.2: 1 fps (2026-10-28)
-After Steam auto-updated Alyx on the Mac (17:40, 25487405 → 26227071) on top of macOS 27.2 (installed 00:58), Alyx ran
+After Steam auto-updated Alyx on the Mac (25487405 → 26227071) on top of macOS 27.2 (installed the same day), Alyx ran
 at 1-2 fps in VR and with `-novr` (GPU 0.1-0.3 ms, hlvr.exe on one core), with the known-good server
 (`build/wivrn-next`) too. Ruled out: WiVRn/pacer/bridge (`xrWaitFrame` 0.1 ms, bridge 0.6 ms per frame), controllers /
 hand tracking, Guardian, console spam, shader-cache rebuild (no MTLCompilerService CPU, DXMT cache unchanged over
 4 min), `ROSETTA_ADVERTISE_AVX=0`. The Linux build of 26227071 is fine.
 **Rollback (Mac):** `download_depot 546560 546563 1898649366808652836` in the Steam console (manifest from the 10-17
 depotcache) → `Steam.AppBundle/Steam/Contents/MacOS/steamapps/content/app_546560/depot_546563`; the 61 files that
-differ were backed up to `~/Library/Application Support/macvr-alyx-rollback/20261028-26227071/` (list in `files.txt`)
+differ were backed up outside the game dir (list in `files.txt`)
 and replaced. hlvr.exe sha256 154e3e5a… (25487405) vs e34bbf37… (26227071). Result: 120 fps 2D, 86-90 fps VR. The
 content depot 546561 was left at 26227071. Undo: copy the backup back over the game dir (or Steam "Verify integrity").
 Steam still records buildid 26227071, so it won't re-download, but a verify or the next Alyx update will undo the
@@ -260,6 +252,6 @@ rollback.
 **Under FEX it runs:** with `notproton-fex-41073` (arm64 Wine + FEX) the same 26227071 files give 89.4 fps in VR
 (`build/lat/fex-26227071`), so the slowdown is Rosetta-specific. Rosetta vs FEX numbers: [bridge-plan.md](bridge-plan.md) §7a.
 
-### Leftovers on the Linux PC
-`~/m2p` (source, deps, build, outputs) and the user flatpak runtime `org.kde.Sdk//6.10` (1.1 GB; remove with
-`flatpak uninstall --user org.kde.Sdk//6.10`). Otherwise restored as described above.
+### Cleanup on the Linux side
+`~/m2p` (source, deps, build, outputs) and the flatpak runtime `org.kde.Sdk//6.10` (1.1 GB; remove with
+`flatpak uninstall --user org.kde.Sdk//6.10`).

@@ -52,7 +52,7 @@ Consequences:
   `/openvr/openvrpaths.vrpath` and `C:\vrclient\` (*verified*, `strings`).
   - Same as Proton: the VR init thread (load SteamVR's vrclient, write `HKCU\Software\Wine\VR`) is gated on
     `PROTON_VR_RUNTIME` ("Linux OpenVR runtime is not available"). NotProton never sets it, and it isn't in the `--env` list.
-    *Verified*: no `Software\Wine\VR` key in the user.reg of 546560, 250820 or 1903340.
+    *Verified*: no `Software\Wine\VR` key in the user.reg of 546560, 250820 or a non-VR game's prefix.
   - `setup_vrpaths` converts `$HOME/.config/openvr/openvrpaths.vrpath`, which doesn't exist here, into the prefix's
     `%LOCALAPPDATA%\openvr\openvrpaths.vrpath`. Without it, it deletes the prefix file on every launch (*verified*
     2026-10-24, hence the read-only file in M3).
@@ -128,7 +128,7 @@ scripts come in as `run` and are never VR. The first rule that matches wins:
 
 | # | Signal | Where | Result |
 |---|---|---|---|
-| 1 | Env `MACVR_VR=0\|1` (Steam launch option `MACVR_VR=1 %command%`) | `run`'s environment. Launch-option env reaches `run`, *verified* by 1903340's `D3DM_ENABLE_METALFX=1 … %command%` in `localconfig.vdf`. | off / on |
+| 1 | Env `MACVR_VR=0\|1` (Steam launch option `MACVR_VR=1 %command%`) | `run`'s environment. Launch-option env reaches `run`, *verified* by a non-VR game's `VAR=1 … %command%` launch option in `localconfig.vdf`. | off / on |
 | 2 | Per-game file `~/Library/Application Support/macvr/games/<appid>` | Keys `vr=on\|off`, optional `backend=dxvk\|dxmt\|keep`, `opencomposite=on\|off`, `headset_wait=<s>`. It lives outside compatdata, so it survives a prefix rebuild. | off / on |
 | 3 | appinfo: the launch entry being run has `type "vr"` | `steamapps/../appcache/appinfo.vdf` (5 MB, binary v29). Our arm64 helper `macvr-appinfo <vdf> <appid>` prints `onlyvr=`, `openvr=`, and one `launch=<type>\t<exe>\t<args>` per Windows entry. The hook matches `$1` (the target exe) and the remaining args against those entries. Cached per appid in `macvr/cache/appinfo-<appid>` and keyed by the vdf mtime. | on if the matched entry is `type vr`, or if `onlyvrsupport=1` |
 | 4 | appinfo `openvrsupport=1` without a `vr` launch match (hybrid game in desktop mode) | same | off (logged as a candidate) |
@@ -137,7 +137,7 @@ scripts come in as `run` and are never VR. The first rule that matches wins:
 
 *Verified* with a scratch parser (`appcache/appinfo.vdf`, read-only):
 - 546560 Half-Life: Alyx: `onlyvrsupport 1`, `openvrsupport 1`, Windows launch 0 `game/bin/win64/hlvr.exe -vr -steam … type vr`.
-- 1903340 Clair Obscur (the control game): no VR keys, launches `type default`.
+- A non-VR control game: no VR keys, launches `type default`.
 - 250820 SteamVR: Windows launch 0 `bin\win64\vrstartup.exe`.
 
 Why rule 5 doesn't install anything: a passive install without a running server makes OpenComposite's
@@ -310,7 +310,7 @@ Hook sequence (H3, VR games only, before the launcher bundle):
 |---|---|
 | Alyx's only Windows launch entry is `type "vr"`, so no launch-option choice gives a non-VR entry. Launch options can't change the type. | *verified* (appinfo) |
 | The mac client logs "Failed to init SteamVR because it isn't installed" at every start. It looks for the mac SteamVR app; only the Windows depot is installed. | *verified* (`console_log.txt`) |
-| The only 250820 launches in the logs are the user's `LaunchApp` (2026-10-17, through `notproton-fex-41073/run waitforexitandrun …vrstartup.exe`) and install scripts. | *verified* |
+| The only 250820 launches in the logs are a manual `LaunchApp` (2026-10-17, through `notproton-fex-41073/run waitforexitandrun …vrstartup.exe`) and install scripts. | *verified* |
 | Alyx has never been game-launched (its `notproton-run.log` only has the install-script `run` verb). So what Steam does for a `type vr` launch on macOS is unknown. | **test T6** |
 | `steam.exe` won't start SteamVR's vrclient without `PROTON_VR_RUNTIME`. | *verified* (strings + no `Wine\VR` keys); behaviour **T5** |
 | Host `~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath` still points at the deleted `SteamVR.app`. The stale LaunchAgent `com.valvesoftware.steamvr.ipctool` points at a missing binary. Neither one is read by a Windows `openvr_api` in a prefix. | *verified*; leave them |
@@ -395,19 +395,19 @@ patching the wrong place.
    `scripts/notproton-snapshot.sh`, `notproton/org.macvr.wivrn.plist.in`.
 3. The snapshot repo plus patch 0001.
 4. Tests T1–T4 on scratch copies (no Steam).
-5. With the user's go-ahead: install the patched `run`, then T5–T7 with Steam.
+5. Install the patched `run`, then T5–T7 with Steam.
 
 ## 8. Test plan
 
 Scratch only until T5. Nothing writes to a real compatdata, a tool dir or NotProton's support dir. One exception: the
 patched `run` always creates `notproton/launchers/<appid>/`, so the tests use the fake appid **4100000546**, and
-cleanup removes `launchers/4100000546` and `launchers/4100001903`.
+cleanup removes `launchers/4100000546` and `launchers/4100000001`.
 
 ```sh
 S="$HOME/Library/Application Support/Steam"; T=build/m4
 mkdir -p $T/compatdata $T/tool
 cp -cR "$S/steamapps/compatdata/546560"  $T/compatdata/4100000546      # APFS clone of the Alyx prefix (VR)
-cp -cR "$S/steamapps/compatdata/1903340" $T/compatdata/4100001903      # control: non-VR game prefix
+cp -cR "$S/steamapps/compatdata/<flat appid>" $T/compatdata/4100000001  # control: non-VR game prefix
 cp "$S/compatibilitytools.d/notproton-fex-rosetta-41073/"{run,build,flavor,compatibilitytool.vdf,toolmanifest.vdf} $T/tool/
 # patch $T/tool/run from third_party/notproton (staged 0001); the tool dir name only matters for prefix rebuilds
 ```
@@ -420,14 +420,14 @@ waitforexitandrun <exe> [args]`:
 | # | Test | Pass when |
 |---|---|---|
 | T0 | `git apply --check` of 0001 on the snapshot; `sh -n` and shellcheck on the patched `run` and `hook.sh`; `notproton-vr.sh status` on copies of the tool dirs | All clean. Status reports pristine, then patched, then foreign after a 1-byte edit. |
-| T1 | `macvr-appinfo` against the real `appinfo.vdf` (read-only) | 546560 → `onlyvr=1`, `launch=vr game/bin/win64/hlvr.exe …`; 1903340 → no VR; 250820 → SteamVR; a missing appid → empty, exit 0. |
+| T1 | `macvr-appinfo` against the real `appinfo.vdf` (read-only) | 546560 → `onlyvr=1`, `launch=vr game/bin/win64/hlvr.exe …`; the non-VR game → no VR; 250820 → SteamVR; a missing appid → empty, exit 0. |
 | T2 | LaunchAgent alone: `notproton-vr.sh deploy`, `launchctl kickstart`, then native `hello_xr` from Terminal with `XR_RUNTIME_JSON=build/wivrn/openxr_wivrn-dev.json` | Socket present; `macvr-vrstatus` = `no-service` without a headset and `ready` with the Quest. This also records whether the Mach service exists before the headset connects. The server log shows the shaders loaded from the deployed copy. Repeat the kickstart from an ssh shell: same result. |
 | T3 | VR install into the 4100000546 clone with `MACVR_VR=1`, exe `build/m3/tests/ovr_d3d11_test.exe 300` + `openvr_api.dll`, `MACVR_SERVER=null`. That hook test mode starts `build/bridge` monado-service with the frame dump, plus the current `libopenxr_monado` client, instead of WiVRn. | `notproton-run.log` shows the staged lines; OpenComposite log in `C:\macvr\opencomposite\logs`; frame-dump PNG with the M3 pattern; `system.reg` has `ActiveRuntime`; `macvr-vr` record written. |
 | T4 | Idempotence and versioning on the same clone | (a) A second launch: `cmp` everywhere, no file mtimes change except the logs. (b) A new `bridge/<stamp>`: files replaced, record updated. (c) A deliberately mismatched `IPC_STAMP`: alert and exit 1, no launch. (d) `MACVR_VR=0`: uninstall; `system.reg`/`user.reg` diff against the pre-T3 clone equals only Wine's timestamps. (e) A foreign vrpath is preserved as `.orig` and restored. (f) Revert only `run`, leave the prefix installed: the OpenVR test exits with an error, no hang. |
-| T4c | Control: 4100001903 clone, no opt-in, `hello_xr.exe -g D3D11` as the exe | Hook logs `not VR`. No `wineopenxr` files, no `drive_c/macvr`, `system.reg` diff = timestamps only, `CX_GRAPHICS_BACKEND` as before (dxmt default), no `launchctl` calls (the launchd log shows no kickstart). |
+| T4c | Control: 4100000001 clone, no opt-in, `hello_xr.exe -g D3D11` as the exe | Hook logs `not VR`. No `wineopenxr` files, no `drive_c/macvr`, `system.reg` diff = timestamps only, `CX_GRAPHICS_BACKEND` as before (dxmt default), no `launchctl` calls (the launchd log shows no kickstart). |
 | T5 | `steam.exe` interplay, inside T3's run (the shim is in the path) | The prefix vrpath is unchanged after the launch, i.e. `setup_vrpaths` with no Linux file leaves it alone. Separately, run with only the env variant (no file) to see whether `VR_OVERRIDE` survives `steam.exe`. Neither result blocks M4, because the file variant is primary. |
-| T6 | With the user's go-ahead, real Steam, patched `run` installed, the Quest on WiVRn: launch Alyx | Grep `logs/console_log.txt` for `GameAction [AppID 250820` / `vrstartup` and `notproton-run.log` for `macvr: refused SteamVR`; watch for any Steam "SteamVR" dialog. Alyx renders in the headset. |
-| T7 | Control with real Steam: launch 1903340 | Its `notproton-run.log` is the same as before apart from the `macvr: not VR` line. Same backend, same FPS, no server start. |
+| T6 | Real Steam, patched `run` installed, the Quest on WiVRn: launch Alyx | Grep `logs/console_log.txt` for `GameAction [AppID 250820` / `vrstartup` and `notproton-run.log` for `macvr: refused SteamVR`; watch for any Steam "SteamVR" dialog. Alyx renders in the headset. |
+| T7 | Control with real Steam: launch the non-VR game | Its `notproton-run.log` is the same as before apart from the `macvr: not VR` line. Same backend, same FPS, no server start. |
 
 Cleanup: `rm -rf build/m4`, plus the `launchers/41000*` dirs, and `launchctl bootout` the agent if T2 loaded it.
 

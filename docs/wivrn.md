@@ -310,7 +310,7 @@ Steam leaves the vrmanifest empty and the Linux Steam paths don't exist, so the 
   default icon.
 - `list-apps` (`-DWIVRN_BUILD_TEST=ON`, `common/list-apps`) also prints each icon's size.
 Checked against this Mac's Steam (`build/wivrn-apps/common/list-apps`): only `546560 Half-Life: Alyx`, `Exec=/usr/bin/open
-steam://rungameid/546560`, 450×450 PNG (cover art centered); 250820 (Tool), 1903340, 38700, 228980, 1332010 left out.
+steam://rungameid/546560`, 450×450 PNG (cover art centered); 250820 (SteamVR, a Tool), 228980 (redistributables) and the installed non-VR games left out.
 With `HOME` on a scratch Steam tree (second library, The Lab with StateFlags 6, PAYDAY 2 downloading, Phasmophobia
 with only `openxrsupport`, 360 video player installed): The Lab, Phasmophobia, Alyx; not PAYDAY 2, SteamVR, the
 player. `steam://` resolves to /Applications/Steam.app (LaunchServices). Not checked yet: the list and a launch in the

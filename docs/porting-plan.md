@@ -65,7 +65,7 @@ client app. No headset needed until the final step.
   - Bitrate-change hysteresis, Annex B conversion, filler-NAL drop, prewarm.
   - It is a standalone process; we extract the session code into a small C library.
 - `tools/vtbench.c`, `tools/encoder_test.c`: VT benchmarks.
-- Milestone 2 no longer patches DXMT (user decision 2026-10-24); it uses stock DXVK interop instead,
+- Milestone 2 no longer patches DXMT (decision 2026-10-24); it uses stock DXVK interop instead,
   see docs/bridge-plan.md. For reference only: Upstream DXMT already shares textures as `MTLSharedTextureHandle`
   Mach ports registered with `bootstrap_register` (`WMTBootstrapRegister`). That proves
   bootstrap Mach services work from inside a Wine process, which the M2 bridge depends on.
@@ -186,7 +186,7 @@ Behind `#ifdef __APPLE__` or CMake options; not reimplemented unless needed.
 | 3 | Monado out-of-process: D1 + D2 in xrt_handles, vk_image_allocator, vk_bundle probing, ipc message channel; sync per D3. | `hello_xr` as a separate process renders. The compositor's output is checked by dumping a frame to PNG. |
 | 4 | WiVRn server builds and runs on macOS (D6, sockets, Bonjour, `wivrn_vk_bundle` ext requirements, encode image on MoltenVK). Encoder: x264 or raw first. | Server starts, advertises over mDNS (`dns-sd -B _wivrn._tcp`), and accepts a TCP connection. |
 | 5 | `video_encoder_vt` (readback). Offline test harness feeds frames and dumps `.hevc`. | `ffprobe` shows a valid stream; encode time per frame is logged. |
-| 6 | Headset: Quest client connects, hello_xr visible. **User check.** | User confirms the image in the headset. |
+| 6 | Headset: Quest client connects, hello_xr visible. **Headset check.** | The image is confirmed in the headset. |
 | 7 | Zero-copy encode image (MTLSharedEvent sync already done in step 3); measurements in TODO.md. | Latency/fps numbers recorded. |
 
 ## 4. Risks

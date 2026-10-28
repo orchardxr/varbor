@@ -8,7 +8,7 @@ Stack B ("macvr"): native Steam + NotProton (stock DXMT, msync) → OpenComposit
 ## Method
 - Same save `s6/steamvr_quit` (balcony), loaded hands-free (A: the reference stack's own save loader; B:
   `scripts/alyx-save.sh`). Unpaused, hlvr.exe activated (`lsappinfo front` = hlvr.exe in both).
-- Shortened on request: one 30 s window per stack after ≥ 20 s settle (not 2 × 60 s).
+- Shortened: one 30 s window per stack after ≥ 20 s settle (not 2 × 60 s).
 - Recorder `tools/mql-ab/abrecord.sh <label> 30`, summary `tools/mql-ab/abstats.py build/ab/<label>`; raw files
   in `build/ab/` (`a.*`, `b.*`, screenshots `a-quest.png`, `b-quest.png`, `a-mac.png`, `b-mac.png`).
 - Game fps: Metal HUD os_log (`MTL_HUD_LOG_ENABLED=1` prints `metal-HUD: <frame#>,…` once a second; the frame counter
@@ -61,7 +61,7 @@ Stack B ("macvr"): native Steam + NotProton (stock DXMT, msync) → OpenComposit
 - Alyx `vr_fidelity_level_auto` set back to 1 in both stacks (not archived cvars).
 - `launchctl setenv MTL_HUD_LOG_ENABLED 1` for B's launch, then unset.
 - Reference stack and bottle configs untouched; bottle Steam/SteamVR quit (`steam.exe -shutdown`, `wineserver -k`),
-  its encoder helper stopped. End state (per user): Alyx quit, native Steam idle, WiVRn server running, Quest in the WiVRn client lobby.
+  its encoder helper stopped. End state: Alyx quit, native Steam idle, WiVRn server running, Quest in the WiVRn client lobby.
 
 ## GPU bottleneck (2026-10-25)
 Stack B only, same save/spot/settings as above (72 Hz, fidelity 3, MSAA 4x, `supersampleRatio=0.949`). Tools:

@@ -446,7 +446,7 @@ state tracker):
 | 4 | Time conversion (QPC ⇄ XrTime), measured against a game-like loop. Check NotProton's patched ntdll for its QPC source. | Predicted display time converts both ways within 1 µs. | Done (exact round trip; QPC = `mach_continuous_time`) |
 | 5 | Array/depth swapchains: Monado `MTLSharedTextureHandle` kind + `VkImportMetalTextureInfoEXT` on MVK 1.2.10, or the bridge copy fallback. | `hello_xr.exe` with a 2-layer swapchain and a depth layer renders. | Done with the bridge fallback (`xr_array_test.exe`; hello_xr can't do arrays). MVK import verified for later. |
 | 6 | FEX flavor: aarch64 `.so` + arm64 runtime, PE as x86_64 (or arm64x). | Step 3 passes on `notproton-fex-41073`. | Done 2026-10-28 (§7a): universal `.so` + client, x86_64 PE; DXMT only (no arm64 DXVK in the runner); Alyx runs |
-| 7 | Install recipe for a real game prefix (only with the user's go-ahead), then one OpenXR D3D11 title in the headset through WiVRn. | User check. | Open |
+| 7 | Install recipe for a real game prefix, then one OpenXR D3D11 title in the headset through WiVRn. | Headset check. | Open |
 
 ## 7a. FEX flavor (step 6, 2026-10-28)
 
@@ -476,7 +476,7 @@ Results (runner clones, `build/logs/bridge-*-fex*`, `bridge-hello_xr-universal-*
   `lib/aarch64/libMoltenVK.dylib`; both Rosetta tools map `x86_64-unix/wineopenxr.so` (Rosetta AOT of the x86_64 slice).
 
 Alyx, FEX vs Rosetta (`tools/mql-ab/m2prun.sh`, `build/wivrn-m2p` stock estimator, s6/steamvr_quit, 90 Hz, fidelity 3,
-controllers asleep, gate passed every run, 40 W charger, 100→90 %, no screen sharing; build 25487405; hlvr CPU = `top`
+controllers asleep, gate passed every run, on AC power, no screen sharing; build 25487405; hlvr CPU = `top`
 of hlvr.exe over the 30-s window, 100 % = one core; raw `build/lat/{fex-stock*,ros-stock*,uni-*}`):
 
 | | game fps | app CPU (xrWaitFrame→xrEndFrame) p50 / p95 | hlvr CPU | overlay M2P mean | safe p50 | app-limited frames |
@@ -499,7 +499,7 @@ FEX is ahead on the CPU side in every pairing: −1.7 ms app CPU p50, a p95 that
 most of the M2P spread, so the M2P gap (−9 ms mean) is partly the network, not FEX.
 Alyx's current build 26227071 (1-2 fps on Rosetta, [linux-comparison.md](linux-comparison.md)) runs normally on FEX:
 `fex-26227071` 89.4 fps, app CPU 2.7 / 4.2, hlvr 393 %, M2P 66.9, safe 24.4. The game files were swapped back to
-25487405 afterwards (copies of both sets in `~/Library/Application Support/macvr-alyx-rollback/`).
+25487405 afterwards (copies of both sets kept outside the game dir).
 
 Switching a game between tools: NotProton refuses an x86_64 prefix on FEX (and the reverse) and offers a prefix
 rebuild. For these tests the Rosetta prefix was moved aside (`compatdata/546560.rosetta-20261028`) and NotProton made a

@@ -224,7 +224,7 @@ What decides whether SteamVR starts for an OpenVR game:
      - The only Windows launch option is `game/bin/win64/hlvr.exe -vr -steam -noasserts -nopassiveasserts +map startup`,
        `type "vr"`, with no working directory.
      - `common/onlyvrsupport 1`, `openvrsupport 1`, `openvr_action_manifest_path game/hlvr/cfg/actions.json`.
-   - Steam's logs show no automatic launch of 250820 tied to another app. The one SteamVR run was a user
+   - Steam's logs show no automatic launch of 250820 tied to another app. The one SteamVR run was a manual
      `LaunchApp` of 250820 itself.
    - Not verified, because launching games was out of scope: whether the mac client, for a `type "vr"` launch, starts
      app 250820 through its compat tool. Check on the first real Alyx launch: grep `console_log.txt` for
@@ -269,7 +269,7 @@ Sources for the community status: [VR on Linux game DB: Half-Life: Alyx](https:/
 ## Half-Life: Alyx (2026-10-24)
 
 First run in the real prefix (`compatdata/546560`, compat tool `notproton-fex-rosetta-41073`, runner
-`crossover-27.0.0.41073-fex`), with the user's go-ahead.
+`crossover-27.0.0.41073-fex`).
 
 Result:
 - **D3D11 works end to end.** Alyx under Steam (DRM) → OpenComposite → bridge → x86_64 Monado client → WiVRn → Quest,
@@ -291,10 +291,10 @@ Result:
 ### DXMT (2026-10-24, current)
 
 Under DXVK the menu background was missing: CrossOver's MoltenVK geometry-shader emulation emits invalid Metal for 4
-Alyx pipelines. CrossOver parts stay unpatched (user decision), so Alyx now runs on stock DXMT and the bridge has a DXMT
+Alyx pipelines. CrossOver parts stay unpatched (decision 2026-10-24), so Alyx now runs on stock DXMT and the bridge has a DXMT
 D3D11 path ([bridge-plan.md](bridge-plan.md) §4a). Result: the menu renders with its 3D City 17 background in the
 headset (`build/logs/m3-alyx-dxmt-2.png`), WiVRn 2×90 fps at ~17.5 Mbit/s, no bridge errors in the game log.
-Launch option (set by the user): `WINEMSYNC=1 MTL_HUD_ENABLED=1 CX_GRAPHICS_BACKEND=dxmt WINEDLLPATH="<prefix>/drive_c/macvr" %command%`.
+Launch option (set by hand): `WINEMSYNC=1 MTL_HUD_ENABLED=1 CX_GRAPHICS_BACKEND=dxmt WINEDLLPATH="<prefix>/drive_c/macvr" %command%`.
 The install script now also backs up `C:\macvr` before overwriting it.
 
 ### Install (`scripts/install-vr-546560.sh`, rollback `scripts/uninstall-vr-546560.sh`)

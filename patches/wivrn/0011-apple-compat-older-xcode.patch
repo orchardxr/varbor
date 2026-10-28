@@ -2,18 +2,17 @@ From: macvr
 Subject: [PATCH] apple-compat-older-xcode
 
 ---
- common/utils/apple_compat.h | 127 ++++++++++++++++++++++++++++++++++++++++----
- 1 file changed, 116 insertions(+), 11 deletions(-)
+ common/utils/apple_compat.h | 58 ++++++++++++++++++++++++++++++++++++---------
+ 1 file changed, 47 insertions(+), 11 deletions(-)
 
 diff --git a/common/utils/apple_compat.h b/common/utils/apple_compat.h
-index d5eb7978ab9a57c046c7a3f8921d1b6ebe7b0ee9..19890189ba8ec648185a058a21c565096a9a62b6 100644
+index d5eb7978ab9a57c046c7a3f8921d1b6ebe7b0ee9..355d99f71fa0682ce0ff67b51285e5b28e51479f 100644
 --- a/common/utils/apple_compat.h
 +++ b/common/utils/apple_compat.h
-@@ -19,29 +19,134 @@
+@@ -19,29 +19,65 @@
  #pragma once
  
  #ifdef __cplusplus
-+#include <cstddef>
 +#include <iterator>
  #include <ranges>
 +#include <tuple>
@@ -22,7 +21,8 @@ index d5eb7978ab9a57c046c7a3f8921d1b6ebe7b0ee9..19890189ba8ec648185a058a21c56509
  
 -#if defined(__cpp_lib_ranges_zip) && !defined(__cpp_lib_ranges_enumerate)
 -namespace std::ranges
-+// Standalone fallbacks, exposed in std::ranges only when the library lacks them (older Xcode).
++// Standalone enumerate_view, exposed in std::ranges only when the library lacks it (older Xcode). It doesn't rely on
++// zip_view: older libc++ ships zip_view without defining __cpp_lib_ranges_zip.
 +namespace wivrn_ranges_compat
  {
 -// enumerate_view as zip(iota, view): yields tuple<difference_type, reference>
@@ -75,79 +75,10 @@ index d5eb7978ab9a57c046c7a3f8921d1b6ebe7b0ee9..19890189ba8ec648185a058a21c56509
 -enumerate_view(R &&) -> enumerate_view<views::all_t<R>>;
 +enumerate_view(R &&) -> enumerate_view<std::views::all_t<R>>;
 +
-+template <std::ranges::view... Vs>
-+class zip_view : public std::ranges::view_interface<zip_view<Vs...>>
-+{
-+	std::tuple<Vs...> bases_;
-+
-+	struct iterator
-+	{
-+		std::tuple<std::ranges::iterator_t<Vs>...> its;
-+
-+		using difference_type = std::ptrdiff_t;
-+		using value_type = std::tuple<std::ranges::range_value_t<Vs>...>;
-+
-+		std::tuple<std::ranges::range_reference_t<Vs>...> operator*() const
-+		{
-+			return std::apply([](auto &... i) { return std::tuple<std::ranges::range_reference_t<Vs>...>(*i...); }, its);
-+		}
-+		iterator & operator++()
-+		{
-+			std::apply([](auto &... i) { (++i, ...); }, its);
-+			return *this;
-+		}
-+		iterator operator++(int)
-+		{
-+			auto r = *this;
-+			++*this;
-+			return r;
-+		}
-+		bool operator==(const iterator & o) const { return its == o.its; }
-+	};
-+
-+	struct sentinel
-+	{
-+		std::tuple<std::ranges::sentinel_t<Vs>...> ends;
-+
-+		// stops at the shortest range, like std::views::zip
-+		friend bool operator==(const iterator & a, const sentinel & s)
-+		{
-+			return [&]<std::size_t... I>(std::index_sequence<I...>) {
-+				return ((std::get<I>(a.its) == std::get<I>(s.ends)) || ...);
-+			}(std::index_sequence_for<Vs...>{});
-+		}
-+	};
++} // namespace wivrn_ranges_compat
  
 -template <class V>
 -inline constexpr bool enable_borrowed_range<enumerate_view<V>> = false;
-+public:
-+	zip_view() = default;
-+	constexpr explicit zip_view(Vs... vs) : bases_(std::move(vs)...) {}
-+	iterator begin()
-+	{
-+		return {std::apply([](auto &... b) { return std::tuple(std::ranges::begin(b)...); }, bases_)};
-+	}
-+	sentinel end()
-+	{
-+		return {std::apply([](auto &... b) { return std::tuple(std::ranges::end(b)...); }, bases_)};
-+	}
-+};
-+
-+template <class... Rs>
-+zip_view(Rs &&...) -> zip_view<std::views::all_t<Rs>...>;
-+} // namespace wivrn_ranges_compat
-+
-+#if !defined(__cpp_lib_ranges_zip)
-+namespace std::ranges
-+{
-+using wivrn_ranges_compat::zip_view;
-+namespace views
-+{
-+inline constexpr auto zip = []<class... Rs>(Rs &&... rs) { return wivrn_ranges_compat::zip_view(std::forward<Rs>(rs)...); };
-+} // namespace views
-+} // namespace std::ranges
-+#endif
-+
 +#if !defined(__cpp_lib_ranges_enumerate)
 +namespace std::ranges
 +{

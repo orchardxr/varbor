@@ -1,0 +1,157 @@
+From: macvr
+Subject: [PATCH] apple-compat-older-xcode
+
+---
+ common/utils/apple_compat.h | 127 ++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 116 insertions(+), 11 deletions(-)
+
+diff --git a/common/utils/apple_compat.h b/common/utils/apple_compat.h
+index d5eb7978ab9a57c046c7a3f8921d1b6ebe7b0ee9..19890189ba8ec648185a058a21c565096a9a62b6 100644
+--- a/common/utils/apple_compat.h
++++ b/common/utils/apple_compat.h
+@@ -19,29 +19,134 @@
+ #pragma once
+ 
+ #ifdef __cplusplus
++#include <cstddef>
++#include <iterator>
+ #include <ranges>
++#include <tuple>
++#include <utility>
+ #include <version>
+ 
+-#if defined(__cpp_lib_ranges_zip) && !defined(__cpp_lib_ranges_enumerate)
+-namespace std::ranges
++// Standalone fallbacks, exposed in std::ranges only when the library lacks them (older Xcode).
++namespace wivrn_ranges_compat
+ {
+-// enumerate_view as zip(iota, view): yields tuple<difference_type, reference>
+-template <view V>
+-class enumerate_view : public zip_view<iota_view<range_difference_t<V>>, V>
++template <std::ranges::view V>
++class enumerate_view : public std::ranges::view_interface<enumerate_view<V>>
+ {
+-	using base = zip_view<iota_view<range_difference_t<V>>, V>;
++	V base_;
++
++	using diff = std::ranges::range_difference_t<V>;
++	using inner = std::ranges::iterator_t<V>;
++
++	struct iterator
++	{
++		inner it;
++		diff i = 0;
++
++		using difference_type = diff;
++		using value_type = std::tuple<diff, std::ranges::range_value_t<V>>;
++
++		std::tuple<diff, std::ranges::range_reference_t<V>> operator*() const { return {i, *it}; }
++		iterator & operator++()
++		{
++			++it;
++			++i;
++			return *this;
++		}
++		iterator operator++(int)
++		{
++			auto r = *this;
++			++*this;
++			return r;
++		}
++		bool operator==(const iterator & o) const { return it == o.it; }
++		friend bool operator==(const iterator & a, const std::ranges::sentinel_t<V> & s) { return a.it == s; }
++	};
+ 
+ public:
+ 	enumerate_view() = default;
+-	constexpr explicit enumerate_view(V v) :
+-	        base(iota_view<range_difference_t<V>>(0), std::move(v)) {}
++	constexpr explicit enumerate_view(V v) : base_(std::move(v)) {}
++	iterator begin() { return {std::ranges::begin(base_), 0}; }
++	auto end() { return std::ranges::end(base_); }
+ };
+ 
+ template <class R>
+-enumerate_view(R &&) -> enumerate_view<views::all_t<R>>;
++enumerate_view(R &&) -> enumerate_view<std::views::all_t<R>>;
++
++template <std::ranges::view... Vs>
++class zip_view : public std::ranges::view_interface<zip_view<Vs...>>
++{
++	std::tuple<Vs...> bases_;
++
++	struct iterator
++	{
++		std::tuple<std::ranges::iterator_t<Vs>...> its;
++
++		using difference_type = std::ptrdiff_t;
++		using value_type = std::tuple<std::ranges::range_value_t<Vs>...>;
++
++		std::tuple<std::ranges::range_reference_t<Vs>...> operator*() const
++		{
++			return std::apply([](auto &... i) { return std::tuple<std::ranges::range_reference_t<Vs>...>(*i...); }, its);
++		}
++		iterator & operator++()
++		{
++			std::apply([](auto &... i) { (++i, ...); }, its);
++			return *this;
++		}
++		iterator operator++(int)
++		{
++			auto r = *this;
++			++*this;
++			return r;
++		}
++		bool operator==(const iterator & o) const { return its == o.its; }
++	};
++
++	struct sentinel
++	{
++		std::tuple<std::ranges::sentinel_t<Vs>...> ends;
++
++		// stops at the shortest range, like std::views::zip
++		friend bool operator==(const iterator & a, const sentinel & s)
++		{
++			return [&]<std::size_t... I>(std::index_sequence<I...>) {
++				return ((std::get<I>(a.its) == std::get<I>(s.ends)) || ...);
++			}(std::index_sequence_for<Vs...>{});
++		}
++	};
+ 
+-template <class V>
+-inline constexpr bool enable_borrowed_range<enumerate_view<V>> = false;
++public:
++	zip_view() = default;
++	constexpr explicit zip_view(Vs... vs) : bases_(std::move(vs)...) {}
++	iterator begin()
++	{
++		return {std::apply([](auto &... b) { return std::tuple(std::ranges::begin(b)...); }, bases_)};
++	}
++	sentinel end()
++	{
++		return {std::apply([](auto &... b) { return std::tuple(std::ranges::end(b)...); }, bases_)};
++	}
++};
++
++template <class... Rs>
++zip_view(Rs &&...) -> zip_view<std::views::all_t<Rs>...>;
++} // namespace wivrn_ranges_compat
++
++#if !defined(__cpp_lib_ranges_zip)
++namespace std::ranges
++{
++using wivrn_ranges_compat::zip_view;
++namespace views
++{
++inline constexpr auto zip = []<class... Rs>(Rs &&... rs) { return wivrn_ranges_compat::zip_view(std::forward<Rs>(rs)...); };
++} // namespace views
++} // namespace std::ranges
++#endif
++
++#if !defined(__cpp_lib_ranges_enumerate)
++namespace std::ranges
++{
++using wivrn_ranges_compat::enumerate_view;
+ } // namespace std::ranges
+ #endif
+ #endif

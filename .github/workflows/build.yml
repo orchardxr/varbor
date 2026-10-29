@@ -120,30 +120,9 @@ jobs:
       # x86_64 slice: Monado's client only needs the universal Vulkan SDK in /usr/local and Eigen's headers, so no
       # x86_64 Homebrew is needed.
       - name: WiVRn IPC client (x86_64, Rosetta runners)
-        # The newest Apple clang on the runner (2100.1.1.101) segfaults on Monado's m_base.cpp for x86_64 (arm64 is
-        # fine). Log which optimization levels survive, then rebuild the client with the newest Xcode 26.
-        env:
-          WIVRN_BUILD_TYPE: Release
-        run: |
-          scripts/build-wivrn.sh --client-x86_64 && exit 0
-          echo "::group::m_base.cpp crash diagnostics"
-          ls -d /Applications/Xcode*.app
-          b=build/wivrn-client-x86_64
-          cmd="$(ninja -C "$b" -t commands openxr_wivrn | grep -F 'm_base.cpp.o' | head -1)"
-          for o in -O2 -O1 -O0; do
-            (cd "$b" && eval "${cmd//-O3/$o}" > /dev/null 2>&1) && echo "$o: ok" || echo "$o: fails"
-          done
-          echo "::endgroup::"
-          alt="$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -1)"
-          [[ -n "$alt" ]] || { echo "no Xcode 26 to fall back to"; exit 1; }
-          echo "falling back to $alt"
-          rm -rf "$b"
-          DEVELOPER_DIR="$alt/Contents/Developer" scripts/build-wivrn.sh --client-x86_64
+        run: scripts/build-wivrn.sh --client-x86_64
 
       - name: WiVRn IPC client (arm64, FEX runners)
-        # Release: the runner's Apple clang crashed (segfault) on Monado math with RelWithDebInfo
-        env:
-          WIVRN_BUILD_TYPE: Release
         run: scripts/build-wivrn.sh --client-arm64
 
       - name: Bridge

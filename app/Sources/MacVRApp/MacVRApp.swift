@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
 
     @Published var serverState = "starting…"
     @Published var headset = false
+    @Published var pin: String?
     @Published var games: [String] = []
     @Published var setup = "setting up…"
     @Published var hint: String?
@@ -164,6 +165,7 @@ final class AppModel: ObservableObject {
         if windowVisible && ticks % 6 == 0 { refreshDetails() }
         let st = ours ? ServerStatus.read(ctx) : ServerStatus()
         headset = st.headset
+        pin = st.pin
         games = st.gameNames
         let ctx = ctx
         let pids = Array(st.clientPids.values)
@@ -327,6 +329,7 @@ struct MenuContent: View {
         Divider()
         Text("Server: \(model.serverState)")
         Text("Headset: \(model.headset ? "connected" : "not connected")")
+        if let pin = model.pin { Text("Pairing PIN: \(pin)") }
         Text("Game: \(model.games.isEmpty ? "none" : model.games.joined(separator: ", "))")
         if let hint = model.hint { Text(hint) }
         Text("Setup: \(model.setup)")
@@ -355,6 +358,18 @@ struct MenuLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        if let pin = model.pin {
+            HStack(spacing: 4) {
+                Self.icon
+                Text(pin).monospacedDigit()
+            }
+            .onAppear { model.openMain = { openWindow(id: "main") } }
+        } else {
+            plain
+        }
+    }
+
+    var plain: some View {
         Self.icon
             .opacity(model.headset ? 1 : 0.5)
             .overlay(alignment: .bottomTrailing) {

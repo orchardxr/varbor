@@ -151,6 +151,8 @@ public struct ServerStatus: Equatable {
     public var clients: [Int: String] = [:]
     public var clientPids: [Int: Int32] = [:]
     public var lastError: String?
+    /// The PIN a new headset must enter while the server accepts pairing.
+    public var pin: String?
 
     public init() {}
 
@@ -179,6 +181,10 @@ public struct ServerStatus: Equatable {
             } else if let pc = pendingClient, let r = line.range(of: "pid: ") {
                 s.clientPids[pc] = Int32(line[r.upperBound...].prefix { $0.isNumber })
                 pendingClient = nil
+            } else if let r = line.range(of: "To pair a new headset use PIN code: ") {
+                s.pin = String(line[r.upperBound...].prefix { $0.isNumber })
+            } else if line == "Headset pairing is disabled" || line == "Encryption is disabled" {
+                s.pin = nil
             } else if line.contains(" ERROR ") {
                 s.lastError = String(line)
             }

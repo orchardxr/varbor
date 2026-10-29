@@ -197,6 +197,12 @@ struct StatusPage: View {
                 }
                 Row(title: "Headset", subtitle: [model.headset ? "Connected" : "Not connected"],
                     dot: model.headset ? .green : .secondary)
+                if let pin = model.pin {
+                    Row(title: "Pairing PIN", subtitle: ["Enter it in the WiVRn app on the headset to pair it with this Mac."],
+                        dot: .blue) {
+                        Text(pin).font(.title2.monospacedDigit().weight(.semibold)).textSelection(.enabled)
+                    }
+                }
             }
             Section {
                 if model.games.isEmpty {

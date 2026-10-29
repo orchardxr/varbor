@@ -341,3 +341,10 @@ The system32 legacy-detection fix above is in `build/app/MacVR.app` but not depl
   shell waits for the app to quit, swaps the bundle (restoring the old one if the move fails), clears quarantine and
   opens the new one. Its payload deploys as a new version at launch. If the app's folder isn't writable it opens the
   release page instead.
+
+## Pairing
+
+- A new headset must enter the PIN the server prints ("To pair a new headset use PIN code: …") while it accepts
+  pairing (always when no headset is paired yet). ServerStatus reads it from the server log and clears it on
+  "Headset pairing is disabled" / "Encryption is disabled". While it is set, the menu-bar icon shows the PIN next to
+  it, and the menu and the Status page show it too.

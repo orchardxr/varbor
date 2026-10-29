@@ -326,6 +326,10 @@ final class ServerStatusTests: XCTestCase {
         s = ServerStatus.parse(Substring(log + "\n INFO [client_disconnected] Client 2 disconnected\n WARN [run_net] Network exception: Error on control socket, Session paused."))
         XCTAssertFalse(s.headset)
         XCTAssertEqual(s.gameNames, [])
+        s = ServerStatus.parse(Substring(log + "\nTo pair a new headset use PIN code: 053531\n"))
+        XCTAssertEqual(s.pin, "053531")
+        s = ServerStatus.parse(Substring(log + "\nTo pair a new headset use PIN code: 053531\nHeadset pairing is disabled\n"))
+        XCTAssertNil(s.pin)
         s = ServerStatus.parse(Substring(log + "\nWiVRn 26.9 starting\n"))
         XCTAssertEqual(s, ServerStatus())
     }

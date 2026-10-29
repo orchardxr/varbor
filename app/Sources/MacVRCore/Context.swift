@@ -88,6 +88,11 @@ public struct Context: Sendable {
     public var bottles: [URL] { pathList("bottles") }
     /// Trees MacVR must never modify (e.g. bottles another tool manages).
     public var protectedPaths: [URL] { pathList("protected-paths") }
+    /// Steam game prefixes (compatdata/<appid>) MacVR keeps free of its settings.
+    public var excludedPrefixes: [URL] { pathList("excluded-prefixes") }
+    public func isExcluded(_ p: WinePrefix) -> Bool {
+        p.kind == .steam && excludedPrefixes.contains { $0.standardizedFileURL.path == p.owner.standardizedFileURL.path }
+    }
     /// Steam libraries the user added (besides libraryfolders.vdf).
     public var extraLibraries: [URL] { pathList("steam-libraries") }
     public var steam: Steam { Steam(root: steamRoot, extraLibraries: extraLibraries) }

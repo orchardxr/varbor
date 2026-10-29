@@ -902,7 +902,10 @@ static XrResult dxmt_session_binding(XrInstance instance, XrSystemId system, str
     if (ok && sync && !strcmp(sync, "fence")) dxmt_create_fence(s);
     if (!ok)
     {
+        struct unsupported_device_params q = {0};
         ERR("the D3D11 device is neither DXVK nor DXMT (CX_GRAPHICS_BACKEND=dxvk or dxmt)");
+        UNIX_CALL(unsupported_device, &q);
+        if (!q.run_anyway) TerminateProcess(GetCurrentProcess(), 0);
         return XR_ERROR_GRAPHICS_DEVICE_INVALID;
     }
     UNIX_CALL(dxmt_create_device, &p);

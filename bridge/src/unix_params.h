@@ -103,6 +103,12 @@ struct dxmt_destroy_image_params
     uint64_t image;
 };
 
+/* Asks the user (native alert) what to do about a D3D11 device that is neither DXMT nor DXVK. */
+struct unsupported_device_params
+{
+    uint32_t run_anyway; /* out */
+};
+
 #define DXMT_MAX_SLICES 4
 
 /* Copies slice s of the source into layer 0 of dst[s]. wait/signal are keyed-mutex fence values (0: no wait). */

@@ -350,3 +350,18 @@ The system32 legacy-detection fix above is in `build/app/MacVR.app` but not depl
   pairing (always when no headset is paired yet). ServerStatus reads it from the server log and clears it on
   "Headset pairing is disabled" / "Encryption is disabled". While it is set, the menu-bar icon shows the PIN next to
   it, and the menu and the Status page show it too.
+
+## Excluded prefixes
+
+- Games & Prefixes has a "Use MacVR" switch per Steam game prefix (`macvr exclude add|remove <appid|dir> | list`).
+  The setting `excluded-prefixes` holds compatdata/<appid> dirs.
+- An excluded prefix is reverted like `uninstall` does (registry values back to the recorded originals, vrpath
+  restored, record removed), and every rescan reverts it again, because macvrreg.dll re-adds the values whenever
+  wineboot updates the prefix. The runner files stay: they are shared, and nothing loads them without the values.
+
+## Unsupported graphics backend
+
+- The bridge needs DXMT or DXVK. When a D3D11 game's device is neither (WineD3D, or CrossOver's automatic choice),
+  `xrCreateSession` asks with a native alert (CFUserNotification, from the bridge's unix side, so MacVR needn't
+  run): Quit Game, or Run Anyway, which returns XR_ERROR_GRAPHICS_DEVICE_INVALID as before (OpenComposite then
+  shows its error). MacVR never changes the game's Graphics setting.

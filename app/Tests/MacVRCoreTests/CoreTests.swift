@@ -189,6 +189,25 @@ final class ScratchTreeTests: XCTestCase {
         return out
     }
 
+    func testExcludedPrefixIsRevertedAndRestored() throws {
+        let p100 = { Steam(root: self.ctx.steamRoot).prefixes.first { $0.name == "100" }! }
+        let original = try Data(contentsOf: p100().systemReg)
+        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        let runtime = { try WineRegistry(text: String(contentsOf: p100().systemReg, encoding: .utf8)).string(Rescan.openxrKey, "ActiveRuntime") }
+        XCTAssertEqual(try runtime(), dosPath(ctx.runtimeJSON))
+
+        let rep = try MacVR.setExcluded(ctx, p100().owner, true)
+        XCTAssertTrue(rep.changed.contains("100"))
+        XCTAssertNil(try runtime())
+        XCTAssertEqual(try Data(contentsOf: p100().systemReg), original)
+        XCTAssertEqual(MacVR.prefixStates(ctx).first { $0.name == "100" }?.state, "excluded")
+        XCTAssertEqual(MacVR.rescan(ctx).changed, [])
+
+        try MacVR.setExcluded(ctx, p100().owner, false)
+        XCTAssertEqual(try runtime(), dosPath(ctx.runtimeJSON))
+        XCTAssertEqual(MacVR.prefixStates(ctx).first { $0.name == "100" }?.state, "ok")
+    }
+
     func testInstallIdempotentAndUninstallRoundTrip() throws {
         let before = try snapshot()
         let rep = try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))

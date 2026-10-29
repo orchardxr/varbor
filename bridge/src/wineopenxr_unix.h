@@ -36,4 +36,5 @@ NTSTATUS bridge_dxmt_destroy_device(void *args);
 NTSTATUS bridge_dxmt_import_image(void *args);
 NTSTATUS bridge_dxmt_destroy_image(void *args);
 NTSTATUS bridge_dxmt_copy(void *args);
+NTSTATUS bridge_unsupported_device(void *args);
 const char *moltenvk_path(void);

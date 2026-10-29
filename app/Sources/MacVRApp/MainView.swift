@@ -42,6 +42,13 @@ struct MainView: View {
             detail
                 .navigationTitle((page ?? .status).title)
                 .toolbar {
+                    if let r = model.update, model.updating == nil {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Update to \(r.version)", systemImage: "arrow.down.circle") { model.installUpdate() }
+                                .help("Install MacVR \(r.version)")
+                                .disabled(!model.games.isEmpty)
+                        }
+                    }
                     ToolbarItem(placement: .primaryAction) {
                         if model.working != nil {
                             ProgressView().controlSize(.small)
@@ -93,6 +100,21 @@ struct PageForm<Content: View>: View {
                         Button("Dismiss") { model.message = nil }
                     } label: {
                         Label(m, systemImage: "exclamationmark.triangle.fill").textSelection(.enabled)
+                    }
+                }
+            }
+            if let r = model.update {
+                Section {
+                    Row(title: "MacVR \(r.version) is available",
+                        subtitle: [model.updating ?? (model.games.isEmpty
+                            ? "You have \(Updater.currentVersion). MacVR restarts to install it."
+                            : "Quit the VR game to install it.")], dot: .blue) {
+                        if model.updating != nil {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button("Release Notes") { NSWorkspace.shared.open(r.page) }
+                            Button("Install") { model.installUpdate() }.disabled(!model.games.isEmpty)
+                        }
                     }
                 }
             }
@@ -172,19 +194,6 @@ struct StatusPage: View {
                 let (color, title, text) = card
                 Row(title: title, subtitle: [text], dot: color) {
                     if model.working != nil || model.setup.hasPrefix("setting up") { ProgressView().controlSize(.small) }
-                }
-            }
-            if let r = model.update {
-                Section("Update") {
-                    Row(title: "MacVR \(r.version) is available",
-                        subtitle: [model.updating ?? "You have \(Updater.currentVersion). MacVR restarts to install it."], dot: .blue) {
-                        if model.updating != nil {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button("Release Notes") { NSWorkspace.shared.open(r.page) }
-                            Button("Install") { model.installUpdate() }.disabled(!model.games.isEmpty)
-                        }
-                    }
                 }
             }
             Section("Server") {

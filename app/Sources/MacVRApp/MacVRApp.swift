@@ -67,32 +67,39 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Quiet (automatic) checks offer each new version once, and not while a game runs.
     func checkForUpdates(quiet: Bool) {
         Task {
             do {
                 update = try await Updater.available()
                 Log.shared("update: checked, " + (update.map { "\($0.version) available" } ?? "\(Updater.currentVersion) is current"))
-                guard !quiet else { return }
                 if let r = update {
-                    let a = NSAlert()
-                    a.messageText = "MacVR \(r.version) is available"
-                    a.informativeText = "You have \(Updater.currentVersion). MacVR quits, installs the update and opens again."
-                    a.addButton(withTitle: "Install")
-                    a.addButton(withTitle: "Release Notes")
-                    a.addButton(withTitle: "Later")
-                    NSApp.activate(ignoringOtherApps: true)
-                    switch a.runModal() {
-                    case .alertFirstButtonReturn: installUpdate()
-                    case .alertSecondButtonReturn: NSWorkspace.shared.open(r.page)
-                    default: break
-                    }
-                } else {
+                    let key = "announcedUpdate"
+                    guard !quiet || (games.isEmpty && UserDefaults.standard.string(forKey: key) != r.version) else { return }
+                    UserDefaults.standard.set(r.version, forKey: key)
+                    offer(r)
+                } else if !quiet {
                     alert("MacVR \(Updater.currentVersion) is the latest version.")
                 }
             } catch {
                 Log.shared("update: \(error)")
                 if !quiet { alert("Couldn't check for updates", "\(error)") }
             }
+        }
+    }
+
+    func offer(_ r: Updater.Release) {
+        let a = NSAlert()
+        a.messageText = "MacVR \(r.version) is available"
+        a.informativeText = "You have \(Updater.currentVersion). MacVR quits, installs the update and opens again."
+        a.addButton(withTitle: "Install")
+        a.addButton(withTitle: "Release Notes")
+        a.addButton(withTitle: "Later")
+        NSApp.activate(ignoringOtherApps: true)
+        switch a.runModal() {
+        case .alertFirstButtonReturn: installUpdate()
+        case .alertSecondButtonReturn: NSWorkspace.shared.open(r.page)
+        default: break
         }
     }
 

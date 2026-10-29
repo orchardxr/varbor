@@ -4,6 +4,7 @@
 #   scripts/build-wivrn.sh --client-x86_64 [ninja args...]  x86_64 OpenXR client (libopenxr_wivrn) for the bridge,
 #                                                           WIVRN_CLIENT_BUILD_DIR=... overrides build/wivrn-client-x86_64
 #   scripts/build-wivrn.sh --client-arm64 [ninja args...]   the same for arm64 (FEX runners), build/wivrn-client-arm64
+#   WIVRN_BUILD_TYPE=... overrides the CMake build type (default RelWithDebInfo; read at configure time)
 #
 # Monado comes from build/monado-snapshot, a copy of the staged (= patched) third_party/monado
 # index, so a concurrent edit of the monado tree can't break this build. --snapshot refreshes it.
@@ -63,7 +64,7 @@ if [[ ! -f "$BUILD/build.ninja" ]]; then
 	fi
 	cmake -S "$ROOT/third_party/wivrn" -B "$BUILD" -G Ninja \
 		-C "$ROOT/cmake/monado-macos.cmake" \
-		-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+		-DCMAKE_BUILD_TYPE="${WIVRN_BUILD_TYPE:-RelWithDebInfo}" \
 		-DCMAKE_PREFIX_PATH="/opt/homebrew/opt/libarchive" \
 		-DFETCHCONTENT_SOURCE_DIR_MONADO="$SNAP" \
 		-DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
@@ -82,7 +83,7 @@ fi
 echo "==> build $LOG"
 if [[ $client == 1 ]]; then
 	ninja -C "$BUILD" openxr_wivrn "$@" > "$LOGS/$LOG-build.log" 2>&1 \
-		|| { grep -E "error|FAILED" "$LOGS/$LOG-build.log" | head -40; exit 1; }
+		|| { grep -E -A3 "error|FAILED|Segmentation|PLEASE submit|Stack dump" "$LOGS/$LOG-build.log" | head -80; exit 1; }
 	lib="$(find "$BUILD/_deps" -name libopenxr_wivrn.dylib -path '*targets/openxr*' | head -1)"
 	mkdir -p "$BUILD/client"
 	cp "$lib" "$BUILD/client/libopenxr_monado.dylib"

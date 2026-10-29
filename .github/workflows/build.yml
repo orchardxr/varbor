@@ -120,9 +120,15 @@ jobs:
       # x86_64 slice: Monado's client only needs the universal Vulkan SDK in /usr/local and Eigen's headers, so no
       # x86_64 Homebrew is needed.
       - name: WiVRn IPC client (x86_64, Rosetta runners)
+        # Release: the runner's Apple clang crashed (segfault) on Monado math with RelWithDebInfo
+        env:
+          WIVRN_BUILD_TYPE: Release
         run: scripts/build-wivrn.sh --client-x86_64
 
       - name: WiVRn IPC client (arm64, FEX runners)
+        # Release: the runner's Apple clang crashed (segfault) on Monado math with RelWithDebInfo
+        env:
+          WIVRN_BUILD_TYPE: Release
         run: scripts/build-wivrn.sh --client-arm64
 
       - name: Bridge

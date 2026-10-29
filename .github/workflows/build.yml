@@ -88,10 +88,13 @@ jobs:
           scripts/patches.sh apply
           scripts/patches.sh status
 
-      # Build dirs are reused only for the exact same sources (submodule pins, patches, our code, scripts).
+      # Build dirs are reused only for the exact same sources (submodule pins, patches, our code, scripts) and the
+      # same Homebrew versions: CMake caches Cellar paths, which a formula update removes.
       - name: Submodule pins
         id: pins
-        run: echo "hash=$(git submodule status --recursive | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "hash=$(git submodule status --recursive | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "brew=$(brew list --versions | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
       - name: Cache CMake build dirs
         uses: actions/cache@v4
         with:
@@ -103,7 +106,7 @@ jobs:
             build/wivrn-next
             build/wivrn-client-x86_64
             build/wivrn-client-arm64
-          key: cmake-${{ runner.arch }}-${{ steps.pins.outputs.hash }}-${{ hashFiles('patches/**', 'encoder/**', 'bridge/**', 'cmake/**', 'scripts/**', 'Brewfile') }}-${{ env.VULKAN_SDK_VERSION }}-${{ env.LLVM_MINGW_VERSION }}
+          key: cmake-${{ runner.arch }}-${{ steps.pins.outputs.hash }}-${{ steps.pins.outputs.brew }}-${{ hashFiles('patches/**', 'encoder/**', 'bridge/**', 'cmake/**', 'scripts/**', 'Brewfile') }}-${{ env.VULKAN_SDK_VERSION }}-${{ env.LLVM_MINGW_VERSION }}
 
       - name: OpenXR SDK (native loader for the server's test programs)
         run: scripts/build.sh openxr-sdk

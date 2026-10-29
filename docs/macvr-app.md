@@ -336,7 +336,8 @@ The system32 legacy-detection fix above is in `build/app/MacVR.app` but not depl
 - At launch and every 6 hours the app asks the GitHub API for the latest release of somsarashvili/macvr (drafts
   and pre-releases ignored) and compares its tag with `CFBundleShortVersionString`.
 - A newer one shows "Install MacVR x.y.z" in the menu and an Update section on the Status page (disabled while a
-  game runs). "Check for Updates…" is in the menu and the app menu.
+  game runs). "Check for Updates…" (menu and app menu) answers with an alert: Install, Release Notes or Later,
+  "latest version", or the error. Every check is logged.
 - Install: downloads the release's .zip, unpacks it with ditto, checks the bundle id, version and signature, then a
   shell waits for the app to quit, swaps the bundle (restoring the old one if the move fails), clears quarantine and
   opens the new one. Its payload deploys as a new version at launch. If the app's folder isn't writable it opens the

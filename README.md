@@ -36,6 +36,9 @@ for test programs.
 
 ## Requirements
 
+To run a release build: an Apple Silicon Mac, Steam with NotProton, and a Quest with the WiVRn app. The app bundles
+the Homebrew and Vulkan libraries it needs and updates itself from GitHub releases. To build it:
+
 - Apple Silicon Mac. Developed on an M4 Max with macOS 27; the app targets macOS 14 or newer.
 - Xcode (Swift 6 toolchain, `xcrun`), with the current macOS SDK.
 - Homebrew: `cmake ninja pkg-config eigen jsoncpp molten-vk glib boost nlohmann-json openssl libarchive librsvg cli11 libpng x264`

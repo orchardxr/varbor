@@ -6,6 +6,7 @@
 # Helpers: macvr (CLI), macvr-broker + macvr-webhelper (web overlays, docs/web-overlays.md). Output: build/app/MacVR.app.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/bundle-dylibs.sh"
 OUT="$ROOT/build/app"
 WIVRN="${WIVRN_BUILD_DIR:-$ROOT/build/wivrn-next}"
 BRIDGE="$ROOT/build/bridge/root"
@@ -69,6 +70,24 @@ cat > "$p/manifest.json" <<JSON
 }
 JSON
 
+echo "==> bundle dylibs"
+lib="$p/server/lib"
+for f in "$p/server/wivrn-server" "$p/server/libopenxr_wivrn.dylib"; do
+	install_name_tool -delete_rpath /usr/local/lib -add_rpath @loader_path/lib "$f" 2>/dev/null
+done
+install_name_tool -delete_rpath /usr/local/lib -add_rpath @loader_path/../Resources/payload/server/lib "$c/Helpers/macvr-webhelper" 2>/dev/null
+bundle_dylibs "$lib" "$p/server/wivrn-server" "$p/server/libopenxr_wivrn.dylib" "$c/Helpers/macvr-webhelper"
+mvk="$(brew --prefix molten-vk)"
+cp -L "$mvk/lib/libMoltenVK.dylib" "$lib/"
+chmod u+w "$lib/libMoltenVK.dylib"
+install_name_tool -id @rpath/libMoltenVK.dylib "$lib/libMoltenVK.dylib" 2>/dev/null
+bundle_dylibs "$lib" "$lib/libMoltenVK.dylib"
+sed 's|"library_path": *"[^"]*"|"library_path": "./libMoltenVK.dylib"|' "$mvk/etc/vulkan/icd.d/MoltenVK_icd.json" \
+	> "$lib/MoltenVK_icd.json"
+left="$(for f in "$p/server/wivrn-server" "$p/server/libopenxr_wivrn.dylib" "$c/Helpers/macvr-webhelper" "$lib"/*.dylib; do
+	otool -L "$f" | tail -n +2 | awk '{print $1}' | grep -E '^(/opt/homebrew|/usr/local)/' || true; done | sort -u)"
+[[ -z "$left" ]] || { echo "unbundled dylibs left: $left" >&2; exit 1; }
+codesign --force -s - "$lib"/*.dylib
 codesign --force -s - "$p/server/wivrn-server" "$p/server/libopenxr_wivrn.dylib" "$c/Helpers/macvr" \
 	"$c/Helpers/macvr-broker" "$c/Helpers/macvr-webhelper"
 codesign --force -s - "$app.new"

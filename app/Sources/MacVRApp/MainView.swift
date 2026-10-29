@@ -174,6 +174,19 @@ struct StatusPage: View {
                     if model.working != nil || model.setup.hasPrefix("setting up") { ProgressView().controlSize(.small) }
                 }
             }
+            if let r = model.update {
+                Section("Update") {
+                    Row(title: "MacVR \(r.version) is available",
+                        subtitle: [model.updating ?? "You have \(Updater.currentVersion). MacVR restarts to install it."], dot: .blue) {
+                        if model.updating != nil {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button("Release Notes") { NSWorkspace.shared.open(r.page) }
+                            Button("Install") { model.installUpdate() }.disabled(!model.games.isEmpty)
+                        }
+                    }
+                }
+            }
             Section("Server") {
                 Row(title: "WiVRn Server", subtitle: [model.serverState], dot: running ? .green : .secondary) {
                     if running {

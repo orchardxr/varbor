@@ -22,6 +22,8 @@ final class AppModel: ObservableObject {
     @Published var libraries: [URL] = []
     @Published var working: String?
     @Published var message: String?
+    @Published var update: Updater.Release?
+    @Published var updating: String?
 
     var openMain: (() -> Void)?
     var windowVisible = false
@@ -59,6 +61,42 @@ final class AppModel: ObservableObject {
                     Task { @MainActor in self.tick() }
                 }
                 self.tick()
+                self.checkForUpdates(quiet: true)
+            }
+        }
+    }
+
+    func checkForUpdates(quiet: Bool) {
+        Task {
+            do {
+                update = try await Updater.available()
+                if !quiet && update == nil { message = "MacVR \(Updater.currentVersion) is the latest version." }
+            } catch {
+                Log.shared("update: \(error)")
+                if !quiet { message = "\(error)" }
+            }
+        }
+    }
+
+    func installUpdate() {
+        guard let r = update, updating == nil else { return }
+        let app = Bundle.main.bundleURL
+        guard Updater.canReplace(app) else {
+            message = "Can't write to \(app.deletingLastPathComponent().path): download the update from GitHub."
+            NSWorkspace.shared.open(r.page)
+            return
+        }
+        updating = "Downloading MacVR \(r.version)…"
+        Task {
+            do {
+                let new = try await Updater.download(r)
+                Log.shared("update: installing \(r.version) from \(new.path)")
+                try Updater.replaceAfterExit(of: getpid(), installed: app, with: new)
+                quit()
+            } catch {
+                Log.shared("update: \(error)")
+                message = "\(error)"
+                updating = nil
             }
         }
     }
@@ -122,6 +160,7 @@ final class AppModel: ObservableObject {
         serverState = ours ? "running" : other ? "another wivrn-server is running"
             : ctx.noServer ? "not started (MACVR_NO_SERVER)" : "stopped"
         ticks += 1
+        if ticks % 4320 == 0 { checkForUpdates(quiet: true) }
         if windowVisible && ticks % 6 == 0 { refreshDetails() }
         let st = ours ? ServerStatus.read(ctx) : ServerStatus()
         headset = st.headset
@@ -302,6 +341,10 @@ struct MenuContent: View {
         Button("Open MacVR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
         Button("Rescan Games") { model.rescanNow() }
         Divider()
+        if let r = model.update {
+            Button("Install MacVR \(r.version)") { model.installUpdate() }.disabled(model.updating != nil)
+        }
+        Button("Check for Updates…") { model.checkForUpdates(quiet: false) }
         Button("About MacVR") { model.about() }
         Button("Quit MacVR") { model.quit() }.keyboardShortcut("q")
     }
@@ -338,6 +381,9 @@ struct MacVRApp: App {
         }
         .defaultSize(width: 820, height: 640)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { model.checkForUpdates(quiet: false) }
+            }
             CommandGroup(replacing: .appTermination) {
                 Button("Quit MacVR") { model.quit() }.keyboardShortcut("q")
             }

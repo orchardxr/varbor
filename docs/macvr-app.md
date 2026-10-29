@@ -160,16 +160,17 @@ How the edit is done (`WineRegistry.swift`, `Rescan.swift`):
 
 - Versions other than `current` and `previous` are pruned.
 - Prefixes point at `current`, so an update needs no prefix rewrite. A running game keeps the files it loaded.
-- **Server: copied** into the version. It links Homebrew dylibs by absolute path (`/opt/homebrew/opt/...`) and
-  `@rpath/libvulkan.1.dylib` with rpath `/usr/local/lib`, so the copy resolves the same libraries. Its shaders are
-  compiled in (`wivrn-server_shaders.cpp` includes the `.spv`), so nothing is read from the build tree. Homebrew
-  (MoltenVK, glib, x264, …) and the Vulkan loader in /usr/local remain prerequisites.
+- **Server: copied** into the version. build-app.sh copies every Homebrew and /usr/local dylib it links
+  (recursively: glib, x264, librsvg, the Vulkan loader, …) plus MoltenVK into `server/lib`, rewrites them to
+  `@rpath` and sets the rpath to `@loader_path/lib` (scripts/lib/bundle-dylibs.sh), so no Homebrew or Vulkan SDK
+  is needed at run time. `macvr-webhelper` uses the same directory. Its shaders are compiled in
+  (`wivrn-server_shaders.cpp` includes the `.spv`), so nothing is read from the build tree.
 - Nothing a game or Wine touches is under `~/Documents` (TCC prompts).
 
 ## Server
 
-- `current/server/wivrn-server --no-manage-active-runtime` with `VK_DRIVER_FILES` = Homebrew MoltenVK (as
-  `scripts/env-macos.sh`), `XRT_LOG=info`, and the low-latency env `WIVRN_PACER_WINDOW=500
+- `current/server/wivrn-server --no-manage-active-runtime` with `VK_DRIVER_FILES` = the bundled
+  `server/lib/MoltenVK_icd.json` (Homebrew's for older versions), `XRT_LOG=info`, and the low-latency env `WIVRN_PACER_WINDOW=500
   WIVRN_PACER_PERCENTILE=99 WIVRN_CLIENT_MARGIN_MS=2.5` (docs/wivrn.md, 0009). `DYLD_*` and `XDG_RUNTIME_DIR` are
   removed from its environment.
 - After the socket `$(getconf DARWIN_USER_TEMP_DIR)wivrn/comp_ipc` appears, the server's ipc-stamp is published to
@@ -329,3 +330,14 @@ The system32 legacy-detection fix above is in `build/app/MacVR.app` but not depl
   Numbers in [bridge-plan.md](bridge-plan.md) §7a.
 - A game moved to `notproton-fex` needs an aa64 prefix (NotProton offers a rebuild); the rebuilt template/prefix lacks
   our registry values until the next rescan (app open or `macvr rescan`), so the first launch after a switch has no VR.
+
+## Updates
+
+- At launch and every 6 hours the app asks the GitHub API for the latest release of somsarashvili/macvr (drafts
+  and pre-releases ignored) and compares its tag with `CFBundleShortVersionString`.
+- A newer one shows "Install MacVR x.y.z" in the menu and an Update section on the Status page (disabled while a
+  game runs). "Check for Updates…" is in the menu and the app menu.
+- Install: downloads the release's .zip, unpacks it with ditto, checks the bundle id, version and signature, then a
+  shell waits for the app to quit, swaps the bundle (restoring the old one if the move fails), clears quarantine and
+  opens the new one. Its payload deploys as a new version at launch. If the app's folder isn't writable it opens the
+  release page instead.

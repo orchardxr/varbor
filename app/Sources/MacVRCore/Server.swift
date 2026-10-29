@@ -37,7 +37,12 @@ public final class Server: @unchecked Sendable {
     public func environment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
         for k in ["DYLD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "XDG_RUNTIME_DIR"] { env[k] = nil }
-        if FileManager.default.fileExists(atPath: Self.moltenVK) { env["VK_DRIVER_FILES"] = Self.moltenVK }
+        let icd = ctx.current.appendingPathComponent("server/lib/MoltenVK_icd.json").resolvingSymlinksInPath().path
+        if FileManager.default.fileExists(atPath: icd) {
+            env["VK_DRIVER_FILES"] = icd
+        } else if FileManager.default.fileExists(atPath: Self.moltenVK) {
+            env["VK_DRIVER_FILES"] = Self.moltenVK
+        }
         env["XRT_LOG"] = env["XRT_LOG"] ?? "info"
         for (k, v) in Self.lowLatencyEnv where env[k] == nil { env[k] = v }
         return env

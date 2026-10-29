@@ -76,6 +76,12 @@ work in progress in `third_party/<project>` into the next patch. Never commit in
 CI ([.github/workflows/build.yml](.github/workflows/build.yml)) runs the same steps on a hosted macOS runner and
 uploads `MacVR.app` as an artifact.
 
+## Releasing
+
+Bump `CFBundleShortVersionString` in `app/Resources/Info.plist`, add notes as `docs/releases/v<version>.md`
+(optional: GitHub generates them otherwise), commit, then push a tag `v<version>`. The CI build of the tag publishes
+the release with `MacVR-<version>.zip`; installed apps pick it up through self-update.
+
 ## Install and use
 
 1. Copy `build/app/MacVR.app` to `/Applications` and open it. It deploys its payload, adds the bridge to every

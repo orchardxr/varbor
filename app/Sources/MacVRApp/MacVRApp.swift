@@ -71,12 +71,37 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 update = try await Updater.available()
-                if !quiet && update == nil { message = "MacVR \(Updater.currentVersion) is the latest version." }
+                Log.shared("update: checked, " + (update.map { "\($0.version) available" } ?? "\(Updater.currentVersion) is current"))
+                guard !quiet else { return }
+                if let r = update {
+                    let a = NSAlert()
+                    a.messageText = "MacVR \(r.version) is available"
+                    a.informativeText = "You have \(Updater.currentVersion). MacVR quits, installs the update and opens again."
+                    a.addButton(withTitle: "Install")
+                    a.addButton(withTitle: "Release Notes")
+                    a.addButton(withTitle: "Later")
+                    NSApp.activate(ignoringOtherApps: true)
+                    switch a.runModal() {
+                    case .alertFirstButtonReturn: installUpdate()
+                    case .alertSecondButtonReturn: NSWorkspace.shared.open(r.page)
+                    default: break
+                    }
+                } else {
+                    alert("MacVR \(Updater.currentVersion) is the latest version.")
+                }
             } catch {
                 Log.shared("update: \(error)")
-                if !quiet { message = "\(error)" }
+                if !quiet { alert("Couldn't check for updates", "\(error)") }
             }
         }
+    }
+
+    func alert(_ title: String, _ text: String = "") {
+        let a = NSAlert()
+        a.messageText = title
+        a.informativeText = text
+        NSApp.activate(ignoringOtherApps: true)
+        a.runModal()
     }
 
     func installUpdate() {
@@ -96,7 +121,7 @@ final class AppModel: ObservableObject {
                 quit()
             } catch {
                 Log.shared("update: \(error)")
-                message = "\(error)"
+                alert("Couldn't install the update", "\(error)")
                 updating = nil
             }
         }

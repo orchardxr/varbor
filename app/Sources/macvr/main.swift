@@ -11,6 +11,7 @@ usage: macvr install [--payload <dir>]   deploy the payload, add the runner file
        macvr bottle add|remove <path> | list   CrossOver bottles MacVR sets up (besides NotProton's prefixes)
        macvr library add|remove <path> | list  extra Steam library folders
        macvr protect add|remove <path> | list  trees MacVR never modifies (bottles managed by other tools)
+       macvr exclude add|remove <appid|compatdata dir> | list  Steam game prefixes kept free of MacVR's settings
 """
 
 let ctx = Context.real()
@@ -88,6 +89,21 @@ do {
         case ("remove", 3):
             let u = URL(fileURLWithPath: args[2])
             try bottle ? MacVR.removeBottle(ctx, u) : MacVR.removeLibrary(ctx, u)
+        default: fail(usage)
+        }
+    case "exclude":
+        func owner(_ a: String) -> URL {
+            if a.allSatisfy(\.isNumber), let p = ctx.steam.prefixes.first(where: { $0.kind == .steam && $0.owner.lastPathComponent == a }) {
+                return p.owner
+            }
+            return URL(fileURLWithPath: a)
+        }
+        switch (args.dropFirst().first, args.count) {
+        case ("list", 2):
+            for p in ctx.excludedPrefixes { print(p.path) }
+        case ("add", 3), ("remove", 3):
+            let rep = try MacVR.setExcluded(ctx, owner(args[2]), args[1] == "add")
+            print(rep.summary)
         default: fail(usage)
         }
     case "protect":

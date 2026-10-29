@@ -223,13 +223,15 @@ public enum MacVR {
         public var warning: String?
         /// From a bottle or Steam library the user added.
         public var userAdded: Bool
+        /// The user excluded it: MacVR keeps its settings out of this prefix.
+        public var excluded = false
 
         public var state: String {
-            busy ? "busy" : legacy ? "legacy" : missing.isEmpty ? "ok" : "missing values"
+            excluded ? "excluded" : busy ? "busy" : legacy ? "legacy" : missing.isEmpty ? "ok" : "missing values"
         }
 
         public var summary: String {
-            (missing.isEmpty ? "ok" : "missing \(missing.joined(separator: " "))") + (record ? ", record" : "")
+            (excluded ? "excluded" : missing.isEmpty ? "ok" : "missing \(missing.joined(separator: " "))") + (record ? ", record" : "")
                 + (legacy ? ", legacy install present" : "") + (busy ? ", wineserver running" : "")
         }
     }
@@ -266,8 +268,20 @@ public enum MacVR {
             return PrefixState(name: p.name, path: p.pfx.path, kind: p.kind, missing: missing,
                                busy: Wineserver.running(prefix: p.pfx), legacy: !Rescan.legacyItems(p, ctx).isEmpty,
                                record: FileManager.default.fileExists(atPath: p.record.path),
-                               warning: p.kind == .bottle ? Bottles.backendWarning(p.pfx) : nil, userAdded: userAdded)
+                               warning: p.kind == .bottle ? Bottles.backendWarning(p.pfx) : nil, userAdded: userAdded,
+                               excluded: ctx.isExcluded(p))
         }
+    }
+
+    /// Excludes a Steam game prefix (its compatdata/<appid> dir) from MacVR, reverting it, or includes it again.
+    @discardableResult
+    public static func setExcluded(_ ctx: Context, _ owner: URL, _ excluded: Bool) throws -> Rescan.Report {
+        let owner = owner.standardizedFileURL
+        var list = ctx.excludedPrefixes.filter { !same($0, owner) }
+        if excluded { list.append(owner) }
+        try ctx.setPathList("excluded-prefixes", list)
+        log("prefixes: \(excluded ? "excluded" : "included") \(owner.path)")
+        return rescan(ctx)
     }
 
     // MARK: user-added bottles and Steam libraries

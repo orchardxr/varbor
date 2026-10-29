@@ -299,6 +299,13 @@ final class AppModel: ObservableObject {
         perform("Adding \(url.lastPathComponent)…") { ctx in try MacVR.addLibrary(ctx, url) }
     }
 
+    func setExcluded(_ p: MacVR.PrefixState, _ excluded: Bool) {
+        let owner = URL(fileURLWithPath: p.path).deletingLastPathComponent()
+        perform(excluded ? "Excluding \(appNames[p.name] ?? p.name)…" : "Setting up \(appNames[p.name] ?? p.name)…") { ctx in
+            try MacVR.setExcluded(ctx, owner, excluded)
+        }
+    }
+
     func removeBottle(_ url: URL) {
         perform("Removing \(url.lastPathComponent)…") { ctx in try MacVR.removeBottle(ctx, url); return nil }
     }

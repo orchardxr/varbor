@@ -437,3 +437,26 @@ NTSTATUS bridge_dxmt_copy(void *args)
     p->submit_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - t1;
     return 0;
 }
+
+NTSTATUS bridge_unsupported_device(void *args)
+{
+    struct unsupported_device_params *p = args;
+    const char *dir = getenv("STEAM_COMPAT_INSTALL_PATH"), *backend = getenv("CX_GRAPHICS_BACKEND"), *slash;
+    char game[256] = "This game";
+    CFOptionFlags response = kCFUserNotificationDefaultResponse;
+
+    if (dir && (slash = strrchr(dir, '/')) && slash[1]) snprintf(game, sizeof(game), "%s", slash + 1);
+    @autoreleasepool
+    {
+        NSString *header = [NSString stringWithFormat:@"%s can't run in VR with this graphics backend", game];
+        NSString *text = [NSString stringWithFormat:
+            @"MacVR needs DXMT or DXVK, but the game started with %s.\n\n"
+            @"In Steam, open the game's Properties → Compatibility and set Graphics to DXMT or DXVK.\n\n"
+            @"Run Anyway continues, and the game's VR start-up will fail.",
+            backend && *backend ? backend : "Automatic (CrossOver's choice)"];
+        CFUserNotificationDisplayAlert(0, kCFUserNotificationCautionAlertLevel, NULL, NULL, NULL, (__bridge CFStringRef)header,
+                                       (__bridge CFStringRef)text, CFSTR("Quit Game"), CFSTR("Run Anyway"), NULL, &response);
+    }
+    p->run_anyway = (response & 3) == kCFUserNotificationAlternateResponse;
+    return 0;
+}

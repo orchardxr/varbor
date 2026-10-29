@@ -26,6 +26,7 @@ UNIX_CALLS = [
     "dxmt_import_image",
     "dxmt_destroy_image",
     "dxmt_copy",
+    "unsupported_device",
 ]
 
 # Implemented on the PE side (src/wineopenxr.c); they may still use the generated unix thunk.

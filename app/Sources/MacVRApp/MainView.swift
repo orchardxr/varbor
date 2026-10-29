@@ -79,7 +79,7 @@ struct MainView: View {
 
     func badge(_ p: Page) -> Int {
         switch p {
-        case .prefixes: model.prefixes.filter { $0.kind != .bottle && $0.state != "ok" }.count
+        case .prefixes: model.prefixes.filter { $0.kind != .bottle && !["ok", "excluded"].contains($0.state) }.count
         case .added: model.prefixes.filter { $0.kind == .bottle && ($0.state != "ok" || $0.warning != nil) }.count
         case .runners: model.runnerFiles.filter { $0.state != "ok" }.count
         default: 0
@@ -236,6 +236,7 @@ extension MacVR.PrefixState {
     var color: Color {
         switch state {
         case "ok": warning == nil ? .green : .orange
+        case "excluded": .secondary
         case "busy": .blue
         default: .orange
         }
@@ -256,10 +257,17 @@ struct PrefixRow: View {
     let p: MacVR.PrefixState
     let title: String
     var id: String?
+    var model: AppModel?
 
     var body: some View {
         Row(title: title, subtitle: [id.map { "\($0) · \(p.path)" } ?? p.path] + p.issues, dot: p.color) {
             Text(p.userAdded && p.kind != .bottle ? "Added · \(p.label)" : p.label).foregroundStyle(.secondary)
+            if let model, p.kind == .steam {
+                Toggle("Use MacVR", isOn: Binding(get: { !p.excluded }, set: { model.setExcluded(p, !$0) }))
+                    .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                    .help(p.excluded ? "Excluded: MacVR keeps its VR settings out of this prefix" : "MacVR sets up VR in this prefix")
+                    .disabled(model.working != nil || p.busy)
+            }
             MoreMenu { PathMenu(path: p.path) }
         }
     }
@@ -276,12 +284,13 @@ struct PrefixesPage: View {
             Section {
                 if steam.isEmpty { Text("No NotProton game prefixes found yet.") }
                 ForEach(steam) { p in
-                    PrefixRow(p: p, title: model.appNames[p.name] ?? "App \(p.name)", id: model.appNames[p.name] == nil ? nil : p.name)
+                    PrefixRow(p: p, title: model.appNames[p.name] ?? "App \(p.name)", id: model.appNames[p.name] == nil ? nil : p.name,
+                              model: model)
                 }
             } header: {
                 Text("Steam Games")
             } footer: {
-                Text("Prefixes NotProton made in your Steam libraries.")
+                Text("Prefixes NotProton made in your Steam libraries. Turn a game off to keep MacVR's VR settings out of its prefix; the game then runs without MacVR.")
             }
             Section("NotProton Templates") {
                 if templates.isEmpty { Text("No NotProton templates found.") }

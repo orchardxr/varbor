@@ -14,6 +14,7 @@
 # Logs: build/logs/wivrn-{configure,build}.log, wivrn-client-<arch>-{configure,build}.log
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/ccache.sh"
 LOGS="$ROOT/build/logs"
 SNAP="$ROOT/build/monado-snapshot"
 mkdir -p "$LOGS"

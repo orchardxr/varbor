@@ -11,6 +11,7 @@
 # Run scripts/patches.sh apply first.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/ccache.sh"
 LOGS="$ROOT/build/logs"
 mkdir -p "$LOGS"
 

@@ -13,6 +13,7 @@
 #                 (needs the third_party/directxmath submodule)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/ccache.sh"
 OUT="$ROOT/build/bridge"
 LOGS="$ROOT/build/logs"
 mkdir -p "$LOGS" "$OUT"

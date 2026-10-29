@@ -54,6 +54,9 @@ the Homebrew and Vulkan libraries it needs and updates itself from GitHub releas
 
 ## Build
 
+With `ccache` installed (`brew install ccache`) the CMake builds compile through it, so a rebuild after
+`patches.sh apply` (which gives the sources fresh mtimes) reuses earlier objects.
+
 ```sh
 git clone --recursive https://github.com/somsarashvili/macvr.git
 cd macvr

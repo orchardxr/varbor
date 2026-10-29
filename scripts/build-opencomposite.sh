@@ -5,6 +5,7 @@
 set -euo pipefail
 export PYTHONDONTWRITEBYTECODE=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/lib/ccache.sh"
 OUT="$ROOT/build/m3/oc"
 LOGS="$ROOT/build/logs"
 mkdir -p "$LOGS"

@@ -19,6 +19,17 @@ env:
   VULKAN_SDK_SHA256: d8909362c8cd6a61a33f8ab21240c6d3f38c3818f443f52939a9ac198ad0e539
   HOMEBREW_NO_AUTO_UPDATE: "1"
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  # Every CMake build (native and llvm-mingw) compiles through ccache. It keys on contents, so the fresh mtimes of
+  # a checkout and patches.sh apply still hit.
+  CMAKE_C_COMPILER_LAUNCHER: ccache
+  CMAKE_CXX_COMPILER_LAUNCHER: ccache
+  CMAKE_OBJC_COMPILER_LAUNCHER: ccache
+  CMAKE_OBJCXX_COMPILER_LAUNCHER: ccache
+  CCACHE_DIR: /Users/runner/.ccache
+  CCACHE_BASEDIR: ${{ github.workspace }}
+  CCACHE_COMPILERCHECK: content
+  CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros,pch_defines
+  CCACHE_MAXSIZE: 2G
 
 jobs:
   build:
@@ -47,7 +58,9 @@ jobs:
           restore-keys: brew-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Homebrew dependencies
-        run: brew bundle --file=Brewfile --no-upgrade
+        run: |
+          brew bundle --file=Brewfile --no-upgrade
+          brew install ccache
 
       # Installs the universal loader, headers and glslc into /usr/local (the x86_64 IPC client links the x86_64
       # slice). The installer's component names are LunarG's; not exercised outside CI.
@@ -91,28 +104,19 @@ jobs:
           scripts/patches.sh apply
           scripts/patches.sh status
 
-      # Build dirs are reused only for the exact same sources (submodule pins, patches, our code, scripts) and the
-      # same Homebrew versions: CMake caches Cellar paths, which a formula update removes.
-      - name: Submodule pins
-        id: pins
-        run: |
-          echo "hash=$(git submodule status --recursive | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
-          echo "brew=$(brew list --versions | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"
-      - name: Cache CMake build dirs
+      # A new entry every run, restored from the newest one.
+      - name: Cache ccache
         uses: actions/cache@v4
         with:
-          path: |
-            build/monado-snapshot
-            build/openxr-sdk
-            build/bridge/openxr-sdk-win
-            build/m3/oc
-            build/wivrn-next
-            build/wivrn-client-x86_64
-            build/wivrn-client-arm64
-          key: cmake-${{ runner.arch }}-${{ steps.pins.outputs.hash }}-${{ steps.pins.outputs.brew }}-${{ hashFiles('patches/**', 'encoder/**', 'bridge/**', 'cmake/**', 'scripts/**', 'Brewfile') }}-${{ env.VULKAN_SDK_VERSION }}-${{ env.LLVM_MINGW_VERSION }}
+          path: /Users/runner/.ccache
+          key: ccache-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.arch }}-
+      - name: ccache stats reset
+        run: ccache --zero-stats
 
+      # Only the loader and the generated headers: the app's web helper and the server's test programs use them.
       - name: OpenXR SDK (native loader for the server's test programs)
-        run: scripts/build.sh openxr-sdk
+        run: NINJA_TARGET=openxr_loader scripts/build.sh openxr-sdk
 
       - name: OpenXR SDK for Windows (loader, generated headers, Vulkan import library)
         run: scripts/build-bridge.sh openxr-sdk-win
@@ -136,6 +140,10 @@ jobs:
 
       - name: MacVR.app
         run: WIVRN_BUILD_DIR="$PWD/build/wivrn-next" scripts/build-app.sh --test
+
+      - name: ccache stats
+        if: always()
+        run: ccache --show-stats
 
       - name: Build logs
         if: failure()

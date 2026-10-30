@@ -35,8 +35,8 @@ case "${1:-}" in
 		export WINEPREFIX="$pfx" WINEDEBUG=-all WINESERVER="$cx/bin/wineserver-x86" WINELOADER="$cx/lib/wine/x86_64-unix/wine" WINEDLLPATH="$cx/lib/wine/x86_64-windows:$cx/lib/wine/x86_64-unix"
 		wine="$cx/lib/wine/x86_64-unix/wine"
 		"$wine" reg query 'HKLM\SOFTWARE\Khronos\OpenXR\1' /v ActiveRuntime
-		"$wine" reg query 'HKLM\System\CurrentControlSet\Control\Session Manager\Environment' /v VR_OVERRIDE
-		"$wine" cmd /c 'echo VR_OVERRIDE=%VR_OVERRIDE% & echo VR_CONFIG_PATH=%VR_CONFIG_PATH% & echo VR_LOG_PATH=%VR_LOG_PATH%'
+		"$wine" reg query 'HKCU\Software\Wine\VR'
+		"$wine" cmd /c 'type C:\users\steamuser\AppData\Local\openvr\openvrpaths.vrpath'
 		"$cx/bin/wineserver-x86" -w ;;
 	clean) rm -rf "$T" ;;
 	*) sed -n '2,5p' "$0" >&2; exit 2 ;;

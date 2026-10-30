@@ -7,15 +7,9 @@ final class AppModel: ObservableObject {
     static let shared = AppModel()
 
     let ctx = Context.real()
-    lazy var server = Server(ctx: ctx)
-    lazy var webOverlays = WebOverlays(ctx: ctx)
 
-    @Published var serverState = "starting…"
-    @Published var headset = false
-    @Published var pin: String?
-    @Published var games: [String] = []
+    @Published var gameRunning = false
     @Published var setup = "setting up…"
-    @Published var hint: String?
     @Published var prefixes: [MacVR.PrefixState] = []
     @Published var appNames: [String: String] = [:]
     @Published var runnerFiles: [RunnerInstall.FileState] = []
@@ -30,9 +24,6 @@ final class AppModel: ObservableObject {
     var windowVisible = false
     private var ticks = 0
 
-    private var userStopped = false
-    private var restarts: [Date] = []
-    private var brokerRestarts: [Date] = []
     private var lastRescan = Date.distantPast
     private var needsRescan = false
     private var timer: Timer?
@@ -57,7 +48,6 @@ final class AppModel: ObservableObject {
                 self.needsRescan = needs
                 self.lastRescan = Date()
                 self.refreshDetails()
-                if !self.ctx.noServer { self.startServer() }
                 self.timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
                     Task { @MainActor in self.tick() }
                 }
@@ -75,7 +65,7 @@ final class AppModel: ObservableObject {
                 Log.shared("update: checked, " + (update.map { "\($0.version) available" } ?? "\(Updater.currentVersion) is current"))
                 if let r = update {
                     let key = "announcedUpdate"
-                    guard !quiet || (games.isEmpty && UserDefaults.standard.string(forKey: key) != r.version) else { return }
+                    guard !quiet || (!gameRunning && UserDefaults.standard.string(forKey: key) != r.version) else { return }
                     UserDefaults.standard.set(r.version, forKey: key)
                     offer(r)
                 } else if !quiet {
@@ -134,96 +124,27 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func startServer() {
-        userStopped = false
-        do {
-            try server.start(detached: false) { [weak self] status in
-                Task { @MainActor in self?.serverExited(status) }
-            }
-        } catch {
-            Log.shared("server: \(error)")
-        }
-        startWebOverlays()
-        tick()
-    }
-
-    func startWebOverlays() {
-        do {
-            try webOverlays.start(environment: server.environment()) { [weak self] _ in
-                Task { @MainActor in self?.webOverlaysExited() }
-            }
-        } catch {
-            Log.shared("web overlays: \(error)")
-        }
-    }
-
-    func webOverlaysExited() {
-        guard !userStopped else { return }
-        brokerRestarts = brokerRestarts.filter { $0.timeIntervalSinceNow > -300 }
-        guard brokerRestarts.count < 3 else {
-            Log.shared("web overlays: broker exited 3 times in 5 minutes, not restarting")
-            return
-        }
-        brokerRestarts.append(Date())
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.startWebOverlays() }
-    }
-
-    func stopServer() {
-        userStopped = true
-        webOverlays.stop()
-        server.stop()
-        tick()
-    }
-
-    func serverExited(_ status: Int32) {
-        tick()
-        guard !userStopped else { return }
-        restarts = restarts.filter { $0.timeIntervalSinceNow > -300 }
-        guard restarts.count < 3 else {
-            Log.shared("server: exited 3 times in 5 minutes, not restarting")
-            return
-        }
-        restarts.append(Date())
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.startServer() }
-    }
-
     func tick() {
-        let ours = server.isChildRunning || server.ourPid != nil
-        let other = !ours && !Server.runningPids().isEmpty
-        serverState = ours ? "running" : other ? "another wivrn-server is running"
-            : ctx.noServer ? "not started (MACVR_NO_SERVER)" : "stopped"
         ticks += 1
         if ticks % 4320 == 0 { checkForUpdates(quiet: true) }
         if windowVisible && ticks % 6 == 0 { refreshDetails() }
-        let st = ours ? ServerStatus.read(ctx) : ServerStatus()
-        headset = st.headset
-        pin = st.pin
-        games = st.gameNames
         let ctx = ctx
-        let pids = Array(st.clientPids.values)
         let rescanDue = needsRescan && Date().timeIntervalSince(lastRescan) > 60
         if rescanDue { lastRescan = Date() }
         Task.detached {
-            var hint: String?
-            for pid in pids {
-                guard let g = MacVR.probe(ctx, pid: pid) else { continue }
-                MacVR.recordProof(ctx, g)
-                if let b = g.backend, b != "dxmt", b != "dxvk" {
-                    hint = "Game runs with \(b): VR needs DXMT or DXVK"
-                }
-            }
+            let running = Steam.gameRunning
             var still: Bool?
             if RunnerInstall.needsInstall(ctx) {
                 MacVR.refreshRunners(ctx)
                 MacVR.rescan(ctx)
             }
-            if rescanDue && !Steam.gameRunning {
+            if rescanDue && !running {
                 let rep = MacVR.rescan(ctx)
                 still = rep.needsRetry
             }
-            let h = hint, s = still
+            let s = still
             await MainActor.run {
-                self.hint = h
+                self.gameRunning = running
                 if let s { self.needsRescan = s; if !s { self.setup = "ready" } }
                 if s != nil { self.refreshDetails() }
             }
@@ -327,18 +248,18 @@ final class AppModel: ObservableObject {
         let a = NSAlert()
         a.messageText = "MacVR"
         a.informativeText = """
-            Streams Windows VR games running under NotProton to a Quest with the WiVRn app.
+            Gives Windows VR games under NotProton what Proton gives them on Linux: the OpenVR (vrclient) and
+            OpenXR (wineopenxr) bridges, set up in every runner and prefix. WiVRn and OpenComposite are separate apps.
 
             \(MacVR.backendNote)
 
-            Version \(Deploy.currentStamp(ctx) ?? "?"). Logs: \(ctx.serverLog.path)
+            Version \(Updater.currentVersion), payload \(Deploy.currentStamp(ctx) ?? "?"). Logs: \(ctx.logDir.path)
             """
         NSApp.activate(ignoringOtherApps: true)
         a.runModal()
     }
 
     func quit() {
-        stopServer()
         NSApp.terminate(nil)
     }
 }
@@ -354,10 +275,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated { AppModel.shared.showWindow() }
         return false
     }
-
-    func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { AppModel.shared.stopServer() }
-    }
 }
 
 struct MenuContent: View {
@@ -366,20 +283,8 @@ struct MenuContent: View {
     var body: some View {
         Button("Show MacVR") { model.showWindow() }
         Divider()
-        Text("Server: \(model.serverState)")
-        Text("Headset: \(model.headset ? "connected" : "not connected")")
-        if let pin = model.pin { Text("Pairing PIN: \(pin)") }
-        Text("Game: \(model.games.isEmpty ? "none" : model.games.joined(separator: ", "))")
-        if let hint = model.hint { Text(hint) }
         Text("Setup: \(model.setup)")
         Divider()
-        if model.serverState == "running" {
-            Button("Stop Server") { model.stopServer() }
-        } else {
-            Button("Start Server") { model.startServer() }.disabled(model.ctx.noServer)
-        }
-        Button("Open WiVRn Server Log") { NSWorkspace.shared.open(model.ctx.serverLog) }
-        Button("Open Web Overlays Log") { NSWorkspace.shared.open(model.webOverlays.log) }
         Button("Open MacVR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
         Button("Rescan Games") { model.rescanNow() }
         Divider()
@@ -397,23 +302,8 @@ struct MenuLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        if let pin = model.pin {
-            HStack(spacing: 4) {
-                Self.icon
-                Text(pin).monospacedDigit()
-            }
-            .onAppear { model.openMain = { openWindow(id: "main") } }
-        } else {
-            plain
-        }
-    }
-
-    var plain: some View {
         Self.icon
-            .opacity(model.headset ? 1 : 0.5)
-            .overlay(alignment: .bottomTrailing) {
-                if !model.games.isEmpty { Circle().frame(width: 5, height: 5) }
-            }
+            .opacity(model.setup == "ready" ? 1 : 0.5)
             .onAppear { model.openMain = { openWindow(id: "main") } }
     }
 

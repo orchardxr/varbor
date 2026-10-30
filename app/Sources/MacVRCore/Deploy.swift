@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-/// Payload (bridge, OpenComposite, server) -> `versions/<stamp>`, then `current` switched atomically.
+/// Payload (the wineopenxr and vrclient bridges) -> `versions/<stamp>`, then `current` switched atomically.
 public enum Deploy {
     /// The payload shipped in the app bundle (`Contents/Resources/payload`), or `MACVR_PAYLOAD`.
     public static func bundledPayload() -> URL? {
@@ -19,10 +19,8 @@ public enum Deploy {
     }
 
     static let required = [
-        "bridge/x86_64-windows/wineopenxr.dll", "bridge/x86_64-unix/wineopenxr.so",
-        "bridge/x86_64-unix/libopenxr_monado.dylib", "bridge/x86_64-unix/ipc-stamp", "bridge/wineopenxr.json",
-        "opencomposite/bin/vrclient_x64.dll", "opencomposite/bin/opencomposite.ini",
-        "server/wivrn-server", "server/ipc-stamp", "server/libopenxr_wivrn.dylib",
+        "bridge/x86_64-windows/wineopenxr.dll", "bridge/x86_64-unix/wineopenxr.so", "bridge/wineopenxr.json",
+        "bridge/x86_64-windows/vrclient_x64.dll", "bridge/x86_64-unix/vrclient_x64.so",
     ]
 
     static func files(in dir: URL) -> [String] {
@@ -68,17 +66,11 @@ public enum Deploy {
         for r in required where !fm.fileExists(atPath: payload.appendingPathComponent(r).path) {
             throw MacVRError("payload \(payload.path) lacks \(r)")
         }
-        let a = try String(contentsOf: payload.appendingPathComponent("bridge/x86_64-unix/ipc-stamp"), encoding: .utf8)
-        let b = try String(contentsOf: payload.appendingPathComponent("server/ipc-stamp"), encoding: .utf8)
-        guard a == b else { throw MacVRError("payload: bridge client and server ipc-stamps differ") }
-
         let list = files(in: payload)
         let (stamp, shas) = try stamp(payload, list)
         let dest = ctx.versions.appendingPathComponent(stamp)
         try fm.createDirectory(at: ctx.versions, withIntermediateDirectories: true)
-        for d in [ctx.openvrConfigDir, ctx.openvrLogDir, ctx.stateDir] {
-            try fm.createDirectory(at: d, withIntermediateDirectories: true)
-        }
+        try fm.createDirectory(at: ctx.stateDir, withIntermediateDirectories: true)
         if !fm.fileExists(atPath: dest.appendingPathComponent("manifest.json").path) {
             let tmp = ctx.versions.appendingPathComponent(".tmp-\(stamp)")
             try? fm.removeItem(at: tmp)

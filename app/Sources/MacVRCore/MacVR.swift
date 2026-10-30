@@ -4,7 +4,7 @@ public enum MacVR {
     public static let backendNote = "VR works with the DXMT and DXVK graphics backends (set in the game's NotProton "
         + "compatibility settings); DXMT is preferred. D3DMetal isn't supported."
 
-    /// What the app does each time it opens (and `macvr install`): deploy, runner files, prefixes, legacy cleanup.
+    /// What the app does each time it opens (and `macvr install`): deploy, runner files, prefixes.
     @discardableResult
     public static func install(_ ctx: Context, payload: URL?) throws -> Rescan.Report {
         if let payload {
@@ -28,62 +28,8 @@ public enum MacVR {
     }
 
     @discardableResult
-    public static func rescan(_ ctx: Context, forceLegacy: Bool = false) -> Rescan.Report {
-        var rep = Rescan.run(ctx, forceLegacy: forceLegacy)
-        let pending = SteamConfig.migrateLegacy(ctx, force: forceLegacy)
-        rep.launchOptionsPending = pending
-        if !pending.isEmpty { log("steam: legacy launch options kept for \(pending.joined(separator: ", "))") }
-        return rep
-    }
-
-    // MARK: running games
-
-    public struct GameProbe {
-        public var pid: Int32
-        public var appid: String?
-        public var backend: String?
-        public var runnerBridge: Bool
-        public var macvrClient: Bool
-        public var exe: String
-    }
-
-    /// Inspects an OpenXR client process the server reported: which bridge/client it loaded, its backend.
-    public static func probe(_ ctx: Context, pid: Int32) -> GameProbe? {
-        guard Processes.alive(pid) else { return nil }
-        let env = Processes.commandAndEnv(pid)
-        func envValue(_ k: String) -> String? {
-            guard let r = env.range(of: " \(k)=") else { return nil }
-            return String(env[r.upperBound...].prefix { $0 != " " })
-        }
-        let maps = run("/usr/sbin/lsof", ["-w", "-p", "\(pid)", "-Fn"]).out
-        let names = maps.split(separator: "\n").filter { $0.hasPrefix("n") }.map { String($0.dropFirst()) }
-        let runnerBridge = names.contains { $0.hasPrefix(ctx.runners.path) && $0.hasSuffix("/wineopenxr.so") }
-        let support = ctx.support.resolvingSymlinksInPath().path
-        let macvrClient = names.contains {
-            ($0.hasPrefix(support) || $0.hasPrefix(ctx.support.path)) && $0.hasSuffix("/libopenxr_monado.dylib")
-        }
-        // Wine overwrites the process's env area, so `ps eww` usually shows nothing: use the mapped files.
-        let appid = names.lazy.compactMap { n -> String? in
-            guard let r = n.range(of: "/steamapps/compatdata/") else { return nil }
-            let id = n[r.upperBound...].prefix { $0.isNumber }
-            return id.isEmpty ? nil : String(id)
-        }.first ?? envValue("STEAM_COMPAT_APP_ID")
-        let backend = names.contains { $0.contains("/lib/dxmt/") } ? "dxmt"
-            : names.contains { $0.contains("/lib/dxvk/") } ? "dxvk"
-            : names.contains { $0.contains("/apple_gptk") || $0.contains("D3DMetal") } ? "d3dmetal"
-            : envValue("CX_GRAPHICS_BACKEND")
-        return GameProbe(pid: pid, appid: appid, backend: backend, runnerBridge: runnerBridge, macvrClient: macvrClient,
-                         exe: Processes.executablePath(pid) ?? "?")
-    }
-
-    /// Marks a game proven once it ran through the runner bridge and our client; its legacy install can then go.
-    public static func recordProof(_ ctx: Context, _ g: GameProbe) {
-        guard g.runnerBridge, g.macvrClient, let appid = g.appid else { return }
-        let f = Rescan.provenFile(ctx, appid)
-        guard !FileManager.default.fileExists(atPath: f.path) else { return }
-        try? FileManager.default.createDirectory(at: ctx.stateDir, withIntermediateDirectories: true)
-        try? "pid \(g.pid) \(ISO8601DateFormatter().string(from: Date()))\n".write(to: f, atomically: true, encoding: .utf8)
-        log("proof: \(appid) runs through the runner bridge and the macvr client")
+    public static func rescan(_ ctx: Context) -> Rescan.Report {
+        Rescan.run(ctx)
     }
 
     // MARK: uninstall
@@ -94,21 +40,15 @@ public enum MacVR {
         public var errors: [String] = []
     }
 
-    static let managedValues: [(String, String, String)] = {
-        var v = [("system.reg", Rescan.openxrKey, "ActiveRuntime")]
-        for n in ["VR_OVERRIDE", "VR_CONFIG_PATH", "VR_LOG_PATH"] {
-            v.append(("system.reg", Rescan.hklmEnvKey, n))
-            v.append(("system.reg", Rescan.hklmEnvKeyUnlinked, n))
-            v.append(("user.reg", Rescan.hkcuEnvKey, n))
-        }
-        return v
-    }()
+    static let managedValues: [(String, String, String)] =
+        [("system.reg", Rescan.openxrKey, "ActiveRuntime"),
+         ("user.reg", Rescan.wineVRKey, "openvr_vulkan_instance_extensions"),
+         ("user.reg", Rescan.wineVRKey, "state")] + Rescan.obsolete.map { ($0.file, $0.key, $0.name) }
 
-    /// Reverts every prefix and template (values that are ours: restored from the record, else removed), the runner
-    /// files, and stops our server. Nothing in the user's launch options is ours to revert.
-    public static func uninstall(_ ctx: Context, server: Server?) -> UninstallReport {
+    /// Reverts every prefix and template (values that are ours: restored from the record, else removed) and the
+    /// runner files.
+    public static func uninstall(_ ctx: Context) -> UninstallReport {
         var rep = UninstallReport()
-        server?.stop()
         for p in ctx.steam.prefixes + Bottles.prefixes(ctx) {
             do {
                 if try revertPrefix(ctx, p) { rep.reverted.append(p.name) }
@@ -142,8 +82,9 @@ public enum MacVR {
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             var reg = try WineRegistry(text: text)
             let orig = reg.lines
+            let lines = Rescan.desiredLines(ctx)
             for (f, key, name) in managedValues where f == file {
-                guard let cur = reg.rawValueLine(key, name), Rescan.isOurs(cur, ctx) else { continue }
+                guard let cur = reg.rawValueLine(key, name), Rescan.isOurs(cur, ctx) || lines.contains(cur) else { continue }
                 let prev = rec["reg|\(file)|\(key)|\(name)"] ?? "-"
                 if prev == "-" { reg.deleteValue(key, name) } else { reg.setRaw(key, name, prev) }
             }
@@ -157,6 +98,7 @@ public enum MacVR {
             }
             changed = true
         }
+        if try Rescan.removeVRClient(p, rec) { changed = true }
         let ours = Rescan.vrpathJSON(ctx)
         for user in p.userDirs {
             let f = Rescan.vrpathFile(user)
@@ -178,11 +120,10 @@ public enum MacVR {
 
     // MARK: status
 
-    public static func statusText(_ ctx: Context, server: Server) -> String {
+    public static func statusText(_ ctx: Context) -> String {
         var out: [String] = []
         out.append("version: \(Deploy.currentStamp(ctx) ?? "not installed")"
                    + ((try? FileManager.default.destinationOfSymbolicLink(atPath: ctx.previous.path)).map { " (previous \(URL(fileURLWithPath: $0).lastPathComponent))" } ?? ""))
-        out.append("openvr mode: \(ctx.openvrMode)")
         out.append("runner files:")
         out += RunnerInstall.status(ctx).map { "  " + $0 }
         out.append("prefixes:")
@@ -193,20 +134,8 @@ public enum MacVR {
         if !ctx.extraLibraries.isEmpty {
             out.append("added Steam libraries: " + ctx.extraLibraries.map(\.path).joined(separator: ", "))
         }
-        let steam = ctx.steam
         out.append("VR games:")
-        for (app, hit) in steam.vrGames() { out.append("  \(app.appid) \(app.name) (\(hit))") }
-        for (_, appid, opts) in SteamConfig.legacyLaunchOptions(steam) {
-            out.append("legacy launch options (\(appid)): \(opts)")
-        }
-        let st = ServerStatus.read(ctx)
-        let pids = Server.runningPids()
-        let srv = server.ourPid.map { "running (pid \($0))" } ?? (pids.isEmpty ? "stopped" : "other wivrn-server running (pid \(pids[0]))")
-        out.append("server: \(srv)")
-        if !pids.isEmpty || server.ourPid != nil {
-            out.append("headset: \(st.headset ? "connected" : "not connected")")
-            out.append("games: \(st.gameNames.isEmpty ? "none" : st.gameNames.joined(separator: ", "))")
-        }
+        for (app, hit) in ctx.steam.vrGames() { out.append("  \(app.appid) \(app.name) (\(hit))") }
         out.append(backendNote)
         return out.joined(separator: "\n")
     }
@@ -218,7 +147,6 @@ public enum MacVR {
         public var kind: WinePrefix.Kind
         public var missing: [String]
         public var busy: Bool
-        public var legacy: Bool
         public var record: Bool
         public var warning: String?
         /// From a bottle or Steam library the user added.
@@ -227,12 +155,12 @@ public enum MacVR {
         public var excluded = false
 
         public var state: String {
-            excluded ? "excluded" : busy ? "busy" : legacy ? "legacy" : missing.isEmpty ? "ok" : "missing values"
+            excluded ? "excluded" : busy ? "busy" : missing.isEmpty ? "ok" : "missing values"
         }
 
         public var summary: String {
             (excluded ? "excluded" : missing.isEmpty ? "ok" : "missing \(missing.joined(separator: " "))") + (record ? ", record" : "")
-                + (legacy ? ", legacy install present" : "") + (busy ? ", wineserver running" : "")
+                + (busy ? ", wineserver running" : "")
         }
     }
 
@@ -252,11 +180,10 @@ public enum MacVR {
                 let v = Rescan.resolve(v, in: regs[v.file])
                 if regs[v.file]?.rawValueLine(v.key, v.name) != v.line { missing.append(v.name) }
             }
-            if ctx.openvrMode == "vrpath" {
-                for u in p.userDirs where (try? String(contentsOf: Rescan.vrpathFile(u), encoding: .utf8)) != Rescan.vrpathJSON(ctx) {
-                    missing.append("vrpath(\(u.lastPathComponent))")
-                }
+            for u in p.userDirs where (try? String(contentsOf: Rescan.vrpathFile(u), encoding: .utf8)) != Rescan.vrpathJSON(ctx) {
+                missing.append("vrpath(\(u.lastPathComponent))")
             }
+            if Deploy.sha256(Rescan.vrclientPlaceholder(p)) != Deploy.sha256(ctx.vrclientDLL) { missing.append("C:\\vrclient") }
             var userAdded = p.kind == .bottle
             if p.kind == .bottle {
                 if !Bottles.confOK(ctx, p.pfx) { missing.append("LibPath") }
@@ -266,7 +193,7 @@ public enum MacVR {
                 userAdded = !vdfLibs.contains(lib.standardizedFileURL.path)
             }
             return PrefixState(name: p.name, path: p.pfx.path, kind: p.kind, missing: missing,
-                               busy: Wineserver.running(prefix: p.pfx), legacy: !Rescan.legacyItems(p, ctx).isEmpty,
+                               busy: Wineserver.running(prefix: p.pfx),
                                record: FileManager.default.fileExists(atPath: p.record.path),
                                warning: p.kind == .bottle ? Bottles.backendWarning(p.pfx) : nil, userAdded: userAdded,
                                excluded: ctx.isExcluded(p))

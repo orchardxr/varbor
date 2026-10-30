@@ -46,7 +46,7 @@ struct MainView: View {
                         ToolbarItem(placement: .primaryAction) {
                             Button("Update to \(r.version)", systemImage: "arrow.down.circle") { model.installUpdate() }
                                 .help("Install MacVR \(r.version)")
-                                .disabled(!model.games.isEmpty)
+                                .disabled(model.gameRunning)
                         }
                     }
                     ToolbarItem(placement: .primaryAction) {
@@ -106,14 +106,14 @@ struct PageForm<Content: View>: View {
             if let r = model.update {
                 Section {
                     Row(title: "MacVR \(r.version) is available",
-                        subtitle: [model.updating ?? (model.games.isEmpty
-                            ? "You have \(Updater.currentVersion). MacVR restarts to install it."
-                            : "Quit the VR game to install it.")], dot: .blue) {
+                        subtitle: [model.updating ?? (model.gameRunning
+                            ? "Quit the VR game to install it."
+                            : "You have \(Updater.currentVersion). MacVR restarts to install it.")], dot: .blue) {
                         if model.updating != nil {
                             ProgressView().controlSize(.small)
                         } else {
                             Button("Release Notes") { NSWorkspace.shared.open(r.page) }
-                            Button("Install") { model.installUpdate() }.disabled(!model.games.isEmpty)
+                            Button("Install") { model.installUpdate() }.disabled(model.gameRunning)
                         }
                     }
                 }
@@ -186,8 +186,6 @@ struct StatusPage: View {
         return s.contains("in use") ? (.orange, "Waiting", text) : (.red, "Needs Attention", text)
     }
 
-    var running: Bool { model.serverState == "running" }
-
     var body: some View {
         PageForm(model: model) {
             Section {
@@ -195,36 +193,6 @@ struct StatusPage: View {
                 Row(title: title, subtitle: [text], dot: color) {
                     if model.working != nil || model.setup.hasPrefix("setting up") { ProgressView().controlSize(.small) }
                 }
-            }
-            Section("Server") {
-                Row(title: "WiVRn Server", subtitle: [model.serverState], dot: running ? .green : .secondary) {
-                    if running {
-                        Button("Stop") { model.stopServer() }
-                    } else {
-                        Button("Start") { model.startServer() }.disabled(model.ctx.noServer)
-                    }
-                }
-                Row(title: "Headset", subtitle: [model.headset ? "Connected" : "Not connected"],
-                    dot: model.headset ? .green : .secondary)
-                if let pin = model.pin {
-                    Row(title: "Pairing PIN", subtitle: ["Enter it in the WiVRn app on the headset to pair it with this Mac."],
-                        dot: .blue) {
-                        Text(pin).font(.title2.monospacedDigit().weight(.semibold)).textSelection(.enabled)
-                    }
-                }
-            }
-            Section {
-                if model.games.isEmpty {
-                    Row(title: "No VR game running", subtitle: ["Start a VR game from Steam."])
-                }
-                ForEach(model.games, id: \.self) { g in
-                    Row(title: g, subtitle: ["Connected to the server"], dot: .green)
-                }
-                if let hint = model.hint {
-                    Label(hint, systemImage: "exclamationmark.triangle.fill")
-                }
-            } header: {
-                Text("VR Games")
             } footer: {
                 Text(MacVR.backendNote)
             }
@@ -247,7 +215,6 @@ extension MacVR.PrefixState {
     var issues: [String] {
         var out: [String] = []
         if !missing.isEmpty { out.append("Missing: \(missing.joined(separator: ", "))") }
-        if legacy { out.append("Legacy install present") }
         if let warning { out.append(warning) }
         return out
     }
@@ -400,7 +367,7 @@ struct RunnersPage: View {
                 } header: {
                     if r == runners.first { Text("NotProton Runners") }
                 } footer: {
-                    if r == runners.last { Text("MacVR installs its OpenXR bridge into each runner.") }
+                    if r == runners.last { Text("MacVR installs its OpenVR and OpenXR bridges into each runner.") }
                 }
             }
         }
@@ -412,9 +379,7 @@ struct LogsPage: View {
 
     var logs: [(String, String, URL)] {
         [
-            ("MacVR Log", "Setup, rescans and prefix changes", Log.shared.url ?? model.ctx.serverLogDir.appendingPathComponent("macvr.log")),
-            ("WiVRn Server Log", "The streaming server", model.ctx.serverLog),
-            ("Web Overlays Log", "SteamVR web overlays helper", model.webOverlays.log),
+            ("MacVR Log", "Setup, rescans and prefix changes", Log.shared.url ?? model.ctx.logDir.appendingPathComponent("macvr.log")),
         ]
     }
 
@@ -432,9 +397,9 @@ struct LogsPage: View {
                 Text("Logs")
             } footer: {
                 HStack {
-                    Text(model.ctx.serverLogDir.path).textSelection(.enabled)
+                    Text(model.ctx.logDir.path).textSelection(.enabled)
                     Spacer()
-                    Button("Reveal Logs Folder") { NSWorkspace.shared.open(model.ctx.serverLogDir) }
+                    Button("Reveal Logs Folder") { NSWorkspace.shared.open(model.ctx.logDir) }
                 }
             }
         }

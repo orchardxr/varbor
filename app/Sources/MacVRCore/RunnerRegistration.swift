@@ -19,7 +19,9 @@ public enum RunnerRegistration {
         func block(_ items: [([String], RegValue)], _ depth: Int) -> String {
             let pad = String(repeating: "\t", count: depth)
             var out = ""
-            for (path, v) in items where path.isEmpty { out += "\(pad)val \(quote(v.name)) = s \(quote(v.value))\n" }
+            for (path, v) in items where path.isEmpty {
+                out += "\(pad)val \(quote(v.name)) = \(v.raw == nil ? "s" : "d") \(quote(v.value))\n"
+            }
             var keys: [String] = []
             for (path, _) in items where !path.isEmpty && !keys.contains(path[0]) { keys.append(path[0]) }
             for k in keys {

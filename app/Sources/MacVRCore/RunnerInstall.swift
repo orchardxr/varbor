@@ -1,18 +1,21 @@
 import Foundation
 
-/// Runner mode: our builtin `wineopenxr.dll` and unixlib `wineopenxr.so` (and `macvrreg.dll`, RunnerRegistration) added to every NotProton runner's
-/// `CrossOver/lib/wine`. The .so is universal (x86_64 + arm64) and goes to two places: `x86_64-unix`, which Rosetta
-/// (x86_64 Wine) pairs with `x86_64-windows/wineopenxr.dll`, and `x86_64-windows`, because FEX (arm64 Wine) finds the
-/// x86_64 PE only through NotProton's flat WINEDLLPATH entry `lib/wine/x86_64-windows` and takes the unixlib from that
-/// same dir (as NotProton stages its lsteamclient.so). dyld picks the matching slice, so neither Wine can load a
-/// wrong-arch copy. Add only: a file we didn't put there (sha not in our record) is never touched. The .so loads the
-/// universal IPC client from `macvr/current/bridge/x86_64-unix`.
+/// The bridge in every NotProton runner's `CrossOver/lib/wine`: the builtins `wineopenxr.dll` (OpenXR games) and
+/// `vrclient_x64.dll` (OpenVR games, Proton's vrclient), their universal (x86_64 + arm64) unixlibs, and `macvrreg.dll`
+/// (RunnerRegistration). Each .so goes to two places: `x86_64-unix`, which Rosetta (x86_64 Wine) pairs with the PE in
+/// `x86_64-windows`, and `x86_64-windows`, because FEX (arm64 Wine) finds the x86_64 PE only through NotProton's flat
+/// WINEDLLPATH entry `lib/wine/x86_64-windows` and takes the unixlib from that same dir (as NotProton stages its
+/// lsteamclient.so). dyld picks the matching slice. Add only: a file we didn't put there (sha not in our record) is
+/// never touched.
 public enum RunnerInstall {
     /// Runner path (relative to `lib/wine`) <- bridge payload path.
     public static let files: [(dst: String, src: String)] = [
         ("x86_64-windows/wineopenxr.dll", "x86_64-windows/wineopenxr.dll"),
         ("x86_64-unix/wineopenxr.so", "x86_64-unix/wineopenxr.so"),
         ("x86_64-windows/wineopenxr.so", "x86_64-unix/wineopenxr.so"),
+        ("x86_64-windows/vrclient_x64.dll", "x86_64-windows/vrclient_x64.dll"),
+        ("x86_64-unix/vrclient_x64.so", "x86_64-unix/vrclient_x64.so"),
+        ("x86_64-windows/vrclient_x64.so", "x86_64-unix/vrclient_x64.so"),
     ]
 
     /// `files` from the payload plus the per-user `macvrreg.dll` (when the payload has its template).
@@ -75,10 +78,12 @@ public enum RunnerInstall {
         var res = Result()
         defer { try? saveRecord(ctx, rec) }
         let srcs = try sources(ctx, generate: true)
+        var wanted = Set<String>()
         for lib in wineLibDirs(ctx) {
             for f in srcs {
                 let src = f.src
                 let dst = lib.appendingPathComponent(f.dst)
+                wanted.insert(dst.path)
                 guard let want = Deploy.sha256(src) else { throw MacVRError("no \(src.path): run install") }
                 if let have = Deploy.sha256(dst) {
                     if have == want { rec[dst.path] = want; res.current += 1; continue }
@@ -99,6 +104,15 @@ public enum RunnerInstall {
                 res.installed += 1
                 log("runner: installed \(dst.path)")
             }
+        }
+        // files an earlier version installed that this one doesn't (renamed or dropped), and runners that are gone
+        for (path, sha) in rec where !wanted.contains(path) {
+            let u = URL(fileURLWithPath: path)
+            if Deploy.sha256(u) == sha {
+                try? FileManager.default.removeItem(at: u)
+                log("runner: removed obsolete \(path)")
+            }
+            rec[path] = nil
         }
         return res
     }

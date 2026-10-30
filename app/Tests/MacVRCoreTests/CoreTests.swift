@@ -2,94 +2,6 @@ import Foundation
 @testable import MacVRCore
 import XCTest
 
-final class LaunchOptionsTests: XCTestCase {
-    let ours = [("WINEDLLPATH", "/Users/x/Library/Application Support/macvr/current/bridge")]
-
-    func testMergeKeepsUserTokens() {
-        let s = "WINEMSYNC=1 CX_GRAPHICS_BACKEND=dxmt WINEDLLPATH=\"/old/drive_c/macvr\" %command% -condebug -vconsole"
-        let m = LaunchOptions.apply(s, ours: ours)
-        XCTAssertEqual(m.result, "MACVR=1 WINEDLLPATH=\"/Users/x/Library/Application Support/macvr/current/bridge\" "
-                       + "WINEMSYNC=1 CX_GRAPHICS_BACKEND=dxmt %command% -condebug -vconsole")
-        XCTAssertEqual(m.displaced, ["WINEDLLPATH=\"/old/drive_c/macvr\""])
-        XCTAssertEqual(LaunchOptions.apply(m.result, ours: ours).result, m.result)
-        XCTAssertEqual(LaunchOptions.remove(m.result, keys: ["WINEDLLPATH"], restore: m.displaced, addedCommand: false),
-                       "WINEMSYNC=1 CX_GRAPHICS_BACKEND=dxmt WINEDLLPATH=\"/old/drive_c/macvr\" %command% -condebug -vconsole")
-    }
-
-    func testMergeWithoutCommand() {
-        let m = LaunchOptions.apply("-novid", ours: ours)
-        XCTAssertTrue(m.addedCommand)
-        XCTAssertTrue(m.result.hasSuffix("%command% -novid"))
-        XCTAssertEqual(LaunchOptions.remove(m.result, keys: ["WINEDLLPATH"], restore: [], addedCommand: true), "-novid")
-        XCTAssertEqual(LaunchOptions.remove(LaunchOptions.apply("", ours: ours).result, keys: ["WINEDLLPATH"],
-                                            restore: [], addedCommand: true), "")
-    }
-
-    func testTokenValue() {
-        let t = LaunchOptions.tokenize("A=\"x y\" B='z' %command%")
-        XCTAssertEqual(t.map(\.raw), ["A=\"x y\"", "B='z'", "%command%"])
-        XCTAssertEqual(t[0].value, "x y")
-        XCTAssertNil(t[2].key)
-    }
-
-    func testLegacyRemoval() {
-        let s = "WINEMSYNC=1 CX_GRAPHICS_BACKEND=dxmt WINEDLLPATH=\"/a b/compatdata/546560/pfx/drive_c/macvr\" %command% -condebug"
-        XCTAssertEqual(SteamConfig.withoutLegacy(s), "WINEMSYNC=1 CX_GRAPHICS_BACKEND=dxmt %command% -condebug")
-        XCTAssertEqual(SteamConfig.withoutLegacy("WINEDLLPATH=/p/drive_c/macvr"), nil)
-    }
-}
-
-final class VDFTests: XCTestCase {
-    let text = """
-    "UserLocalConfigStore"
-    {
-    \t"Software"
-    \t{
-    \t\t"Valve"
-    \t\t{
-    \t\t\t"Steam"
-    \t\t\t{
-    \t\t\t\t"apps"
-    \t\t\t\t{
-    \t\t\t\t\t"546560"
-    \t\t\t\t\t{
-    \t\t\t\t\t\t"LaunchOptions"\t\t"A=1 B=\\"x y\\" %command%"
-    \t\t\t\t\t\t"Playtime"\t\t"5"
-    \t\t\t\t\t}
-    \t\t\t\t\t"7"
-    \t\t\t\t\t{
-    \t\t\t\t\t\t"Playtime"\t\t"1"
-    \t\t\t\t\t}
-    \t\t\t\t}
-    \t\t\t}
-    \t\t}
-    \t}
-    }
-
-    """
-
-    func testRead() throws {
-        XCTAssertEqual(try LocalConfig.launchOptions(text, appid: "546560"), "A=1 B=\"x y\" %command%")
-        XCTAssertNil(try LocalConfig.launchOptions(text, appid: "7"))
-    }
-
-    func testReplaceTouchesOnlyValue() throws {
-        let out = try LocalConfig.setLaunchOptions(text, appid: "546560", to: "C=\"q\" %command%")
-        XCTAssertEqual(out, text.replacingOccurrences(of: "A=1 B=\\\"x y\\\" %command%", with: "C=\\\"q\\\" %command%"))
-        XCTAssertEqual(try LocalConfig.setLaunchOptions(out, appid: "546560", to: "C=\"q\" %command%"), out)
-    }
-
-    func testInsertAndRemove() throws {
-        let a = try LocalConfig.setLaunchOptions(text, appid: "7", to: "%command% -x")
-        XCTAssertEqual(try LocalConfig.launchOptions(a, appid: "7"), "%command% -x")
-        XCTAssertTrue(a.contains("\t\t\t\t\t{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"%command% -x\"\n\t\t\t\t\t\t\"Playtime\""))
-        XCTAssertEqual(try LocalConfig.setLaunchOptions(a, appid: "7", to: nil), text)
-        let b = try LocalConfig.setLaunchOptions(text, appid: "99", to: "Z=1 %command%")
-        XCTAssertEqual(try LocalConfig.launchOptions(b, appid: "99"), "Z=1 %command%")
-        XCTAssertTrue(b.contains("\t\t\t\t\t\"99\"\n\t\t\t\t\t{\n\t\t\t\t\t\t\"LaunchOptions\"\t\t\"Z=1 %command%\"\n\t\t\t\t\t}\n\t\t\t\t}"))
-    }
-}
-
 let regText = """
 WINE REGISTRY Version 2
 ;; All keys relative to \\\\Machine
@@ -145,7 +57,7 @@ final class ScratchTreeTests: XCTestCase {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("macvr-tests-\(UUID().uuidString)")
         let steam = root.appendingPathComponent("Steam")
         ctx = Context(home: root, support: root.appendingPathComponent("macvr"), steamRoot: steam,
-                      serverLogDir: root.appendingPathComponent("logs"), runners: root.appendingPathComponent("runners"),
+                      logDir: root.appendingPathComponent("logs"), runners: root.appendingPathComponent("runners"),
                       system: false)
         let fm = FileManager.default
         for p in ["steamapps/compatdata/100/pfx", "steamapps/compatdata/200/pfx",
@@ -161,7 +73,7 @@ final class ScratchTreeTests: XCTestCase {
         for f in Deploy.required {
             let u = payload.appendingPathComponent(f)
             try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try (f.hasSuffix("ipc-stamp") ? "stamp\n" : f).write(to: u, atomically: true, encoding: .utf8)
+            try f.write(to: u, atomically: true, encoding: .utf8)
         }
         try "{}".write(to: payload.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
         for r in ["crossover-1", "crossover-1-fex"] {
@@ -216,35 +128,69 @@ final class ScratchTreeTests: XCTestCase {
         let p = Steam(root: ctx.steamRoot).prefixes.first { $0.name == "100" }!
         let reg = try WineRegistry(text: String(contentsOf: p.systemReg, encoding: .utf8))
         XCTAssertEqual(reg.string(Rescan.openxrKey, "ActiveRuntime"), dosPath(ctx.runtimeJSON))
-        XCTAssertEqual(reg.string(Rescan.hklmEnvKey, "VR_OVERRIDE"), dosPath(ctx.openCompositeDir))
+        XCTAssertNil(reg.string(Rescan.hklmEnvKey, "VR_OVERRIDE"))
+        let user = try WineRegistry(text: String(contentsOf: p.pfx.appendingPathComponent("user.reg"), encoding: .utf8))
+        XCTAssertEqual(user.string(Rescan.wineVRKey, "openvr_vulkan_instance_extensions"), "VK_KHR_surface")
+        XCTAssertEqual(user.rawValueLine(Rescan.wineVRKey, "state"), "\"state\"=dword:00000001")
+        XCTAssertEqual(try String(contentsOf: p.pfx.appendingPathComponent("drive_c/vrclient/bin/vrclient_x64.dll"), encoding: .utf8),
+                       "bridge/x86_64-windows/vrclient_x64.dll")
+        let vrpath = p.pfx.appendingPathComponent("drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath")
+        XCTAssertEqual(try String(contentsOf: vrpath, encoding: .utf8), Rescan.vrpathJSON(ctx))
+        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: vrpath.path))[.posixPermissions] as? Int, 0o444)
         XCTAssertTrue(FileManager.default.fileExists(atPath: p.record.path))
         XCTAssertEqual(try String(contentsOf: ctx.runners.appendingPathComponent("crossover-1/CrossOver/lib/wine/x86_64-unix/wineopenxr.so"), encoding: .utf8),
                        "bridge/x86_64-unix/wineopenxr.so")
+        XCTAssertEqual(try String(contentsOf: ctx.runners.appendingPathComponent("crossover-1-fex/CrossOver/lib/wine/x86_64-windows/vrclient_x64.so"), encoding: .utf8),
+                       "bridge/x86_64-unix/vrclient_x64.so")
 
         let mid = try snapshot()
         let again = try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
         XCTAssertEqual(again.changed, [])
         XCTAssertEqual(try snapshot(), mid)
 
-        let un = MacVR.uninstall(ctx, server: nil)
+        let un = MacVR.uninstall(ctx)
         XCTAssertEqual(un.busy, [])
         XCTAssertEqual(un.errors, [])
         XCTAssertEqual(try snapshot(), before)
     }
 
     func testCorrectPrefixIsNotTouched() throws {
-        try Deploy.install(ctx, payload: root.appendingPathComponent("payload"))
-        var reg = try WineRegistry(text: regText)
-        for v in Rescan.desired(ctx) where v.file == "system.reg" { reg.setRaw(v.key, v.name, v.line) }
+        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
         let p200 = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/200")
-        try reg.text.write(to: p200.appendingPathComponent("pfx/system.reg"), atomically: true, encoding: .utf8)
+        let rec = p200.appendingPathComponent("macvr-vr")
+        let snap = try snapshot()
+        let recData = try Data(contentsOf: rec)
         let rep = Rescan.run(ctx)
         XCTAssertTrue(rep.unchanged.contains("200"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: p200.appendingPathComponent("macvr-vr").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: p200.appendingPathComponent("macvr-backup").path))
-        // uninstall still removes values that are ours (inherited from the template)
-        _ = MacVR.uninstall(ctx, server: nil)
-        XCTAssertEqual(try String(contentsOf: p200.appendingPathComponent("pfx/system.reg"), encoding: .utf8), regText)
+        XCTAssertEqual(try snapshot(), snap)
+        XCTAssertEqual(try Data(contentsOf: rec), recData)
+    }
+
+    func testOldOpenCompositeValuesRemovedWithoutRecord() throws {
+        // a game prefix cloned from an earlier version's template: VR_OVERRIDE into our dir, no record
+        let sys = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/system.reg")
+        var reg = try WineRegistry(text: regText)
+        reg.setString(Rescan.hklmEnvKey, "VR_OVERRIDE", dosPath(ctx.support.appendingPathComponent("current/opencomposite")))
+        reg.setString(Rescan.hklmEnvKey, "VR_LOG_PATH", "C:\\theirs")
+        try reg.text.write(to: sys, atomically: true, encoding: .utf8)
+        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        let after = try WineRegistry(text: String(contentsOf: sys, encoding: .utf8))
+        XCTAssertNil(after.string(Rescan.hklmEnvKey, "VR_OVERRIDE"))
+        XCTAssertEqual(after.string(Rescan.hklmEnvKey, "VR_LOG_PATH"), "C:\\theirs")
+    }
+
+    func testForeignVRPathBackedUpAndRestored() throws {
+        let f = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath")
+        try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "{\"runtime\":[\"C:\\\\other\"]}".write(to: f, atomically: true, encoding: .utf8)
+        let theirs = try Data(contentsOf: f)
+        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        XCTAssertEqual(try String(contentsOf: f, encoding: .utf8), Rescan.vrpathJSON(ctx))
+        _ = MacVR.uninstall(ctx)
+        XCTAssertEqual(try Data(contentsOf: f), theirs)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: f.deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("vrclient").path))
     }
 
     func testPreviousValueRestored() throws {
@@ -254,25 +200,8 @@ final class ScratchTreeTests: XCTestCase {
         try reg.text.write(to: sys, atomically: true, encoding: .utf8)
         let orig = reg.text
         try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
-        _ = MacVR.uninstall(ctx, server: nil)
+        _ = MacVR.uninstall(ctx)
         XCTAssertEqual(try String(contentsOf: sys, encoding: .utf8), orig)
-    }
-
-    func testModeSwitchVRPath() throws {
-        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
-        try ctx.setSetting("openvr", "vrpath")
-        _ = Rescan.run(ctx)
-        let f = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath")
-        XCTAssertEqual(try String(contentsOf: f, encoding: .utf8), Rescan.vrpathJSON(ctx))
-        XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: f.path))[.posixPermissions] as? Int, 0o444)
-        let reg = try WineRegistry(text: String(contentsOf: f.deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("system.reg"), encoding: .utf8))
-        XCTAssertNil(reg.string(Rescan.hklmEnvKey, "VR_OVERRIDE"))
-        XCTAssertNotNil(reg.string(Rescan.openxrKey, "ActiveRuntime"))
-        try ctx.setSetting("openvr", "hklm-env")
-        _ = Rescan.run(ctx)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: f.path))
     }
 
     func testRunnerAddOnly() throws {
@@ -280,7 +209,7 @@ final class ScratchTreeTests: XCTestCase {
         let foreign = ctx.runners.appendingPathComponent("crossover-1-fex/CrossOver/lib/wine/x86_64-windows/wineopenxr.dll")
         try "theirs".write(to: foreign, atomically: true, encoding: .utf8)
         let r = try RunnerInstall.ensure(ctx)
-        XCTAssertEqual(r.installed, 5)
+        XCTAssertEqual(r.installed, 11)
         XCTAssertEqual(r.foreign, [foreign.path])
         let fex = ctx.runners.appendingPathComponent("crossover-1-fex/CrossOver/lib/wine/x86_64-windows/wineopenxr.so")
         XCTAssertEqual(try String(contentsOf: fex, encoding: .utf8), "bridge/x86_64-unix/wineopenxr.so")
@@ -288,6 +217,19 @@ final class ScratchTreeTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: foreign, encoding: .utf8), "theirs")
         XCTAssertFalse(FileManager.default.fileExists(atPath: ctx.runners.appendingPathComponent("crossover-1/CrossOver/lib/wine/x86_64-windows/wineopenxr.dll").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: fex.path))
+    }
+
+    func testRunnerFileFromEarlierVersionRemoved() throws {
+        try Deploy.install(ctx, payload: root.appendingPathComponent("payload"))
+        let old = ctx.runners.appendingPathComponent("crossover-1/CrossOver/lib/wine/x86_64-windows/oldbridge.dll")
+        try "old".write(to: old, atomically: true, encoding: .utf8)
+        let changed = ctx.runners.appendingPathComponent("crossover-1/CrossOver/lib/wine/x86_64-windows/oldother.dll")
+        try "old".write(to: changed, atomically: true, encoding: .utf8)
+        try RunnerInstall.saveRecord(ctx, [old.path: Deploy.sha256(old)!, changed.path: "0"])
+        try RunnerInstall.ensure(ctx)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: old.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: changed.path))
+        XCTAssertNil(RunnerInstall.loadRecord(ctx)[changed.path])
     }
 
     func testMachoArchs() throws {
@@ -300,74 +242,6 @@ final class ScratchTreeTests: XCTestCase {
         XCTAssertEqual(RunnerInstall.machoArchs(u), ["arm64"])
     }
 
-    func testLegacyKeptUntilProven() throws {
-        let c = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/drive_c")
-        try FileManager.default.createDirectory(at: c.appendingPathComponent("macvr/x86_64-unix"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: c.appendingPathComponent("windows/system32"), withIntermediateDirectories: true)
-        try "x".write(to: c.appendingPathComponent("windows/system32/wineopenxr.dll"), atomically: true, encoding: .utf8)
-        try "{}".write(to: c.appendingPathComponent("windows/system32/wineopenxr.json"), atomically: true, encoding: .utf8)
-        var rep = try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
-        XCTAssertEqual(rep.legacyPending, ["100"])
-        XCTAssertTrue(FileManager.default.fileExists(atPath: c.appendingPathComponent("macvr").path))
-        try "p".write(to: Rescan.provenFile(ctx, "100"), atomically: true, encoding: .utf8)
-        rep = Rescan.run(ctx)
-        XCTAssertEqual(rep.legacyPending, [])
-        XCTAssertFalse(FileManager.default.fileExists(atPath: c.appendingPathComponent("macvr").path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: c.appendingPathComponent("windows/system32/wineopenxr.dll").path))
-        let rec = Record.load(ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/macvr-vr"))!
-        XCTAssertTrue(rec["legacy"]!.hasPrefix("removed:"))
-    }
-
-    func testWineCopyOfRunnerBuiltinIsNotLegacy() throws {
-        let c = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/drive_c")
-        try FileManager.default.createDirectory(at: c.appendingPathComponent("windows/system32"), withIntermediateDirectories: true)
-        try "x".write(to: c.appendingPathComponent("windows/system32/wineopenxr.dll"), atomically: true, encoding: .utf8)
-        let p = Steam(root: ctx.steamRoot).prefixes.first { $0.name == "100" }!
-        XCTAssertEqual(Rescan.legacyItems(p, ctx), [])
-    }
-}
-
-final class ServerStatusTests: XCTestCase {
-    func testParse() {
-        let log = """
-        WiVRn 26.9 starting
-        Client connected
-         INFO [client_connected] Client 2 connected
-         INFO [ipc_handle_instance_describe_client] Client info:
-        \tid: 2
-        \tapplication_name: 'OpenComposite_hlvr'
-        \tpid: 27676
-        """
-        var s = ServerStatus.parse(Substring(log))
-        XCTAssertTrue(s.headset)
-        XCTAssertEqual(s.gameNames, ["hlvr"])
-        XCTAssertEqual(s.clientPids[2], 27676)
-        s = ServerStatus.parse(Substring(log + "\n INFO [client_disconnected] Client 2 disconnected\n WARN [run_net] Network exception: Error on control socket, Session paused."))
-        XCTAssertFalse(s.headset)
-        XCTAssertEqual(s.gameNames, [])
-        s = ServerStatus.parse(Substring(log + "\nTo pair a new headset use PIN code: 053531\n"))
-        XCTAssertEqual(s.pin, "053531")
-        s = ServerStatus.parse(Substring(log + "\nTo pair a new headset use PIN code: 053531\nHeadset pairing is disabled\n"))
-        XCTAssertNil(s.pin)
-        s = ServerStatus.parse(Substring(log + "\nWiVRn 26.9 starting\n"))
-        XCTAssertEqual(s, ServerStatus())
-    }
-
-    func testWebOverlaysClientIsNotAGame() {
-        let log = """
-        WiVRn 26.9 starting
-        Client connected
-         INFO [client_connected] Client 2 connected
-        \tapplication_name: 'OpenComposite_hlvr'
-        \tpid: 27676
-         INFO [client_connected] Client 3 connected
-        \tapplication_name: 'MacVR web overlays'
-        \tpid: 27700
-        """
-        let s = ServerStatus.parse(Substring(log))
-        XCTAssertEqual(s.gameNames, ["hlvr"])
-        XCTAssertEqual(Array(s.clientPids.values), [27676])
-    }
 }
 
 final class RunnerRegistrationTests: XCTestCase {
@@ -375,11 +249,13 @@ final class RunnerRegistrationTests: XCTestCase {
         let s = RunnerRegistration.script([
             RegValue(file: "system.reg", key: Rescan.openxrKey, name: "ActiveRuntime", value: "Z:\\a b\\it's 100%.json"),
             RegValue(file: "system.reg", key: Rescan.hklmEnvKey, name: "VR_OVERRIDE", value: "Z:\\oc"),
+            .dword(file: "system.reg", key: Rescan.wineVRKey, name: "state", 1),
             RegValue(file: "user.reg", key: Rescan.hkcuEnvKey, name: "VR_LOG_PATH", value: "Z:\\log"),
         ])
         XCTAssertTrue(s.hasPrefix("HKLM\n{\n\tNoRemove 'Software'\n\t{\n\t\tNoRemove 'Khronos'\n"))
         XCTAssertTrue(s.contains("val 'ActiveRuntime' = s 'Z:\\a b\\it''s 100%%.json'\n"))
         XCTAssertTrue(s.contains("NoRemove 'Session Manager'"))
+        XCTAssertTrue(s.contains("val 'state' = d '1'\n"))
         XCTAssertTrue(s.contains("HKCU\n{\n\tNoRemove 'Environment'\n\t{\n\t\tval 'VR_LOG_PATH' = s 'Z:\\log'\n\t}\n}\n"))
         XCTAssertEqual(s.filter { $0 == "{" }.count, s.filter { $0 == "}" }.count)
     }

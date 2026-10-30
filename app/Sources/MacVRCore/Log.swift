@@ -10,8 +10,8 @@ public final class Log: @unchecked Sendable {
     /// `fresh`: start a new log (the app at launch); earlier runs are kept by `rotate`.
     public func open(_ ctx: Context, fresh: Bool = false) {
         let fm = FileManager.default
-        try? fm.createDirectory(at: ctx.serverLogDir, withIntermediateDirectories: true)
-        let url = ctx.serverLogDir.appendingPathComponent("macvr.log")
+        try? fm.createDirectory(at: ctx.logDir, withIntermediateDirectories: true)
+        let url = ctx.logDir.appendingPathComponent("macvr.log")
         let legacy = ctx.support.appendingPathComponent("logs")
         if fm.fileExists(atPath: legacy.path) {
             if !fm.fileExists(atPath: url.path) { try? fm.moveItem(at: legacy.appendingPathComponent("macvr.log"), to: url) }

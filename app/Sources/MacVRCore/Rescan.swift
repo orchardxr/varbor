@@ -5,15 +5,34 @@ public struct RegValue: Equatable {
     public let key: String
     public let name: String
     public let value: String
+    /// Data as written after `=` when it isn't a REG_SZ (e.g. `dword:00000001`).
+    public var raw: String?
+
+    public init(file: String, key: String, name: String, value: String, raw: String? = nil) {
+        self.file = file
+        self.key = key
+        self.name = name
+        self.value = value
+        self.raw = raw
+    }
+
+    static func dword(file: String, key: String, name: String, _ v: UInt32) -> RegValue {
+        RegValue(file: file, key: key, name: name, value: "\(v)", raw: String(format: "dword:%08x", v))
+    }
 
     var recordKey: String { "reg|\(file)|\(key)|\(name)" }
-    var line: String { WineRegistry.valueLine(name, value) }
+    var line: String { raw.map { "\"\(WineRegistry.escape(name))\"=\($0)" } ?? WineRegistry.valueLine(name, value) }
 }
 
-/// Puts every NotProton prefix (and template) in the state VR needs, idempotently, and records what it changed in
-/// `<compatdata/appid or template>/macvr-vr` so uninstall can revert exactly that.
+/// Puts every NotProton prefix (and template) in the state VR needs, the way Proton prepares its prefixes, idempotently,
+/// and records what it changed in `<compatdata/appid or template>/macvr-vr` so uninstall can revert exactly that:
+/// - OpenXR: `ActiveRuntime` -> our wineopenxr.json.
+/// - OpenVR: `C:\vrclient\bin\vrclient_x64.dll` (openvr_api.dll loads it, Wine runs the runner's builtin) and a
+///   read-only `openvrpaths.vrpath` per Wine user naming `C:\vrclient` (Proton's setup_openvr_paths).
+/// - `HKCU\Software\Wine\VR`, what Proton's steam.exe writes: DXVK reads its Vulkan extension lists there.
 public enum Rescan {
     public static let openxrKey = "Software\\Khronos\\OpenXR\\1"
+    public static let wineVRKey = "Software\\Wine\\VR"
     // CurrentControlSet is a link key; its data is stored under ControlSet001
     public static let hklmEnvKey = "System\\ControlSet001\\Control\\Session Manager\\Environment"
     public static let hkcuEnvKey = "Environment"
@@ -23,35 +42,34 @@ public enum Rescan {
     /// the environment then lives under CurrentControlSet.
     static func resolve(_ v: RegValue, in reg: WineRegistry?) -> RegValue {
         guard v.key == hklmEnvKey, reg?.block(hklmEnvKeyUnlinked) != nil else { return v }
-        return RegValue(file: v.file, key: hklmEnvKeyUnlinked, name: v.name, value: v.value)
-    }
-
-    public static func openvrEnv(_ ctx: Context) -> [(String, String)] {
-        [("VR_OVERRIDE", dosPath(ctx.openCompositeDir)),
-         ("VR_CONFIG_PATH", dosPath(ctx.openvrConfigDir)),
-         ("VR_LOG_PATH", dosPath(ctx.openvrLogDir))]
+        return RegValue(file: v.file, key: hklmEnvKeyUnlinked, name: v.name, value: v.value, raw: v.raw)
     }
 
     public static func desired(_ ctx: Context) -> [RegValue] {
-        var out = [RegValue(file: "system.reg", key: openxrKey, name: "ActiveRuntime", value: dosPath(ctx.runtimeJSON))]
-        switch ctx.openvrMode {
-        case "hklm-env":
-            out += openvrEnv(ctx).map { RegValue(file: "system.reg", key: hklmEnvKey, name: $0.0, value: $0.1) }
-        case "hkcu-env":
-            out += openvrEnv(ctx).map { RegValue(file: "user.reg", key: hkcuEnvKey, name: $0.0, value: $0.1) }
-        default: break
-        }
-        return out
+        [RegValue(file: "system.reg", key: openxrKey, name: "ActiveRuntime", value: dosPath(ctx.runtimeJSON)),
+         // The bridge hands Metal textures to the runtime, so DXVK needs no extension: VK_KHR_surface, which it
+         // enables anyway (an empty name would make vkCreateInstance fail).
+         RegValue(file: "user.reg", key: wineVRKey, name: "openvr_vulkan_instance_extensions", value: "VK_KHR_surface"),
+         .dword(file: "user.reg", key: wineVRKey, name: "state", 1)]
     }
+
+    /// Values earlier versions set (Windows OpenComposite through VR_OVERRIDE): removed wherever they still point into
+    /// a support dir of ours, record or not (game prefixes cloned from a template have none).
+    static let obsolete: [(file: String, key: String, name: String)] = {
+        var v: [(String, String, String)] = []
+        for n in ["VR_OVERRIDE", "VR_CONFIG_PATH", "VR_LOG_PATH"] {
+            v.append(("system.reg", hklmEnvKey, n))
+            v.append(("system.reg", hklmEnvKeyUnlinked, n))
+            v.append(("user.reg", hkcuEnvKey, n))
+        }
+        return v
+    }()
 
     public struct Report {
         public var changed: [String] = []
         public var unchanged: [String] = []
         public var busy: [String] = []
-        public var legacyPending: [String] = []
-        /// Apps whose legacy launch option waits for Steam to quit.
-        public var launchOptionsPending: [String] = []
-        public var needsRetry: Bool { !busy.isEmpty || !legacyPending.isEmpty || !launchOptionsPending.isEmpty }
+        public var needsRetry: Bool { !busy.isEmpty }
         public var errors: [String] = []
         public var summary: String {
             "rescan: \(changed.count) changed, \(unchanged.count) ok, \(busy.count) busy"
@@ -60,7 +78,7 @@ public enum Rescan {
         }
     }
 
-    public static func run(_ ctx: Context, forceLegacy: Bool = false) -> Report {
+    public static func run(_ ctx: Context) -> Report {
         var rep = Report()
         let want = desired(ctx)
         let bottles = Bottles.prefixes(ctx)
@@ -82,7 +100,7 @@ public enum Rescan {
                 continue
             }
             do {
-                switch try fix(ctx, p, want: want, forceLegacy: forceLegacy, report: &rep) {
+                switch try fix(ctx, p, want: want) {
                 case .changed: rep.changed.append(p.name)
                 case .unchanged: rep.unchanged.append(p.name)
                 case .busy: rep.busy.append(p.name)
@@ -100,8 +118,7 @@ public enum Rescan {
 
     static func busy(_ p: WinePrefix) -> Bool { Wineserver.running(prefix: p.pfx) }
 
-    static func fix(_ ctx: Context, _ p: WinePrefix, want: [RegValue], forceLegacy: Bool,
-                    report: inout Report) throws -> Outcome {
+    static func fix(_ ctx: Context, _ p: WinePrefix, want: [RegValue]) throws -> Outcome {
         var rec = Record.load(p.record) ?? Record()
         let before = rec.values
         var changed = false
@@ -133,28 +150,29 @@ public enum Rescan {
         // registry: wanted values set, values we set earlier but no longer want reverted
         var byFile: [String: [RegValue]] = [:]
         for v in want { byFile[v.file, default: []].append(v) }
-        for k in rec.values.keys where k.hasPrefix("reg|") {
-            let parts = k.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count == 4, !want.contains(where: { $0.recordKey == k }) else { continue }
-            byFile[parts[1], default: []] += []
-        }
+        for o in obsolete { byFile[o.file, default: []] += [] }
         for (file, values) in byFile.sorted(by: { $0.key < $1.key }) {
             let url = p.pfx.appendingPathComponent(file)
-            var reg = try WineRegistry(text: String(contentsOf: url, encoding: .utf8))
+            // a prefix Wine hasn't run yet may lack user.reg; it gets the values once it has one
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            var reg = try WineRegistry(text: text)
             let orig = reg.lines
             let values = values.map { resolve($0, in: reg) }
             for v in values {
                 let cur = reg.rawValueLine(v.key, v.name)
                 if cur != v.line {
-                    // the hand install's system32 runtime is legacy, not something to restore
                     if !(cur.map { isOurs($0, ctx) } ?? false) || rec[v.recordKey] == nil {
-                        rec[v.recordKey] = cur.flatMap { $0.contains("system32\\\\wineopenxr.json") || isOurs($0, ctx) ? nil : $0 } ?? "-"
+                        rec[v.recordKey] = cur.flatMap { isOurs($0, ctx) ? nil : $0 } ?? "-"
                     }
                     reg.setRaw(v.key, v.name, v.line)
                 }
             }
             for k in rec.values.keys.sorted() where k.hasPrefix("reg|\(file)|") && !values.contains(where: { $0.recordKey == k }) {
                 revert(&reg, &rec, k, ctx: ctx)
+            }
+            for o in obsolete where o.file == file {
+                guard let cur = reg.rawValueLine(o.key, o.name), isOurs(cur, ctx) else { continue }
+                reg.deleteValue(o.key, o.name)
             }
             if reg.lines != orig {
                 if busy(p) { return .busy }
@@ -169,8 +187,8 @@ public enum Rescan {
             }
         }
 
+        if try fixVRClient(ctx, p, &rec) { changed = true }
         if try fixVRPath(ctx, p, &rec) { changed = true }
-        if try fixLegacy(ctx, p, &rec, force: forceLegacy, report: &report) { changed = true }
 
         return changed ? .changed : .unchanged
     }
@@ -180,16 +198,19 @@ public enum Rescan {
         let parts = k.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 4, let prev = rec[k] else { return }
         let key = parts[2], name = parts[3]
-        if let cur = reg.rawValueLine(key, name), isOurs(cur, ctx) {
+        if let cur = reg.rawValueLine(key, name), isOurs(cur, ctx) || desiredLines(ctx).contains(cur) {
             if prev == "-" { reg.deleteValue(key, name) } else { reg.setRaw(key, name, prev) }
         }
         rec[k] = nil
     }
 
-    /// Any value pointing into a macvr support dir counts as ours (survives a move of `current`).
+    /// Any value pointing into one of our support dirs counts as ours (survives a move of `current`).
     static func isOurs(_ line: String, _ ctx: Context) -> Bool {
-        line.contains(WineRegistry.escape(dosPath(ctx.support)))
+        ctx.supportDirs.contains { line.contains(WineRegistry.escape(dosPath($0))) }
     }
+
+    /// Our lines that hold no path of ours (the Wine\VR values): ours where they equal what we write.
+    static func desiredLines(_ ctx: Context) -> Set<String> { Set(desired(ctx).map(\.line)) }
 
     static func backup(_ url: URL, _ p: WinePrefix) throws {
         let fm = FileManager.default
@@ -207,17 +228,56 @@ public enum Rescan {
         for o in old { try? fm.removeItem(at: p.backupDir.appendingPathComponent(o)) }
     }
 
-    // MARK: openvrpaths.vrpath (fallback when the registry env doesn't reach the game)
+    // MARK: C:\vrclient
+
+    static func vrclientDir(_ p: WinePrefix) -> URL { p.pfx.appendingPathComponent("drive_c/vrclient") }
+    static func vrclientPlaceholder(_ p: WinePrefix) -> URL { vrclientDir(p).appendingPathComponent("bin/vrclient_x64.dll") }
+
+    /// The placeholder openvr_api.dll loads; ours (record `vrclient=ours`) is kept equal to the payload's builtin.
+    static func fixVRClient(_ ctx: Context, _ p: WinePrefix, _ rec: inout Record) throws -> Bool {
+        let fm = FileManager.default
+        let dst = vrclientPlaceholder(p)
+        guard let want = Deploy.sha256(ctx.vrclientDLL) else { throw MacVRError("no \(ctx.vrclientDLL.path): run install") }
+        let have = Deploy.sha256(dst)
+        if have == want { return false }
+        if have != nil && rec["vrclient"] != "ours" {
+            if rec["vrclient"] != "foreign" { log("rescan: \(p.name): \(dst.path) isn't ours, left alone") }
+            rec["vrclient"] = "foreign"
+            return false
+        }
+        if busy(p) { return false }
+        for d in ["bin", "config", "logs"] {
+            try fm.createDirectory(at: vrclientDir(p).appendingPathComponent(d), withIntermediateDirectories: true)
+        }
+        try? fm.removeItem(at: dst)
+        try fm.copyItem(at: ctx.vrclientDLL, to: dst)
+        rec["vrclient"] = "ours"
+        log("rescan: \(p.name): wrote \(dst.path)")
+        return true
+    }
+
+    static func removeVRClient(_ p: WinePrefix, _ rec: Record) throws -> Bool {
+        guard rec["vrclient"] == "ours" else { return false }
+        let fm = FileManager.default
+        let dir = vrclientDir(p)
+        try? fm.removeItem(at: vrclientPlaceholder(p))
+        for d in ["bin", "config", "logs", ""] {
+            let u = d.isEmpty ? dir : dir.appendingPathComponent(d)
+            if (try? fm.contentsOfDirectory(atPath: u.path))?.isEmpty == true { try? fm.removeItem(at: u) }
+        }
+        return true
+    }
+
+    // MARK: openvrpaths.vrpath
 
     static func vrpathJSON(_ ctx: Context) -> String {
-        let esc = { (u: URL) in dosPath(u).replacingOccurrences(of: "\\", with: "\\\\") }
-        return """
+        """
         {
-        \t"config": [ "\(esc(ctx.openvrConfigDir))" ],
+        \t"config": [ "C:\\\\vrclient\\\\config" ],
         \t"external_drivers": null,
         \t"jsonid": "vrpathreg",
-        \t"log": [ "\(esc(ctx.openvrLogDir))" ],
-        \t"runtime": [ "\(esc(ctx.openCompositeDir))" ],
+        \t"log": [ "C:\\\\vrclient\\\\logs" ],
+        \t"runtime": [ "C:\\\\vrclient\\\\", "C:\\\\vrclient" ],
         \t"version": 1
         }
 
@@ -228,7 +288,12 @@ public enum Rescan {
         user.appendingPathComponent("AppData/Local/openvr/openvrpaths.vrpath")
     }
 
-    static func isLegacyVRPath(_ text: String) -> Bool { text.contains("C:\\\\OpenComposite") }
+    /// Written by us before (an earlier version's, naming a support dir of ours) or by the old hand install: replaced
+    /// without a backup.
+    static func isReplaceableVRPath(_ text: String, _ ctx: Context) -> Bool {
+        text.contains("C:\\\\OpenComposite")
+            || ctx.supportDirs.contains { text.contains(dosPath($0).replacingOccurrences(of: "\\", with: "\\\\")) }
+    }
 
     static func removeFile(_ u: URL) throws {
         try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: u.path)
@@ -243,86 +308,23 @@ public enum Rescan {
             let f = vrpathFile(user)
             let rk = "vrpath|\(user.lastPathComponent)"
             let cur = try? String(contentsOf: f, encoding: .utf8)
-            if ctx.openvrMode == "vrpath" {
-                if cur == ours { continue }
-                if let cur, !isLegacyVRPath(cur) {
-                    try fm.createDirectory(at: p.backupDir, withIntermediateDirectories: true)
-                    let b = p.backupDir.appendingPathComponent("openvrpaths.vrpath.\(user.lastPathComponent)")
-                    try? fm.removeItem(at: b)
-                    try fm.copyItem(at: f, to: b)
-                    rec[rk] = b.path
-                } else if rec[rk] == nil {
-                    rec[rk] = "-"
-                }
-                if cur != nil { try removeFile(f) }
-                try fm.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
-                // read-only: NotProton's steam.exe deletes a writable one at every launch
-                try writeAtomically(Data(ours.utf8), to: f, permissions: 0o444)
-                changed = true
-                log("rescan: \(p.name): wrote read-only \(f.path)")
-            } else if let prev = rec[rk] {
-                if cur == ours {
-                    try removeFile(f)
-                    if prev != "-" { try fm.copyItem(atPath: prev, toPath: f.path) }
-                    changed = true
-                    log("rescan: \(p.name): removed our vrpath (mode \(ctx.openvrMode))")
-                }
-                rec[rk] = nil
+            if cur == ours { continue }
+            if let cur, !isReplaceableVRPath(cur, ctx) {
+                try fm.createDirectory(at: p.backupDir, withIntermediateDirectories: true)
+                let b = p.backupDir.appendingPathComponent("openvrpaths.vrpath.\(user.lastPathComponent)")
+                try? fm.removeItem(at: b)
+                try fm.copyItem(at: f, to: b)
+                rec[rk] = b.path
+            } else if rec[rk] == nil {
+                rec[rk] = "-"
             }
+            if cur != nil { try removeFile(f) }
+            try fm.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // read-only: NotProton's steam.exe deletes a writable one at every launch
+            try writeAtomically(Data(ours.utf8), to: f, permissions: 0o444)
+            changed = true
+            log("rescan: \(p.name): wrote read-only \(f.path)")
         }
         return changed
-    }
-
-    // MARK: legacy hand install (scripts/install-vr-546560.sh)
-
-    public static func legacyItems(_ p: WinePrefix, _ ctx: Context) -> [URL] {
-        guard p.kind != .bottle else { return [] }
-        let c = p.pfx.appendingPathComponent("drive_c")
-        var items = [c.appendingPathComponent("macvr"), c.appendingPathComponent("OpenComposite"),
-                     c.appendingPathComponent("windows/system32/wineopenxr.json")]
-        // Wine copies every builtin of the runner (ours included) into system32 when it sets up a prefix; only the
-        // hand install put a json beside it.
-        if FileManager.default.fileExists(atPath: items[2].path) {
-            items.append(c.appendingPathComponent("windows/system32/wineopenxr.dll"))
-        }
-        if ctx.openvrMode != "vrpath" {
-            for u in p.userDirs {
-                let f = vrpathFile(u)
-                if let t = try? String(contentsOf: f, encoding: .utf8), isLegacyVRPath(t) { items.append(f) }
-            }
-        }
-        return items.filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-
-    public static func provenFile(_ ctx: Context, _ appid: String) -> URL {
-        ctx.stateDir.appendingPathComponent("proven-\(appid)")
-    }
-
-    /// Moves the hand-installed files into macvr-backup/, once a game has run through the new path (or forced).
-    static func fixLegacy(_ ctx: Context, _ p: WinePrefix, _ rec: inout Record, force: Bool,
-                          report: inout Report) throws -> Bool {
-        let items = legacyItems(p, ctx)
-        guard !items.isEmpty else { return false }
-        let proven = FileManager.default.fileExists(atPath: provenFile(ctx, p.owner.lastPathComponent).path)
-        guard force || proven else {
-            if rec["legacy"] != "present" { log("rescan: \(p.name): legacy install present, kept until the new path is proven") }
-            rec["legacy"] = "present"
-            report.legacyPending.append(p.name)
-            return false
-        }
-        if busy(p) { return false }
-        let f = DateFormatter()
-        f.dateFormat = "yyyyMMdd-HHmmss"
-        let dir = p.backupDir.appendingPathComponent("legacy-\(f.string(from: Date()))")
-        for item in items {
-            let rel = String(item.path.dropFirst(p.pfx.path.count + 1))
-            let dst = dir.appendingPathComponent(rel)
-            try FileManager.default.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: item.path)
-            try FileManager.default.moveItem(at: item, to: dst)
-        }
-        rec["legacy"] = "removed:\(dir.path)"
-        log("rescan: \(p.name): legacy install moved to \(dir.path)")
-        return true
     }
 }

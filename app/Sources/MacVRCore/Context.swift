@@ -5,19 +5,17 @@ public struct Context: Sendable {
     public var home: URL
     public var support: URL
     public var steamRoot: URL
-    public var serverLogDir: URL
+    public var logDir: URL
     public var runners: URL
     /// Run launchctl/Steam/process side effects. Off in tests.
     public var system: Bool
-    /// The app doesn't start wivrn-server or the broker (a test instance next to the real app).
-    public var noServer = false
 
-    public init(home: URL, support: URL, steamRoot: URL, serverLogDir: URL, runners: URL, system: Bool) {
+    public init(home: URL, support: URL, steamRoot: URL, logDir: URL, runners: URL, system: Bool) {
         self.home = home
         self.runners = runners
         self.support = support
         self.steamRoot = steamRoot
-        self.serverLogDir = serverLogDir
+        self.logDir = logDir
         self.system = system
     }
 
@@ -29,36 +27,28 @@ public struct Context: Sendable {
             home: home,
             support: appSupport.appendingPathComponent("macvr"),
             steamRoot: appSupport.appendingPathComponent("Steam"),
-            serverLogDir: home.appendingPathComponent("Library/Logs/MacVR"),
+            logDir: home.appendingPathComponent("Library/Logs/MacVR"),
             runners: appSupport.appendingPathComponent("notproton/runners"),
             system: true)
         if let s = env["MACVR_SUPPORT"] { ctx.support = URL(fileURLWithPath: s) }
         if let s = env["MACVR_STEAM_ROOT"] { ctx.steamRoot = URL(fileURLWithPath: s) }
         if let s = env["MACVR_RUNNERS"] { ctx.runners = URL(fileURLWithPath: s) }
-        if let s = env["MACVR_LOG_DIR"] { ctx.serverLogDir = URL(fileURLWithPath: s) }
+        if let s = env["MACVR_LOG_DIR"] { ctx.logDir = URL(fileURLWithPath: s) }
         if env["MACVR_NO_SYSTEM"] == "1" { ctx.system = false }
-        if env["MACVR_NO_SERVER"] == "1" { ctx.noServer = true }
         return ctx
     }
 
+    /// Every support dir prefixes may point into (registry values that name one are ours).
+    public var supportDirs: [URL] { [support] }
     public var versions: URL { support.appendingPathComponent("versions") }
     public var current: URL { support.appendingPathComponent("current") }
     public var previous: URL { support.appendingPathComponent("previous") }
     public var bridgeDir: URL { current.appendingPathComponent("bridge") }
     public var runtimeJSON: URL { bridgeDir.appendingPathComponent("wineopenxr.json") }
-    public var openCompositeDir: URL { current.appendingPathComponent("opencomposite") }
-    public var openvrConfigDir: URL { support.appendingPathComponent("openvr/config") }
-    public var openvrLogDir: URL { support.appendingPathComponent("openvr/logs") }
-    public var serverBinary: URL { current.appendingPathComponent("server/wivrn-server") }
-    public var serverStamp: URL { current.appendingPathComponent("server/ipc-stamp") }
+    /// vrclient_x64.dll, the builtin a prefix's `C:\vrclient\bin` gets as openvr_api.dll's target.
+    public var vrclientDLL: URL { bridgeDir.appendingPathComponent("x86_64-windows/vrclient_x64.dll") }
     public var stateDir: URL { support.appendingPathComponent("state") }
     public var settingsFile: URL { support.appendingPathComponent("settings") }
-    public var serverLog: URL { serverLogDir.appendingPathComponent("wivrn-server.log") }
-    public var serverPidFile: URL { stateDir.appendingPathComponent("wivrn-server.pid") }
-
-    /// How OpenVR finds OpenComposite (VR_OVERRIDE & co.): `hklm-env` (system.reg Session Manager\Environment),
-    /// `hkcu-env` (user.reg Environment), `vrpath` (read-only openvrpaths.vrpath per prefix), `none`.
-    public var openvrMode: String { settings["openvr"] ?? "hklm-env" }
 
     public var settings: [String: String] {
         guard let text = try? String(contentsOf: settingsFile, encoding: .utf8) else { return [:] }

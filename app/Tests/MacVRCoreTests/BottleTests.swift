@@ -29,7 +29,7 @@ final class CXConfigTests: XCTestCase {
 
     func testLibPathAddedAndRevertedByteIdentical() throws {
         let ctx = Context(home: URL(fileURLWithPath: "/h"), support: URL(fileURLWithPath: "/h/S p/macvr"),
-                          steamRoot: URL(fileURLWithPath: "/h/Steam"), serverLogDir: URL(fileURLWithPath: "/h/l"),
+                          steamRoot: URL(fileURLWithPath: "/h/Steam"), logDir: URL(fileURLWithPath: "/h/l"),
                           runners: URL(fileURLWithPath: "/h/r"), system: false)
         var rec = Record()
         let fixed = try XCTUnwrap(Bottles.fixedConf(CXConfigFile(text: confText), ctx, &rec))
@@ -58,7 +58,7 @@ final class BottleTreeTests: XCTestCase {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("macvr-bottle-tests-\(UUID().uuidString)")
         let fm = FileManager.default
         ctx = Context(home: root, support: root.appendingPathComponent("macvr"), steamRoot: root.appendingPathComponent("Steam"),
-                      serverLogDir: root.appendingPathComponent("logs"), runners: root.appendingPathComponent("runners"),
+                      logDir: root.appendingPathComponent("logs"), runners: root.appendingPathComponent("runners"),
                       system: false)
         try fm.createDirectory(at: ctx.steamRoot.appendingPathComponent("steamapps"), withIntermediateDirectories: true)
         bottle = root.appendingPathComponent("Library/Application Support/CrossOver/Bottles/Game One")
@@ -67,7 +67,7 @@ final class BottleTreeTests: XCTestCase {
         for f in Deploy.required {
             let u = payload.appendingPathComponent(f)
             try fm.createDirectory(at: u.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try (f.hasSuffix("ipc-stamp") ? "stamp\n" : f).write(to: u, atomically: true, encoding: .utf8)
+            try f.write(to: u, atomically: true, encoding: .utf8)
         }
         try "{}".write(to: payload.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
         try Deploy.install(ctx, payload: payload)
@@ -104,7 +104,7 @@ final class BottleTreeTests: XCTestCase {
         XCTAssertEqual(ctx.bottles.map(\.path), [bottle.path])
         let reg = try WineRegistry(text: String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8))
         XCTAssertEqual(reg.string(Rescan.openxrKey, "ActiveRuntime"), dosPath(ctx.runtimeJSON))
-        XCTAssertEqual(reg.string(Rescan.hklmEnvKey, "VR_OVERRIDE"), dosPath(ctx.openCompositeDir))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bottle.appendingPathComponent("drive_c/vrclient/bin/vrclient_x64.dll").path))
         XCTAssertTrue(Bottles.confOK(ctx, bottle))
         for f in RunnerInstall.files {
             XCTAssertEqual(try String(contentsOf: Bottles.libWine(ctx).appendingPathComponent(f.dst), encoding: .utf8),
@@ -123,7 +123,7 @@ final class BottleTreeTests: XCTestCase {
         XCTAssertEqual(MacVR.rescan(ctx).changed, [])
         XCTAssertEqual(try files(bottle), mid)
 
-        let un = MacVR.uninstall(ctx, server: nil)
+        let un = MacVR.uninstall(ctx)
         XCTAssertEqual(un.errors, [])
         XCTAssertEqual(try files(bottle), before)
         XCTAssertFalse(FileManager.default.fileExists(atPath: ctx.bottleLib.path))
@@ -131,15 +131,16 @@ final class BottleTreeTests: XCTestCase {
     }
 
     func testUnlinkedCurrentControlSet() throws {
+        var r = try WineRegistry(text: regText.replacingOccurrences(of: "ControlSet001", with: "CurrentControlSet"))
+        r.setString(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE", dosPath(ctx.support.appendingPathComponent("current/opencomposite")))
+        try r.text.write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
         let unlinked = regText.replacingOccurrences(of: "ControlSet001", with: "CurrentControlSet")
-        try unlinked.write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
         try MacVR.addBottle(ctx, bottle)
         let text = try String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8)
         XCTAssertFalse(text.contains("ControlSet001"))
-        let reg = try WineRegistry(text: text)
-        XCTAssertEqual(reg.string(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE"), dosPath(ctx.openCompositeDir))
+        XCTAssertNil(try WineRegistry(text: text).string(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE"))
         XCTAssertEqual(MacVR.prefixStates(ctx).first?.missing, [])
-        _ = MacVR.uninstall(ctx, server: nil)
+        _ = MacVR.uninstall(ctx)
         XCTAssertEqual(try String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8), unlinked)
     }
 
@@ -183,10 +184,8 @@ final class BottleTreeTests: XCTestCase {
 
     func testSettingsLists() throws {
         let a = URL(fileURLWithPath: "/x/with space/\"q\"/a=b")
-        try ctx.setSetting("openvr", "vrpath")
         try ctx.setPathList("bottles", [a, URL(fileURLWithPath: "/y")])
         XCTAssertEqual(ctx.bottles.map(\.path), [a.path, "/y"])
-        XCTAssertEqual(ctx.openvrMode, "vrpath")
         try ctx.setPathList("bottles", [])
         XCTAssertNil(ctx.settings["bottles"])
         XCTAssertEqual(ctx.extraLibraries, [])

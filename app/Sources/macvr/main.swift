@@ -4,10 +4,8 @@ import MacVRCore
 let usage = """
 usage: macvr install [--payload <dir>]   deploy the payload, add the runner files, fix prefixes
        macvr status
-       macvr rescan [--migrate-legacy]    fix templates and prefixes (--migrate-legacy: remove the hand install now)
-       macvr uninstall                    revert prefixes, templates and runner files, stop the server
-       macvr server start|stop|status [--record-proof]
-       macvr set openvr hklm-env|hkcu-env|vrpath|none
+       macvr rescan                       fix templates and prefixes
+       macvr uninstall                    revert prefixes, templates and runner files
        macvr bottle add|remove <path> | list   CrossOver bottles MacVR sets up (besides NotProton's prefixes)
        macvr library add|remove <path> | list  extra Steam library folders
        macvr protect add|remove <path> | list  trees MacVR never modifies (bottles managed by other tools)
@@ -17,7 +15,6 @@ usage: macvr install [--payload <dir>]   deploy the payload, add the runner file
 let ctx = Context.real()
 Log.shared.open(ctx)
 Log.shared.echo = true
-let server = Server(ctx: ctx)
 var args = Array(CommandLine.arguments.dropFirst())
 
 func fail(_ msg: String) -> Never {
@@ -41,33 +38,14 @@ do {
         if !rep.busy.isEmpty { print("busy prefixes are fixed on the next rescan") }
         exit(rep.errors.isEmpty ? 0 : 1)
     case "rescan":
-        let rep = MacVR.rescan(ctx, forceLegacy: args.contains("--migrate-legacy"))
+        let rep = MacVR.rescan(ctx)
         exit(rep.errors.isEmpty ? 0 : 1)
     case "status":
-        print(MacVR.statusText(ctx, server: server))
+        print(MacVR.statusText(ctx))
     case "uninstall":
-        let rep = MacVR.uninstall(ctx, server: server)
+        let rep = MacVR.uninstall(ctx)
         if !rep.busy.isEmpty { fail("busy (a game or wineserver runs): \(rep.busy.joined(separator: ", ")); run again later") }
         exit(rep.errors.isEmpty ? 0 : 1)
-    case "server":
-        switch args.dropFirst().first {
-        case "start": try server.start(detached: true)
-        case "stop": server.stop()
-        case "status":
-            let st = ServerStatus.read(ctx)
-            print("pid: \(server.ourPid.map(String.init) ?? "-"), headset: \(st.headset), games: \(st.gameNames)")
-            for pid in st.clientPids.values {
-                guard let g = MacVR.probe(ctx, pid: pid) else { continue }
-                print("client \(pid): appid \(g.appid ?? "?"), backend \(g.backend ?? "?"), runner bridge \(g.runnerBridge), macvr client \(g.macvrClient)")
-                if args.contains("--record-proof") { MacVR.recordProof(ctx, g) }
-            }
-        default: fail(usage)
-        }
-    case "set":
-        guard args.count == 3, args[1] == "openvr", ["hklm-env", "hkcu-env", "vrpath", "none"].contains(args[2]) else { fail(usage) }
-        try ctx.setSetting(args[1], args[2])
-        MacVR.refreshRunners(ctx)
-        MacVR.rescan(ctx)
     case "bottle", "library":
         let bottle = args[0] == "bottle"
         switch (args.dropFirst().first, args.count) {

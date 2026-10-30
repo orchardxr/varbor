@@ -31,9 +31,15 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
 
     private init() {
-        Self.retireMacVR(home: ctx.home)
+        if Migration.macVRRunning(ctx) {
+            // MacVR would rescan the same prefixes and keeps its support dir in use: do nothing until it's quit
+            setup = Migration.macVRRunningNotice
+            message = Migration.macVRRunningNotice
+            return
+        }
         Migration.run(ctx)
         Log.shared.open(ctx, fresh: true)
+        if !Migration.macVRApps(home: ctx.home).isEmpty { message = Migration.macVRInstalledNotice }
         Task.detached { [ctx] in
             let result: String
             var retry = false
@@ -58,23 +64,6 @@ final class AppModel: ObservableObject {
                 self.tick()
                 self.checkForUpdates(quiet: true)
                 self.checkEngines()
-            }
-        }
-    }
-
-    /// VarboR replaces MacVR: a running MacVR (and the wivrn-server it supervises) is quit, its app moved to the Trash,
-    /// so the two never rescan the same prefixes. Runs before the support dir moves.
-    static func retireMacVR(home: URL) {
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: Migration.macVRBundleID)
-        running.forEach { $0.terminate() }
-        let deadline = Date().addingTimeInterval(10)
-        while running.contains(where: { !$0.isTerminated }) && Date() < deadline { usleep(100_000) }
-        for app in Migration.macVRApps(home: home) {
-            do {
-                try FileManager.default.trashItem(at: app, resultingItemURL: nil)
-                Log.shared("migration: moved \(app.path) to the Trash")
-            } catch {
-                Log.shared("migration: \(app.path): \(error)")
             }
         }
     }

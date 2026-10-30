@@ -50,8 +50,8 @@ and links to their release pages when they aren't; it never installs or updates 
 VarboR runs only while it's open: it sets things up at launch and again when runners or prefixes change. It updates
 itself from GitHub releases. `VarboR.app/Contents/Helpers/varbor status` prints the same state in a terminal.
 
-Coming from MacVR: VarboR replaces it. At its first launch VarboR quits MacVR, moves it to the Trash and takes over
-its settings ([docs/varbor-app.md](docs/varbor-app.md#from-macvr)).
+Coming from MacVR: VarboR replaces it. Quit MacVR and delete MacVR.app, then open VarboR: it takes over MacVR's
+settings ([docs/varbor-app.md](docs/varbor-app.md#from-macvr)).
 
 ## What's supported
 

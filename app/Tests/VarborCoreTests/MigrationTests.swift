@@ -31,6 +31,24 @@ final class MigrationTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: ctx.support.appendingPathComponent("state/runner-files").path))
     }
 
+    func testNothingMovesWhileMacVRRuns() throws {
+        let fm = FileManager.default
+        try fm.createDirectory(at: ctx.legacySupport!.appendingPathComponent("state"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: ctx.legacyLogDir!, withIntermediateDirectories: true)
+        let saved = Migration.processRunning
+        defer { Migration.processRunning = saved }
+        Migration.processRunning = { $0 == "MacVR" }
+        ctx.system = true
+        XCTAssertTrue(Migration.macVRRunning(ctx))
+        Migration.run(ctx)
+        XCTAssertTrue(Migration.isRealDir(ctx.legacySupport!))
+        XCTAssertFalse(fm.fileExists(atPath: ctx.support.path))
+        XCTAssertTrue(Migration.isRealDir(ctx.legacyLogDir!))
+        Migration.processRunning = { _ in false }
+        Migration.run(ctx)
+        XCTAssertTrue(fm.fileExists(atPath: ctx.support.appendingPathComponent("state").path))
+    }
+
     func testPrefixRecordAndOldValuesTakenOver() throws {
         let fm = FileManager.default
         let owner = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100")

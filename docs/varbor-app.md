@@ -29,7 +29,8 @@ scripts/build-app.sh [--test]        # build/app/VarboR.app, CLI at VarboR.app/C
 ## What the app does
 
 No login item, no LaunchAgent, no global environment. On open:
-1. Retire MacVR and migrate its state (below), once.
+1. If MacVR is running: nothing else, only the notice "Quit MacVR, then reopen VarboR". Otherwise migrate MacVR's
+   state (below), once.
 2. Deploy the payload into `versions/<stamp>` and switch `current` (atomic rename), unless it's current.
 3. Runner files: add the bridge to every NotProton runner (VarboR runners included).
 4. Rescan: the prefix templates first, then game prefixes and added bottles.
@@ -136,12 +137,12 @@ Nothing a game or Wine touches is under `~/Documents` (TCC prompts).
 ## From MacVR
 
 MacVR 0.0.1-0.0.5 (`org.macvr.MacVR`, latest release v0.0.5 with `MacVR-0.0.5.zip`) bundled the WiVRn server and
-the Windows OpenComposite. VarboR at its first launch:
-1. quits a running MacVR (which stops its wivrn-server) and moves `/Applications/MacVR.app` (or `~/Applications`)
-   to the Trash, so the two never rescan the same prefixes;
-2. renames `~/Library/Application Support/macvr` to `varbor`, leaving a `macvr` symlink for prefixes still pointing
-   there, and `~/Library/Logs/MacVR` to `VarboR` (the CLI skips this while MacVR runs);
-3. on each prefix's next rescan: renames `macvr-vr`/`macvr-backup`, replaces values and vrpath files naming the old dir
+the Windows OpenComposite. VarboR never quits or removes MacVR; the user uninstalls it. While MacVR runs, VarboR
+(app and CLI) changes nothing and asks to quit MacVR and reopen VarboR. A MacVR.app still installed gets a notice
+(opened again, it would undo VarboR's setup). At its first launch without MacVR running, VarboR:
+1. renames `~/Library/Application Support/macvr` to `varbor`, leaving a `macvr` symlink for prefixes still pointing
+   there, and `~/Library/Logs/MacVR` to `VarboR`;
+2. on each prefix's next rescan: renames `macvr-vr`/`macvr-backup`, replaces values and vrpath files naming the old dir
    (they count as ours, so their recorded originals still restore), removes MacVR's VR_OVERRIDE & co., replaces
    `C:\OpenComposite` vrpath files, moves a bottle's LibPath entry, and drops MacVR's runner files (`macvrreg.dll`).
 
@@ -150,8 +151,8 @@ Self-update: MacVR's updater checks `somsarashvili/macvr` (GitHub redirects to o
 VarboR release by itself. The transition:
 1. Release **MacVR 0.0.6** (tag `v0.0.6`, `MacVR-0.0.6.zip`) from the MacVR code (a branch from `11aa529`), changed
    only in its updater: it also accepts a zip holding `VarboR.app` with id `org.orchardxr.varbor` (prefer the
-   `VarboR-*.zip` asset), puts it next to itself as `VarboR.app` instead of over `MacVR.app`, and opens it; VarboR
-   then retires MacVR as above. Keep v0.0.6 the latest release until MacVR users had a chance to update.
+   `VarboR-*.zip` asset), puts it next to itself as `VarboR.app` instead of over `MacVR.app`, quits itself and opens
+   VarboR, which then migrates as above. Its release notes ask the user to delete MacVR.app. Keep v0.0.6 the latest release until MacVR users had a chance to update.
 2. Release **VarboR 0.1.0** (`v0.1.0`, `VarboR-0.1.0.zip`). VarboR's updater takes only `VarboR-*.zip` and requires
    `org.orchardxr.varbor`.
 3. Users still on 0.0.5 at that point get "the release zip has no matching MacVR.app" and download VarboR by hand

@@ -766,3 +766,35 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   - The x86_64 slice loads under Rosetta; it needs an x86_64 OpenXR client with 0017 (`build.sh x86_64` / the WiVRn
     x86_64 client). Keep `libopenxr_loader.dylib` next to `vrclient.dylib`.
   - OpenComposite logs to stdout and reads `opencomposite.ini` from the working directory on macOS.
+
+## Wine vrclient bridge, Proton's vrclient on CrossOver (2026-10-30, vrclient-native step 3)
+- `vrclient/`: Proton's vrclient_x64 (experimental_11.0, 7a94df4) in `vrclient/proton/` (import commit unmodified, our
+  changes under `MACVR`), our code in `vrclient/src/` (MIT; `vrclient/LICENSE`). `scripts/build-bridge.sh vrclient`:
+  vrclient_x64.dll (llvm-mingw, mingw headers + Wine's own headers and winecrt0 debug/unixlib from a sparse wine-11.0
+  checkout in build/vrclient/wine) and a universal vrclient_x64.so (Wine headers, `-undefined dynamic_lookup` for
+  ntdll.so), plus `tests/openvr-d3d11/ovr_d3d11_render.exe`.
+- Path: openvr_api.dll -> C:\vrclient\bin\vrclient_x64.dll (builtin) -> vrclient_x64.so -> OpenComposite's
+  vrclient.dylib (`MACVR_VRCLIENT_RUNTIME`, `PROTON_VR_RUNTIME`, or the runtime in
+  ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath). No steam.exe registry handshake.
+- D3D11 (DXMT): each eye is copied into a ring of 3 DXMT keyed-mutex shared textures, the unix side waits for the
+  MTLSharedEvent on the CPU, OpenComposite gets the imported id<MTLTexture> as TextureType_Metal. CX 26.3's DXMT has
+  no keyed mutexes: event query wait instead. Overlays the same, a ring per handle. DXVK textures keep Proton's
+  IDXGIVkInteropSurface path, which the Metal-only OpenComposite can't take (needs `-DOC_MACOS_VULKAN=ON` and
+  winevulkan handle unwrapping checked against CrossOver).
+- `scripts/setup-vrclient-prefix.sh` (Proton's setup_openvr_paths; drops VR_OVERRIDE), `scripts/run-vrclient.sh`
+  (staged outside ~/Documents, monado-service null compositor, `FEX=1` on a runner clone).
+- Verified: 30 s, 601 frames at 20 fps (the null compositor's rate), 0 submit errors, both eyes in the frame dump, on
+  CX 26.3 Rosetta (query sync), CX 27 Rosetta and CX 27 FEX (keyed mutex). Bridge per eye submit at 1832x1920,
+  median/p99: 0.75/1.0 ms (26.3), 0.80/1.2 ms (27 Rosetta), 0.76/1.16 ms (27 FEX); almost all of it is the CPU wait
+  for DXMT's GPU work (copy + the frame's rendering), the OpenComposite Submit is ~0.07 ms. Alyx's interfaces
+  resolve, its actions.json loads (`ovr_d3d11_test.exe 200 C:\hlvr\cfg\actions.json`), a D3D11 overlay is accepted.
+- Left before Alyx on this path:
+  - The CPU wait stalls the game thread for its whole GPU frame; OpenComposite needs a way to wait on the GPU (a
+    Metal texture + MTLSharedEvent/value submit, or its queue) to drop it. A patched DXMT with native interop would
+    also drop the copy: `dxmt_native_interop()` in vrclient/src/dxmt_pe.c is the hook (probes a placeholder IID).
+  - The ring of 3 assumes OpenComposite's blit of frame N is done before frame N+3's copy; no fence covers that.
+  - The x86_64 OpenXR client for WiVRn (Rosetta) and its arm64 one (FEX) next to OpenComposite, and MacVR.app
+    adopting setup-vrclient-prefix.sh (runner install of vrclient_x64.dll/.so, macOS openvrpaths.vrpath).
+  - Not checked: 32-bit vrclient.dll, Vulkan/D3D12 games, SetSkyboxOverride, IVRApplications launch helpers,
+    RegisterSubprocess (stubbed: no ProcessWineUnixPid in CrossOver), overlay content (the null compositor's dump
+    only shows the projection layer), the headset.

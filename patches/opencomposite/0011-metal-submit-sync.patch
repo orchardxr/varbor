@@ -1,0 +1,82 @@
+From: macvr
+Subject: [PATCH] metal-submit-sync
+
+---
+ OpenOVR/Compositor/mtlcompositor.h  |  9 +++++++++
+ OpenOVR/Compositor/mtlcompositor.mm | 32 ++++++++++++++++++++++++++++++++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/OpenOVR/Compositor/mtlcompositor.h b/OpenOVR/Compositor/mtlcompositor.h
+index f7806c59d0cf83c985dcb8a088b590fbd8e9759e..0211375225eef522f17e61fc9a118ecc48db116f 100644
+--- a/OpenOVR/Compositor/mtlcompositor.h
++++ b/OpenOVR/Compositor/mtlcompositor.h
+@@ -23,3 +23,12 @@ private:
+ 	struct Impl;
+ 	std::unique_ptr<Impl> impl;
+ };
++
++/**
++ * Private exports for vrclient bridges whose textures are written on another queue (Wine + DXMT). Arms the calling
++ * thread's next copy (in the Submit or SetOverlayTexture that follows) to wait on the GPU for waitEvent (an
++ * id<MTLSharedEvent>, or null) to reach waitValue, and to signal signalEvent (or null) to signalValue once it has read
++ * the texture. oc_metal_submit_sync_end disarms it and returns whether a copy took it.
++ */
++extern "C" __attribute__((visibility("default"))) void oc_metal_submit_sync_begin(void* waitEvent, uint64_t waitValue, void* signalEvent, uint64_t signalValue);
++extern "C" __attribute__((visibility("default"))) int oc_metal_submit_sync_end();
+diff --git a/OpenOVR/Compositor/mtlcompositor.mm b/OpenOVR/Compositor/mtlcompositor.mm
+index d38559081c4512b2246c12ea61a1f6656f6cae27..4f6372df4a58cc47094708a804cc91faad93f0f4 100644
+--- a/OpenOVR/Compositor/mtlcompositor.mm
++++ b/OpenOVR/Compositor/mtlcompositor.mm
+@@ -76,6 +76,28 @@ struct BlitParams {
+ static std::mutex queuesMutex;
+ static std::map<uint64_t, id<MTLCommandQueue>> queues;
+ 
++struct SubmitSync {
++	void* waitEvent;
++	uint64_t waitValue;
++	void* signalEvent;
++	uint64_t signalValue;
++	bool armed;
++	bool taken;
++};
++static thread_local SubmitSync submitSync;
++
++void oc_metal_submit_sync_begin(void* waitEvent, uint64_t waitValue, void* signalEvent, uint64_t signalValue)
++{
++	submitSync = { waitEvent, waitValue, signalEvent, signalValue, true, false };
++}
++
++int oc_metal_submit_sync_end()
++{
++	bool taken = submitSync.taken;
++	submitSync = {};
++	return taken;
++}
++
+ void* MetalCompositor::QueueForTexture(void* texture, void* fallbackDevice)
+ {
+ 	id<MTLDevice> device = texture ? ((__bridge id<MTLTexture>)texture).device : (__bridge id<MTLDevice>)fallbackDevice;
+@@ -267,6 +289,14 @@ void MetalCompositor::CopyToSwapchain(const vr::Texture_t* texture, const vr::VR
+ 
+ 		id<MTLCommandBuffer> cmd = [impl->queue commandBuffer];
+ 		cmd.label = @"OpenComposite submit";
++		SubmitSync sync = submitSync;
++		if (sync.armed && !sync.taken) {
++			submitSync.taken = true;
++			if (sync.waitEvent)
++				[cmd encodeWaitForEvent:(__bridge id<MTLSharedEvent>)sync.waitEvent value:sync.waitValue];
++		} else {
++			sync = {};
++		}
+ 
+ 		id<MTLTexture> blitTarget = impl->blitTargets.at(currentIndex);
+ 		if (!bounds && src.sampleCount == 1 && blitTarget.pixelFormat == src.pixelFormat) {
+@@ -326,6 +356,8 @@ void MetalCompositor::CopyToSwapchain(const vr::Texture_t* texture, const vr::VR
+ 			[enc endEncoding];
+ 		}
+ 
++		if (sync.signalEvent)
++			[cmd encodeSignalEvent:(__bridge id<MTLSharedEvent>)sync.signalEvent value:sync.signalValue];
+ 		[cmd commit];
+ 	}
+ 

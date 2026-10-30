@@ -3,11 +3,12 @@
  * Stock DXMT turns SHARED(_KEYEDMUTEX) textures into MTLSharedTextures whose Mach port it registers in the bootstrap
  * namespace, under a name kept in the D3DKMT resource's private runtime data; the keyed mutex's MTLSharedEvent is
  * published the same way (see bridge/src/wineopenxr.c). Each eye has a small ring of such textures: the game's eye
- * texture is copied into one on the game's context, its keyed mutex release makes DXMT signal the event once the copy
- * is done, the unix side waits for that value on the CPU, and the native runtime gets the imported id<MTLTexture> as
- * TextureType_Metal. OpenComposite copies it on its own queue with nothing to wait on, hence the CPU wait; the ring
- * keeps the next frames' copies off a texture it may still be reading. DXMT without keyed mutexes (before v0.80):
- * plain SHARED textures and an event query wait. */
+ * texture is copied into one on the game's context, its keyed mutex release makes DXMT signal the event at V once the
+ * copy is done, and the native runtime gets the imported id<MTLTexture> as TextureType_Metal. OpenComposite copies it
+ * on its own queue: through oc_metal_submit_sync_begin its copy waits for V on the GPU and signals V + 1, and the key 0
+ * release at V + 1 makes the game's next AcquireSync on the slot wait for that copy. A runtime without it gets a CPU
+ * wait for V before its call. DXMT without keyed mutexes (before v0.80): plain SHARED textures and an event query
+ * wait; OpenComposite's copy signals the slot's own event, and the slot's next copy waits for it on the CPU. */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -314,7 +315,7 @@ static BOOL probe_device( ID3D11Device *device )
     {
         destroy_slot( &slot );
         dxmt.mode = SYNC_KEYED;
-        macvr_log( "DXMT device: keyed mutex sync (CPU wait on its MTLSharedEvent)" );
+        macvr_log( "DXMT device: keyed mutex sync" );
         return TRUE;
     }
     if (create_slot( &desc, FALSE, &slot, FALSE )
@@ -405,7 +406,9 @@ static struct dxmt_target *overlay_target( uint64_t overlay )
     return free_target;
 }
 
-/* Copy slice `slice` of the texture into the target's next shared texture and wait for the copy on the CPU. */
+static BOOL logged_sync;
+
+/* Copy slice `slice` of the texture into the target's next shared texture and sync the runtime's copy with it. */
 static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id, ID3D11Texture2D *src, uint32_t slice,
                            struct macvr_submit *state )
 {
@@ -422,6 +425,12 @@ static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id,
     if (slice >= desc.ArraySize) slice = 0;
     sub = slice * desc.MipLevels;
 
+    if (!slot->keyed)
+    {
+        struct macvr_dxmt_idle_params idle = {slot->image, 1000};
+        VRCLIENT_CALL( macvr_dxmt_idle, &idle );
+        if (idle.result) macvr_log( "runtime copy of the slot's previous frame: timeout" );
+    }
     if (slot->keyed && FAILED(IDXGIKeyedMutex_AcquireSync( slot->keyed, 0, 1000 )))
     {
         macvr_log( "keyed mutex AcquireSync(0) failed" );
@@ -446,12 +455,7 @@ static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id,
         state->fence = acq.FenceValue;
         state->slot = slot;
         state->t_copied = now();
-        w.image = slot->image;
         w.value = acq.FenceValue;
-        w.timeout_ms = 1000;
-        VRCLIENT_CALL( macvr_dxmt_wait, &w );
-        if (w.result) macvr_log( "MTLSharedEvent wait for %llu: %s", (unsigned long long)w.value,
-                                 w.result > 0 ? "timeout" : "no event" );
     }
     else
     {
@@ -461,6 +465,20 @@ static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id,
         state->t_copied = now();
         while (ID3D11DeviceContext_GetData( dxmt.context, (ID3D11Asynchronous *)dxmt.query, NULL, 0, 0 ) == S_FALSE)
             SwitchToThread();
+    }
+    w.image = slot->image;
+    w.timeout_ms = 1000;
+    w.gpu = 1;
+    VRCLIENT_CALL( macvr_dxmt_wait, &w );
+    if (w.result) macvr_log( "MTLSharedEvent wait for %llu: %s", (unsigned long long)w.value,
+                             w.result > 0 ? "timeout" : "no event" );
+    state->gpu = w.gpu;
+    if (!logged_sync)
+    {
+        macvr_log( "%s", !w.gpu ? "CPU wait before the runtime's copy"
+                         : slot->keyed ? "the runtime's copies wait on the GPU (oc_metal_submit_sync)"
+                                       : "event query wait, the runtime's copies signal when a slot is free" );
+        logged_sync = TRUE;
     }
     state->t_waited = now();
     return TRUE;
@@ -489,6 +507,7 @@ const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t
     AcquireSRWLockExclusive( &dxmt_lock );
     state->locked = TRUE;
     state->slot = NULL;
+    state->gpu = FALSE;
     state->t_start = now();
     ID3D11Texture2D_GetDesc( (ID3D11Texture2D *)in->handle, &desc );
     if (slice == ~0u && desc.ArraySize > 1) slice = eye;
@@ -505,6 +524,7 @@ const void *macvr_load_overlay_dxmt( uint64_t overlay, const void *texture, uint
     AcquireSRWLockExclusive( &dxmt_lock );
     state->locked = TRUE;
     state->slot = NULL;
+    state->gpu = FALSE;
     state->t_start = now();
     state->overlay = TRUE;
     if (!copy_and_wait( overlay_target( overlay ), "overlay", overlay, in->handle, 0, state ))
@@ -515,15 +535,22 @@ const void *macvr_load_overlay_dxmt( uint64_t overlay, const void *texture, uint
 void macvr_free_texture_dxmt( struct macvr_submit *state )
 {
     struct dxmt_slot *slot = state->slot;
+    BOOL taken = FALSE;
     if (!state->locked) return;
+    if (slot && state->gpu)
+    {
+        struct macvr_dxmt_end_params e = {slot->image};
+        VRCLIENT_CALL( macvr_dxmt_end, &e );
+        taken = e.taken;
+    }
     if (slot && slot->keyed)
     {
-        /* The game side's next AcquireSync(0) on this slot waits for nothing more: the copy is done. */
-        D3DKMT_RELEASEKEYEDMUTEX rel = {slot->kmt_mutex, 0, state->fence};
+        D3DKMT_RELEASEKEYEDMUTEX rel = {slot->kmt_mutex, 0, state->fence + (taken ? 1 : 0)};
         if (kmt.ReleaseKeyedMutex( &rel )) macvr_log( "D3DKMTReleaseKeyedMutex failed" );
     }
     if (slot && !state->overlay) stats_add( state, now() );
     state->slot = NULL;
+    state->gpu = FALSE;
     state->locked = FALSE;
     ReleaseSRWLockExclusive( &dxmt_lock );
 }

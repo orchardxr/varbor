@@ -789,12 +789,18 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   for DXMT's GPU work (copy + the frame's rendering), the OpenComposite Submit is ~0.07 ms. Alyx's interfaces
   resolve, its actions.json loads (`ovr_d3d11_test.exe 200 C:\hlvr\cfg\actions.json`), a D3D11 overlay is accepted.
 - Left before Alyx on this path:
-  - The CPU wait stalls the game thread for its whole GPU frame; OpenComposite needs a way to wait on the GPU (a
-    Metal texture + MTLSharedEvent/value submit, or its queue) to drop it. A patched DXMT with native interop would
-    also drop the copy: `dxmt_native_interop()` in vrclient/src/dxmt_pe.c is the hook (probes a placeholder IID).
-  - The ring of 3 assumes OpenComposite's blit of frame N is done before frame N+3's copy; no fence covers that.
+  - A patched DXMT with native interop would drop the copy: `dxmt_native_interop()` in vrclient/src/dxmt_pe.c is the
+    hook (probes a placeholder IID).
   - The x86_64 OpenXR client for WiVRn (Rosetta) and its arm64 one (FEX) next to OpenComposite, and MacVR.app
     adopting setup-vrclient-prefix.sh (runner install of vrclient_x64.dll/.so, macOS openvrpaths.vrpath).
   - Not checked: 32-bit vrclient.dll, Vulkan/D3D12 games, SetSkyboxOverride, IVRApplications launch helpers,
     RegisterSubprocess (stubbed: no ProcessWineUnixPid in CrossOver), overlay content (the null compositor's dump
     only shows the projection layer), the headset.
+- GPU sync (step 3b): OpenComposite patch 0011 exports `oc_metal_submit_sync_begin/end` (thread-local, taken by the next
+  `CopyToSwapchain`: `encodeWaitForEvent` before its blit, `encodeSignalEvent` after). Keyed mutex mode: the copy
+  waits for DXMT's V and signals V + 1, the bridge releases key 0 at V + 1, so the game's next AcquireSync on the slot
+  waits for OpenComposite's read (the ring fence). No CPU wait left on CX 27. Query mode (CX 26.3): the query wait
+  stays; the blit signals a per-slot event that the slot's next copy waits for. No export, or
+  `VRCLIENT_DXMT_GPU_SYNC=0`: the old CPU wait. Per-eye bridge cost median/p99 (ms, 1832x1920, 30 s, before -> after):
+  27 Rosetta 1.14/2.5 -> 0.47/1.1, 27 FEX 1.10/2.3 -> 0.41/0.8; with `ovr_d3d11_render.exe 30 stress64` (~4 ms GPU per
+  eye) 4.3/6.2 -> 0.48/1.1 and 4.3/5.7 -> 0.42/0.8; 26.3 unchanged (1.0/2.4 plain, 4.3/6.0 stress).

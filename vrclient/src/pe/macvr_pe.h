@@ -9,7 +9,7 @@ struct macvr_submit
     struct dxmt_slot *slot;
     UINT64 fence;
     LONGLONG t_start, t_copied, t_waited;
-    BOOL locked, overlay;
+    BOOL locked, overlay, gpu;
 };
 
 void macvr_log( const char *fmt, ... ) __attribute__((format(printf, 1, 2)));
@@ -19,9 +19,9 @@ void macvr_log_runtime( BOOL loaded );
 BOOL macvr_dxmt_texture( IUnknown *texture );
 
 /* Copies the eye's D3D11 texture (slice array_index, else eye for arrays, else 0; MSAA resolved) into a DXMT shared
- * texture, waits for it on the CPU and returns a TextureType_Metal texture for the native runtime. texture_out is
- * at least a w_VRTextureWithPose_t; flags loses the depth and motion bits. On failure the texture's handle is NULL,
- * which the unix side refuses with VRCompositorError_InvalidTexture. */
+ * texture, syncs the runtime's copy with it and returns a TextureType_Metal texture for the native runtime.
+ * texture_out is at least a w_VRTextureWithPose_t; flags loses the depth and motion bits. On failure the texture's
+ * handle is NULL, which the unix side refuses with VRCompositorError_InvalidTexture. */
 const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
                                      struct macvr_submit *state, uint32_t array_index );
 /* The same for an overlay's texture, with a ring per overlay handle. */

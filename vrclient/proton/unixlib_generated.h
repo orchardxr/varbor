@@ -69096,6 +69096,8 @@ enum unix_funcs
     unix_macvr_dxmt_import,
     unix_macvr_dxmt_wait,
     unix_macvr_dxmt_destroy,
+    unix_macvr_dxmt_end,
+    unix_macvr_dxmt_idle,
     unix_macvr_runtime_info,
 };
 

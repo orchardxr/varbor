@@ -36,6 +36,8 @@ extern NTSTATUS wow64_vrclient_get_unix_buffer( void *args );
 extern NTSTATUS macvr_dxmt_import( void *args );
 extern NTSTATUS macvr_dxmt_wait( void *args );
 extern NTSTATUS macvr_dxmt_destroy( void *args );
+extern NTSTATUS macvr_dxmt_end( void *args );
+extern NTSTATUS macvr_dxmt_idle( void *args );
 extern NTSTATUS macvr_runtime_info( void *args );
 
 extern char *vrclient_dos_to_unix_path( const char *src );

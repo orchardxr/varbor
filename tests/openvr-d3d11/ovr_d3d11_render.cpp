@@ -1,10 +1,13 @@
 // D3D11 OpenVR scene app for the vrclient bridge (vrclient/): renders each eye on the GPU every frame and submits it
 // through Valve's openvr_api.dll with the interface versions Half-Life: Alyx uses (IVRSystem_026, IVRCompositor_029,
 // IVRInput_011). Also loads an IVRInput action manifest and reads its actions every frame.
-//   ovr_d3d11_render.exe [seconds] [plain|msaa] [WxH]
+//   ovr_d3d11_render.exe [seconds] [plain|msaa|stress[N]] [WxH]
 // Left eye: red, green square top-left. Right eye: blue, yellow square top-right. Both: a white bar that moves down
-// one row per frame. msaa: 4x eye render targets, resolved by the bridge. WxH: eye size instead of the recommended one.
+// one row per frame. msaa: 4x eye render targets, resolved by the bridge. stress: before each eye, a full-screen pass
+// with an N-iteration (default 256) ALU loop per pixel into a scratch target, a few ms of GPU work that a CPU wait for
+// the eye's copy would show. WxH: eye size instead of the recommended one.
 #include <d3d11.h>
+#include <d3dcompiler.h>
 #include <openvr.h>
 #include <windows.h>
 
@@ -92,10 +95,80 @@ static ID3D11Texture2D* make_texture(ID3D11Device* dev, uint32_t w, uint32_t h, 
 	return tex;
 }
 
+static const char* kStressShader = R"(
+float4 vs(uint id : SV_VertexID) : SV_Position
+{
+	float2 t = float2((id << 1) & 2, id & 2);
+	return float4(t * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+float4 ps(float4 p : SV_Position) : SV_Target
+{
+	float a = p.x * 0.001, b = p.y * 0.001;
+	[loop] for (uint i = 0; i < ITERS; i++) {
+		a = sin(a * 1.01 + b);
+		b = cos(b * 0.99 + a);
+	}
+	return float4(a, b, 0, 1);
+}
+)";
+
+struct Stress {
+	ID3D11VertexShader* vs = nullptr;
+	ID3D11PixelShader* ps = nullptr;
+	ID3D11RenderTargetView* rtv = nullptr;
+	D3D11_VIEWPORT vp = {};
+};
+
+static bool make_stress(ID3D11Device* dev, uint32_t w, uint32_t h, unsigned iters, Stress& st)
+{
+	HMODULE dll = LoadLibraryA("d3dcompiler_47.dll");
+	auto compile = dll ? (pD3DCompile)GetProcAddress(dll, "D3DCompile") : nullptr;
+	if (!compile) {
+		LOG("stress: no D3DCompile");
+		return false;
+	}
+	char n[16];
+	snprintf(n, sizeof(n), "%u", iters);
+	const D3D_SHADER_MACRO defs[] = { { "ITERS", n }, { nullptr, nullptr } };
+	ID3DBlob *vsb = nullptr, *psb = nullptr, *errb = nullptr;
+	HRESULT hr = compile(kStressShader, strlen(kStressShader), "stress", defs, nullptr, "vs", "vs_5_0", 0, 0, &vsb, &errb);
+	if (SUCCEEDED(hr))
+		hr = compile(kStressShader, strlen(kStressShader), "stress", defs, nullptr, "ps", "ps_5_0", 0, 0, &psb, &errb);
+	if (FAILED(hr)) {
+		LOG("stress: D3DCompile 0x%08lx %s", (unsigned long)hr, errb ? (const char*)errb->GetBufferPointer() : "");
+		return false;
+	}
+	ID3D11Texture2D* tex = make_texture(dev, w, h, 1, nullptr);
+	bool ok = tex && SUCCEEDED(dev->CreateVertexShader(vsb->GetBufferPointer(), vsb->GetBufferSize(), nullptr, &st.vs))
+	    && SUCCEEDED(dev->CreatePixelShader(psb->GetBufferPointer(), psb->GetBufferSize(), nullptr, &st.ps))
+	    && SUCCEEDED(dev->CreateRenderTargetView(tex, nullptr, &st.rtv));
+	if (tex)
+		tex->Release();
+	vsb->Release();
+	psb->Release();
+	st.vp = { 0, 0, float(w), float(h), 0, 1 };
+	LOG("stress: %u iterations per pixel, %ux%u, per eye%s", iters, w, h, ok ? "" : ": setup failed");
+	return ok;
+}
+
+static void run_stress(ID3D11DeviceContext* ctx, const Stress& st)
+{
+	ctx->OMSetRenderTargets(1, &st.rtv, nullptr);
+	ctx->RSSetViewports(1, &st.vp);
+	ctx->IASetInputLayout(nullptr);
+	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	ctx->VSSetShader(st.vs, nullptr, 0);
+	ctx->PSSetShader(st.ps, nullptr, 0);
+	ctx->Draw(3, 0);
+	ctx->OMSetRenderTargets(0, nullptr, nullptr);
+}
+
 int main(int argc, char** argv)
 {
 	double secs = argc > 1 ? atof(argv[1]) : 30;
 	bool msaa = argc > 2 && !strcmp(argv[2], "msaa");
+	bool stress = argc > 2 && !strncmp(argv[2], "stress", 6);
+	unsigned stress_iters = stress && argv[2][6] ? (unsigned)atoi(argv[2] + 6) : 256;
 	UINT samples = msaa ? 4 : 1;
 
 	vr::EVRInitError err = vr::VRInitError_None;
@@ -139,6 +212,9 @@ int main(int argc, char** argv)
 	// MSAA targets can't take CopySubresourceRegion from single-sample textures: clear only.
 	if (msaa)
 		LOG("MSAA x%u eye targets: clear colour only", samples);
+	Stress st;
+	if (stress && !make_stress(dev, w, h, stress_iters, st))
+		return 1;
 
 	vr::IVRCompositor* comp = vr::VRCompositor();
 	vr::IVRInput* input = vr::VRInput();
@@ -230,6 +306,8 @@ int main(int argc, char** argv)
 
 		uint32_t y = (uint32_t(frames) * 4) % (h - bar_h);
 		for (int e = 0; e < 2; e++) {
+			if (stress)
+				run_stress(ctx, st);
 			ctx->ClearRenderTargetView(rtv[e], clear[e]);
 			if (!msaa) {
 				ctx->CopySubresourceRegion(eyes[e], 0, e ? w - w / 5 - sq : w / 5, h / 10, 0, square[e], 0, nullptr);
@@ -279,6 +357,11 @@ int main(int argc, char** argv)
 		square[e]->Release();
 	}
 	bar->Release();
+	if (stress) {
+		st.vs->Release();
+		st.ps->Release();
+		st.rtv->Release();
+	}
 	ctx->Release();
 	dev->Release();
 	LOG("VR_Shutdown ok");

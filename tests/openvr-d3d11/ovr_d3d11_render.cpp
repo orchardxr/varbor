@@ -262,7 +262,7 @@ int main(int argc, char** argv)
 
 	// The other interfaces Half-Life: Alyx asks for, and a few harmless calls on them.
 	static const char* const alyx_ifaces[] = { "IVROverlay_028", "IVRRenderModels_006", "IVRApplications_007",
-		"IVRChaperone_004", "IVRMailbox_001", "IVRHeadsetView_001", "IVROverlayView_003", "IVRSettings_003" };
+		"IVRChaperone_004", "IVRMailbox_001", "IVRHeadsetView_001", "IVROverlayView_003", "IVRSettings_003", "IVRInputInternal_002" };
 	int missing = 0;
 	for (const char* name : alyx_ifaces) {
 		vr::EVRInitError ge = vr::VRInitError_None;

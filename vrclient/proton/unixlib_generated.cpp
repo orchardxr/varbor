@@ -4125,6 +4125,7 @@ extern "C" const unixlib_entry_t __wine_unix_call_funcs[] =
     macvr_dxmt_end,
     macvr_dxmt_idle,
     macvr_runtime_info,
+    macvr_input_internal,
 };
 
 #if defined(__x86_64__) || defined(__aarch64__)

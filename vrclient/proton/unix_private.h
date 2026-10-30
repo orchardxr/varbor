@@ -39,6 +39,7 @@ extern NTSTATUS macvr_dxmt_destroy( void *args );
 extern NTSTATUS macvr_dxmt_end( void *args );
 extern NTSTATUS macvr_dxmt_idle( void *args );
 extern NTSTATUS macvr_runtime_info( void *args );
+extern NTSTATUS macvr_input_internal( void *args );
 
 extern char *vrclient_dos_to_unix_path( const char *src );
 extern void vrclient_free_path( char *path );

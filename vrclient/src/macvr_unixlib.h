@@ -52,3 +52,13 @@ struct macvr_runtime_info_params
 {
     char path[1024];
 };
+
+/* IVRInputInternal_002 (undocumented): slot index on the native object, the first three integer arguments after this,
+ * the 64-bit return value. */
+struct macvr_input_internal_params
+{
+    uint64_t u_iface;
+    uint32_t index;
+    uint64_t a, b, c;
+    uint64_t _ret;
+};

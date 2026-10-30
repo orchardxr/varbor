@@ -308,6 +308,8 @@ static void record_copy( struct slot *s, VkImage src, uint32_t slice, uint32_t w
 }
 
 /* The runtime reads the game's image as is: one 2D (or the eye's slice of a 2D array) shader-readable texture */
+extern "C" void varbor_note( const char *msg );
+
 static const char *direct_refusal( id<MTLTexture> tex, uint32_t slice, uint32_t target )
 {
     if (tex.sampleCount > 1) return "multisampled";
@@ -363,6 +365,12 @@ extern "C" NTSTATUS varbor_vk_begin( void *args )
             cur.done_value = ++dev.done_value;
             oc_begin( (void *)dev.ready_event, ready, (void *)dev.done_event, cur.done_value );
             cur.armed = cur.direct = true;
+            static bool noted;
+            if (!noted)
+            {
+                noted = true;
+                varbor_note( "DXVK direct: the runtime reads the game's own MTLTexture" );
+            }
             cur.queue = queue;
             p->texture = (uint64_t)(uintptr_t)tex;
             p->path = 1;

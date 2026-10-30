@@ -46,6 +46,8 @@ updates, About, Quit. Quitting undoes nothing: prefixes and runner files stay.
 Backend note (About, `varbor status`): VR works with DXMT and DXVK (the game's NotProton compatibility settings);
 DXMT is preferred. D3DMetal isn't supported. VarboR never sets `CX_GRAPHICS_BACKEND`. When a D3D11 game's device is
 neither, the bridge's unix side asks with a native alert: Quit Game, or Run Anyway (XR_ERROR_GRAPHICS_DEVICE_INVALID).
+The vrclient bridge writes one line to `~/Library/Logs/VarboR/bridge.log` the first time a game uses the DXMT or DXVK
+direct path (the runtime reads the game's own texture), whatever `VRCLIENT_LOG` says.
 
 ## Runners
 
@@ -90,12 +92,15 @@ generated per user into `state/`) whenever it creates or updates a prefix, so No
 `Components.swift`, read-only, one place for locations, minimum versions (`minimumWiVRn`, `minimumOpenComposite`)
 and release pages:
 - NotProton: `notproton/install-build.json` (or NotProton.app's version), its runners, its tool registry.
-- WiVRn for macOS: the tree behind `XR_RUNTIME_JSON` or `active_runtime.json` (`lib/wivrn/libopenxr_wivrn.dylib` ->
-  the tree), else known prefixes (`VARBOR_WIVRN_PREFIX`, `/usr/local`, `/opt/wivrn`,
-  `~/Library/Application Support/wivrn`); version from `share/wivrn/build-info` (`wivrn-macos=`), `share/wivrn/ipc-stamp`.
+- WiVRn for macOS: the install behind `XR_RUNTIME_JSON` or `active_runtime.json` (`~/.config/openxr/1`, then
+  `/etc/xdg` and `/usr/local/share`), else known places (`VARBOR_WIVRN_PREFIX`, WiVRn.app, `/usr/local`, `/opt/wivrn`,
+  `~/Library/Application Support/wivrn`). Layouts: WiVRn.app (`Contents/Frameworks/libopenxr_wivrn.dylib`,
+  `Contents/Resources/wivrn/{build-info,ipc-stamp}`) or a prefix tree (`lib/wivrn/`, `share/wivrn/`). Version: build-info
+  `version=`, else `wivrn-macos=`; a commit-only build isn't compared with the minimum.
   The server sets the active runtime only when it runs from its configured prefix; until then: a warning.
 - OpenComposite for macOS: the first runtime in the macOS `openvrpaths.vrpath` with `bin/osx64/vrclient.dylib` (what
-  the vrclient bridge loads), `bin/osx64/version.txt`, and the `oc_metal_submit_sync` export the bridge's GPU sync needs.
+  the vrclient bridge loads), `share/opencomposite/build-info` `version=` (else the third word of `bin/osx64/version.txt`), and the
+  `oc_metal_submit_sync` export the bridge's GPU sync needs.
 
 ## Engines (the VarboR runner)
 

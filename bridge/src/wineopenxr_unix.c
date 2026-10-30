@@ -87,9 +87,14 @@ static int check_ipc_stamp(const char *client_lib, char *msg, size_t size)
     snprintf(path, sizeof(path), "%.*sipc-stamp", slash ? (int)(slash - client_lib + 1) : 0, client_lib);
     if (!read_stamp(path, client, sizeof(client)))
     {
-        /* wivrn-macos install tree: lib/wivrn/<client>, share/wivrn/ipc-stamp */
+        /* wivrn-macos install tree (lib/wivrn/<client>, share/wivrn/ipc-stamp) or WiVRn.app
+         * (Contents/Frameworks/<client>, Contents/Resources/wivrn/ipc-stamp) */
         snprintf(path, sizeof(path), "%.*s../../share/wivrn/ipc-stamp", slash ? (int)(slash - client_lib + 1) : 0, client_lib);
-        read_stamp(path, client, sizeof(client));
+        if (!read_stamp(path, client, sizeof(client)))
+        {
+            snprintf(path, sizeof(path), "%.*s../Resources/wivrn/ipc-stamp", slash ? (int)(slash - client_lib + 1) : 0, client_lib);
+            read_stamp(path, client, sizeof(client));
+        }
     }
     for (int i = 0; i < count; i++)
     {

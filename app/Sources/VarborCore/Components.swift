@@ -53,7 +53,9 @@ public enum Components {
 
         public static func real(_ ctx: Context) -> Roots {
             let env = ProcessInfo.processInfo.environment
-            var trees = [URL(fileURLWithPath: "/usr/local"), URL(fileURLWithPath: "/opt/wivrn"),
+            var trees = [URL(fileURLWithPath: "/Applications/WiVRn.app/Contents"),
+                         ctx.home.appendingPathComponent("Applications/WiVRn.app/Contents"),
+                         URL(fileURLWithPath: "/usr/local"), URL(fileURLWithPath: "/opt/wivrn"),
                          ctx.home.appendingPathComponent("Library/Application Support/wivrn")]
             if let t = env["VARBOR_WIVRN_PREFIX"] { trees.insert(URL(fileURLWithPath: t), at: 0) }
             return Roots(home: ctx.home, steamRoot: ctx.steamRoot, runners: ctx.runners,
@@ -88,8 +90,7 @@ public enum Components {
         case false?:
             s.health = .outdated
             s.notes.append("needs \(minimum) or newer")
-        case nil: s.notes.append("version \(version) can't be compared: VarboR needs \(minimum) or newer")
-        default: break
+        default: break  // a commit-only build (no release tag) can't be compared; the feature checks decide
         }
     }
 
@@ -130,8 +131,14 @@ public enum Components {
         public var root: URL
         public var buildInfo: [String: String]
         public var hasIPCStamp: Bool
-        public var version: String? { buildInfo["wivrn-macos"] }
+        /// `version=` if the build-info has one, else the wivrn-macos commit description.
+        public var version: String? { buildInfo["version"] ?? buildInfo["wivrn-macos"] }
     }
+
+    /// The two install layouts: a prefix tree (`lib/wivrn/libopenxr_wivrn.dylib`, `share/wivrn/`) and WiVRn.app
+    /// (`Contents/Frameworks/libopenxr_wivrn.dylib`, `Contents/Resources/wivrn/`).
+    static let wivrnLayouts = [("lib/wivrn/libopenxr_wivrn.dylib", "share/wivrn"),
+                               ("Frameworks/libopenxr_wivrn.dylib", "Resources/wivrn")]
 
     /// An OpenXR manifest's library, resolved against the manifest's dir (symlinks followed).
     static func manifestLibrary(_ json: URL) -> URL? {
@@ -151,23 +158,33 @@ public enum Components {
     }
 
     static func wivrnTree(_ root: URL) -> WiVRnInstall? {
-        let share = root.appendingPathComponent("share/wivrn")
-        guard let t = try? String(contentsOf: share.appendingPathComponent("build-info"), encoding: .utf8),
-              FileManager.default.fileExists(atPath: root.appendingPathComponent("lib/wivrn/libopenxr_wivrn.dylib").path)
-        else { return nil }
-        return WiVRnInstall(root: root.standardizedFileURL, buildInfo: KeyValueFile.parse(t),
-                            hasIPCStamp: FileManager.default.fileExists(atPath: share.appendingPathComponent("ipc-stamp").path))
+        for (lib, data) in wivrnLayouts {
+            let share = root.appendingPathComponent(data)
+            guard let t = try? String(contentsOf: share.appendingPathComponent("build-info"), encoding: .utf8),
+                  FileManager.default.fileExists(atPath: root.appendingPathComponent(lib).path) else { continue }
+            return WiVRnInstall(root: root.standardizedFileURL, buildInfo: KeyValueFile.parse(t),
+                                hasIPCStamp: FileManager.default.fileExists(atPath: share.appendingPathComponent("ipc-stamp").path))
+        }
+        return nil
+    }
+
+    /// The install a runtime library belongs to: its tree is a few dirs above it.
+    static func wivrnTree(containing lib: URL) -> WiVRnInstall? {
+        var dir = lib.deletingLastPathComponent()
+        for _ in 0..<3 {
+            if let t = wivrnTree(dir), wivrnLayouts.contains(where: { t.root.appendingPathComponent($0.0).standardizedFileURL == lib.standardizedFileURL }) {
+                return t
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return nil
     }
 
     public static func wivrn(_ r: Roots) -> State {
         var s = State(name: "WiVRn", health: .missing, page: wivrnPage)
         let activeLib = activeRuntime(r).flatMap(manifestLibrary)
-        // lib/wivrn/libopenxr_wivrn.dylib -> the tree
-        let activeTree = activeLib.flatMap { lib -> WiVRnInstall? in
-            lib.lastPathComponent == "libopenxr_wivrn.dylib"
-                ? wivrnTree(lib.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()) : nil
-        }
-        guard let tree = activeTree ?? r.wivrnTrees.lazy.compactMap(wivrnTree).first else {
+        let activeTree = activeLib.flatMap(wivrnTree(containing:))
+        guard let tree = activeTree ?? r.wivrnTrees.lazy.compactMap({ wivrnTree($0) }).first else {
             if let activeLib {
                 s.health = .warning
                 s.location = activeLib.path
@@ -217,12 +234,15 @@ public enum Components {
         }
         s.health = .ok
         s.location = rt
-        if let t = try? String(contentsOf: URL(fileURLWithPath: rt).appendingPathComponent("bin/osx64/version.txt"), encoding: .utf8) {
-            // "<OpenOVR commit> opencomposite-macos <version>"
+        let root = URL(fileURLWithPath: rt)
+        if let t = try? String(contentsOf: root.appendingPathComponent("share/opencomposite/build-info"), encoding: .utf8),
+           let v = KeyValueFile.parse(t)["version"], !v.isEmpty {
+            s.version = v
+        } else if let t = try? String(contentsOf: root.appendingPathComponent("bin/osx64/version.txt"), encoding: .utf8) {
+            // "<OpenOVR commit> opencomposite-macos <OC_RELEASE or git describe>"
             let parts = t.split(whereSeparator: \.isWhitespace).map(String.init)
             s.version = parts.count >= 3 ? parts[2] : parts.last
         }
-        if let v = s.version, versionNumbers(v) == nil { s.version = nil }
         versionCheck(&s, s.version, minimum: minimumOpenComposite)
         if !contains(dylib(rt), openCompositeSyncSymbol) {
             s.health = .outdated

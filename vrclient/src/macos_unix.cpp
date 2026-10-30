@@ -18,6 +18,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <pwd.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <mach-o/dyld.h>
 
 #if 0
 #pragma makedep unix
@@ -26,6 +29,25 @@
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
 static std::string runtime_path;
+
+static std::string home_dir(void);
+
+/* One line to ~/Library/Logs/VarboR/bridge.log, whatever VRCLIENT_LOG says: confirms which path a game took. */
+extern "C" void varbor_note( const char *msg )
+{
+    std::string dir = home_dir() + "/Library/Logs/VarboR";
+    char exe[1024] = "?", when[32];
+    uint32_t size = sizeof(exe);
+    time_t now = time( NULL );
+    FILE *f;
+
+    mkdir( dir.c_str(), 0755 );
+    if (!(f = fopen( (dir + "/bridge.log").c_str(), "a" ))) return;
+    if (_NSGetExecutablePath( exe, &size )) exe[0] = 0;
+    strftime( when, sizeof(when), "%Y-%m-%dT%H:%M:%S%z", localtime( &now ) );
+    fprintf( f, "%s pid %d %s: vrclient: %s\n", when, (int)getpid(), strrchr( exe, '/' ) ? strrchr( exe, '/' ) + 1 : exe, msg );
+    fclose( f );
+}
 
 static bool runtime_dylib( const std::string &dir, std::string &out )
 {

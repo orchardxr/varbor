@@ -76,6 +76,34 @@ final class ComponentsTests: XCTestCase {
         XCTAssertEqual(s.notes, ["WiVRn v26.9"])
     }
 
+    func testWiVRnAppBundle() throws {
+        // WiVRn.app: Contents/Frameworks/libopenxr_wivrn.dylib, Contents/Resources/{openxr/1,wivrn}
+        let contents = root.appendingPathComponent("Applications/WiVRn.app/Contents")
+        try write("x", contents.appendingPathComponent("Frameworks/libopenxr_wivrn.dylib"))
+        try write("{\"file_format_version\":\"1.0.0\",\"runtime\":{\"name\":\"WiVRn\",\"library_path\":\"../../../Frameworks/libopenxr_wivrn.dylib\"}}",
+                  contents.appendingPathComponent("Resources/openxr/1/openxr_wivrn.json"))
+        try write("wivrn-macos=04576b5-dirty\nwivrn=v26.9 bbc6e4c\napp=26.9.0\n", contents.appendingPathComponent("Resources/wivrn/build-info"))
+        try write("stamp\n", contents.appendingPathComponent("Resources/wivrn/ipc-stamp"))
+        let active = roots.home.appendingPathComponent(".config/openxr/1/active_runtime.json")
+        try fm.createDirectory(at: active.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: active, withDestinationURL: contents.appendingPathComponent("Resources/openxr/1/openxr_wivrn.json"))
+        var s = Components.wivrn(roots)
+        XCTAssertEqual(s.health, .ok, "\(s.notes)")
+        XCTAssertEqual(s.location, contents.standardizedFileURL.path)
+        XCTAssertEqual(s.version, "04576b5-dirty")
+        XCTAssertEqual(s.notes, ["WiVRn v26.9"])
+        // the same registered in /usr/local/share/openxr/1 instead
+        try fm.removeItem(at: active)
+        try fm.createDirectory(at: roots.systemOpenXR[0], withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: roots.systemOpenXR[0].appendingPathComponent("active_runtime.json"),
+                                  withDestinationURL: contents.appendingPathComponent("Resources/openxr/1/openxr_wivrn.json"))
+        s = Components.wivrn(roots)
+        XCTAssertEqual(s.health, .ok, "\(s.notes)")
+        // a version= line wins over the commit
+        try write("version=0.2.0\nwivrn-macos=04576b5\n", contents.appendingPathComponent("Resources/wivrn/build-info"))
+        XCTAssertEqual(Components.wivrn(roots).version, "0.2.0")
+    }
+
     func testWiVRnOutdatedInactiveAndForeign() throws {
         try makeWiVRn(roots.wivrnTrees[0], version: "v0.0.1", stamp: false)
         var s = Components.wivrn(roots)
@@ -114,10 +142,20 @@ final class ComponentsTests: XCTestCase {
         XCTAssertEqual(s.location, rt.path)
         XCTAssertTrue(s.notes[0].contains("/gone comes first"))
 
+        // a commit-only build: shown as is, no version warning
+        try makeOC(rt, version: "dd200ad", sync: true)
+        s = Components.openComposite(roots)
+        XCTAssertEqual(s.health, .ok)
+        XCTAssertEqual(s.version, "dd200ad")
+        XCTAssertEqual(s.notes.filter { $0.contains("version") }, [])
+        // share/opencomposite/build-info's version= wins
+        try write("version=0.3.0\n", rt.appendingPathComponent("share/opencomposite/build-info"))
+        XCTAssertEqual(Components.openComposite(roots).version, "0.3.0")
+
+        try fm.removeItem(at: rt.appendingPathComponent("share"))
         try makeOC(rt, version: "unknown", sync: false)
         s = Components.openComposite(roots)
         XCTAssertEqual(s.health, .outdated)
-        XCTAssertNil(s.version)
         XCTAssertTrue(s.notes.contains { $0.contains("oc_metal_submit_sync") })
     }
 }

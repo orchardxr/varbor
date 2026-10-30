@@ -54,6 +54,8 @@ static bool gpu_sync(void)
 }
 
 /* For vk_unix.mm */
+extern "C" void varbor_note( const char *msg );
+
 extern "C" bool varbor_oc_sync( void (**begin)( void *, uint64_t, void *, uint64_t ), int (**end)( void ) )
 {
     if (!gpu_sync()) return false;
@@ -216,6 +218,12 @@ extern "C" NTSTATUS varbor_dxmt_direct_begin( void *args )
     p->signal_event = (uint64_t)(uintptr_t)direct.event;
     p->signal_value = ++direct.value;
     oc_sync_begin( (void *)(uintptr_t)p->event, p->value, (void *)direct.event, p->signal_value );
+    static bool noted;
+    if (!noted)
+    {
+        noted = true;
+        varbor_note( "DXMT interop direct: the runtime reads the game's own MTLTexture" );
+    }
     p->gpu = 1;
     return 0;
 }

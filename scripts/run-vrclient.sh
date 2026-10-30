@@ -9,6 +9,8 @@
 #                      logs and frame dumps. Wine must not touch ~/Documents (TCC prompt), so everything it loads is
 #                      copied there first.
 #   RUNNER=<build>     NotProton runner (default 26.3.0.39832: Rosetta; 27.0.0.41073-fex with FEX=1)
+#   TEMPLATE_RUNNER=<build>  NotProton template to copy the prefix from (default: RUNNER's; a runner clone such as
+#                      27.0.0.41073-fex-macvrdxmt (make-macvr-dxmt-runner.sh) has none: use its base build)
 #   FEX=1              arm64 Wine with FEX: a clone of the runner gets vrclient_x64.dll/.so (setup-vrclient-prefix.sh
 #                      --runner) and the arm64 OpenXR client; the PE side stays x86_64
 #   BACKEND=dxmt       CX_GRAPHICS_BACKEND
@@ -36,7 +38,7 @@ else runner="${RUNNER:-26.3.0.39832}"; unix_arch=x86_64; xr_arch=x86_64; fi
 tag="${TAG:-$unix_arch}"
 np="$HOME/Library/Application Support/notproton"
 src_runner="$np/runners/crossover-$runner/CrossOver"
-template="$HOME/Library/Application Support/Steam/steamapps/compatdata/notproton-template/crossover-$runner-$unix_arch-unix/pfx"
+template="$HOME/Library/Application Support/Steam/steamapps/compatdata/notproton-template/crossover-${TEMPLATE_RUNNER:-$runner}-$unix_arch-unix/pfx"
 [[ -d "$src_runner" ]] || { echo "no runner $src_runner" >&2; exit 1; }
 [[ -d "$template" ]] || { echo "no NotProton template $template" >&2; exit 1; }
 mkdir -p "$OUT/rt" "$OUT/logs"

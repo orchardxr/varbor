@@ -17,7 +17,7 @@ PE_FLAGS   := -O2 -g -DVARBOR -DGNUC -D__WINESRC__ -D__WINE_PE_BUILD -include sr
               -isystem $(VK_INC) -idirafter $(WINE_INC) -Wno-unused-function -Wno-ignored-attributes -Wno-incompatible-pointer-types \
               -Wno-int-conversion -Wno-macro-redefined -fno-strict-aliasing
 UNIX_ARCHS := -arch x86_64 -arch arm64
-UNIX_FLAGS := $(UNIX_ARCHS) -mmacosx-version-min=13.0 -O2 -g -DVARBOR -DWINE_UNIX_LIB -D__WINESRC__ -include wchar.h -include string.h -Isrc -Iproton -I$(WINE_INC) \
+UNIX_FLAGS := $(UNIX_ARCHS) -mmacosx-version-min=13.0 -O2 -g -DVARBOR -DWINE_UNIX_LIB -D__WINESRC__ -include wchar.h -include string.h -Isrc -Iproton -isystem $(VK_INC) -I$(WINE_INC) \
               -fPIC -Wno-ignored-attributes -Wno-unused-function -Wno-deprecated-declarations \
               -Wno-macro-redefined -Wno-invalid-offsetof -Wno-format -Wno-pragma-pack -Wno-comment
 

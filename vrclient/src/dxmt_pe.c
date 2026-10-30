@@ -25,7 +25,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
 #define RING 3
-#define TARGETS 2
+#define OVERLAYS 16
 
 struct dxmt_slot
 {
@@ -37,6 +37,7 @@ struct dxmt_slot
 
 struct dxmt_target
 {
+    uint64_t overlay;
     D3D11_TEXTURE2D_DESC desc;
     struct dxmt_slot ring[RING];
     unsigned int next;
@@ -51,8 +52,10 @@ static struct
     D3DKMT_HANDLE kmt_device;
     enum sync_mode mode;
     ID3D11Query *query;
-    struct dxmt_target targets[TARGETS];
+    struct dxmt_target eyes[2], overlays[OVERLAYS];
 } dxmt;
+/* Held from a submit's copy until after the runtime's Submit (macvr_free_texture_dxmt). */
+static SRWLOCK dxmt_lock = SRWLOCK_INIT;
 
 static const GUID IID_IDXGIVkInteropSurface_ = {0x5546cf8c, 0x77e7, 0x4341, {0xb0, 0x5d, 0x8d, 0x4d, 0x50, 0x00, 0xe7, 0x7d}};
 
@@ -88,14 +91,16 @@ void macvr_log_runtime( BOOL loaded )
     else macvr_log( "no native OpenVR runtime loaded (%s)", p.path[0] ? p.path : "none found" );
 }
 
-/* VRCLIENT_STATS=1: median / p99 / max of the bridge's share of each eye submit, per STAT_WINDOW submits. */
+/* VRCLIENT_STATS=1: median / p99 / max of the bridge's share of each eye submit, per STAT_WINDOW submits after the
+ * first STAT_WARMUP (the first one creates the runtime's session). */
 enum { ST_COPY, ST_WAIT, ST_SUBMIT, ST_TOTAL, ST_COUNT };
-#define STAT_WINDOW 600
+#define STAT_WINDOW 500
+#define STAT_WARMUP 20
 static const char *const stat_names[ST_COUNT] = {"copy", "wait", "submit", "total"};
 static int stats_on = -1;
 static LONGLONG qpc_freq;
 static float stat_samples[ST_COUNT][STAT_WINDOW];
-static unsigned int stat_count, stat_windows;
+static unsigned int stat_count, stat_windows, stat_skipped;
 
 static LONGLONG now(void)
 {
@@ -121,7 +126,7 @@ static void stats_add( const struct macvr_submit *s, LONGLONG end )
         qpc_freq = f.QuadPart;
         stats_on = getenv( "VRCLIENT_STATS" ) && atoi( getenv( "VRCLIENT_STATS" ) );
     }
-    if (!stats_on) return;
+    if (!stats_on || stat_skipped++ < STAT_WARMUP) return;
 #define US(a, b) ((float)((b) - (a)) * 1e6f / (float)qpc_freq)
     stat_samples[ST_COPY][stat_count] = US( s->t_start, s->t_copied );
     stat_samples[ST_WAIT][stat_count] = US( s->t_copied, s->t_waited );
@@ -338,9 +343,14 @@ BOOL macvr_dxmt_texture( IUnknown *texture )
         return FALSE;
     }
     if (dxmt.mode != SYNC_UNKNOWN) return TRUE;
-    ID3D11Texture2D_GetDevice( (ID3D11Texture2D *)texture, &device );
-    probe_device( device );
-    ID3D11Device_Release( device );
+    AcquireSRWLockExclusive( &dxmt_lock );
+    if (dxmt.mode == SYNC_UNKNOWN)
+    {
+        ID3D11Texture2D_GetDevice( (ID3D11Texture2D *)texture, &device );
+        probe_device( device );
+        ID3D11Device_Release( device );
+    }
+    ReleaseSRWLockExclusive( &dxmt_lock );
     return TRUE;
 }
 
@@ -357,9 +367,9 @@ static DXGI_FORMAT typed_format( DXGI_FORMAT f )
     }
 }
 
-static struct dxmt_slot *next_slot( uint32_t eye, const D3D11_TEXTURE2D_DESC *src )
+
+static struct dxmt_slot *next_slot( struct dxmt_target *t, const char *what, uint64_t id, const D3D11_TEXTURE2D_DESC *src )
 {
-    struct dxmt_target *t = &dxmt.targets[eye < TARGETS ? eye : 0];
     D3D11_TEXTURE2D_DESC want = {src->Width, src->Height, 1, 1, typed_format( src->Format ), {1, 0}, D3D11_USAGE_DEFAULT,
                                  D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE};
     struct dxmt_slot *slot;
@@ -368,40 +378,54 @@ static struct dxmt_slot *next_slot( uint32_t eye, const D3D11_TEXTURE2D_DESC *sr
     {
         for (int i = 0; i < RING; i++) destroy_slot( &t->ring[i] );
         t->desc = want;
-        macvr_log( "eye %u: %ux%u DXGI format %u (source %u, %u samples, %u slices), ring of %u", eye, want.Width,
-                   want.Height, want.Format, src->Format, src->SampleDesc.Count, src->ArraySize, RING );
+        macvr_log( "%s %llx: %ux%u DXGI format %u (source %u, %u samples, %u slices), ring of %u", what,
+                   (unsigned long long)id, want.Width, want.Height, want.Format, src->Format, src->SampleDesc.Count,
+                   src->ArraySize, RING );
     }
     slot = &t->ring[t->next++ % RING];
     if (!slot->shared && !create_slot( &t->desc, dxmt.mode == SYNC_KEYED, slot, FALSE )) return NULL;
     return slot;
 }
 
-const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
-                                     struct macvr_submit *state, uint32_t array_index )
+static struct dxmt_target *overlay_target( uint64_t overlay )
 {
-    const w_Texture_t *in = texture;
-    w_VRTextureWithPose_t *out = texture_out;
-    ID3D11Texture2D *src = in->handle;
-    D3D11_TEXTURE2D_DESC desc;
+    struct dxmt_target *t, *free_target = NULL;
+    for (t = dxmt.overlays; t < dxmt.overlays + OVERLAYS; t++)
+    {
+        if (t->overlay == overlay) return t;
+        if (!t->overlay && !free_target) free_target = t;
+    }
+    if (!free_target)
+    {
+        free_target = &dxmt.overlays[overlay % OVERLAYS];
+        for (int i = 0; i < RING; i++) destroy_slot( &free_target->ring[i] );
+        memset( free_target, 0, sizeof(*free_target) );
+    }
+    free_target->overlay = overlay;
+    return free_target;
+}
+
+/* Copy slice `slice` of the texture into the target's next shared texture and wait for the copy on the CPU. */
+static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id, ID3D11Texture2D *src, uint32_t slice,
+                           struct macvr_submit *state )
+{
     struct macvr_dxmt_wait_params w = {0};
-    struct dxmt_slot *slot = NULL;
-    UINT slice, sub, pose;
+    D3D11_TEXTURE2D_DESC desc;
+    struct dxmt_slot *slot;
+    UINT sub;
 
-    state->slot = NULL;
-    state->t_start = now();
-    if (dxmt.mode != SYNC_KEYED && dxmt.mode != SYNC_QUERY) goto fail;
-    dxmt_native_interop( in->handle );
+    if (dxmt.mode != SYNC_KEYED && dxmt.mode != SYNC_QUERY) return FALSE;
+    dxmt_native_interop( (IUnknown *)src );
     ID3D11Texture2D_GetDesc( src, &desc );
-    if (!(slot = next_slot( eye, &desc ))) goto fail;
-
-    slice = array_index != ~0u ? array_index : desc.ArraySize > 1 ? eye : 0;
+    if (!(slot = next_slot( t, what, id, &desc ))) return FALSE;
+    if (slice == ~0u) slice = 0;
     if (slice >= desc.ArraySize) slice = 0;
     sub = slice * desc.MipLevels;
 
     if (slot->keyed && FAILED(IDXGIKeyedMutex_AcquireSync( slot->keyed, 0, 1000 )))
     {
         macvr_log( "keyed mutex AcquireSync(0) failed" );
-        goto fail;
+        return FALSE;
     }
     if (desc.SampleDesc.Count > 1)
         ID3D11DeviceContext_ResolveSubresource( dxmt.context, (ID3D11Resource *)slot->shared, 0, (ID3D11Resource *)src,
@@ -417,9 +441,10 @@ const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t
         if (FAILED(IDXGIKeyedMutex_ReleaseSync( slot->keyed, 1 )) || kmt.AcquireKeyedMutex( &acq ))
         {
             macvr_log( "keyed mutex hand-over failed" );
-            goto fail;
+            return FALSE;
         }
         state->fence = acq.FenceValue;
+        state->slot = slot;
         state->t_copied = now();
         w.image = slot->image;
         w.value = acq.FenceValue;
@@ -432,33 +457,73 @@ const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t
     {
         ID3D11DeviceContext_End( dxmt.context, (ID3D11Asynchronous *)dxmt.query );
         ID3D11DeviceContext_Flush( dxmt.context );
+        state->slot = slot;
         state->t_copied = now();
         while (ID3D11DeviceContext_GetData( dxmt.context, (ID3D11Asynchronous *)dxmt.query, NULL, 0, 0 ) == S_FALSE)
             SwitchToThread();
     }
-    state->slot = slot;
     state->t_waited = now();
+    return TRUE;
+}
 
-fail:
-    pose = *flags & Submit_TextureWithPose;
+/* The game's texture with the imported id<MTLTexture> in place of the D3D11 one. A NULL Metal texture (failure)
+ * makes the unix side fail the call instead of the runtime aborting on a D3D11 texture. */
+static const void *metal_texture( const w_Texture_t *in, uint32_t *flags, w_VRTextureWithPose_t *out,
+                                  const struct macvr_submit *state )
+{
+    UINT pose = *flags & Submit_TextureWithPose;
     memcpy( out, in, pose ? sizeof(w_VRTextureWithPose_t) : sizeof(w_Texture_t) );
-    /* A NULL Metal texture makes the unix side fail the Submit instead of the runtime aborting on a D3D11 one. */
-    out->handle = state->slot ? (void *)(UINT_PTR)slot->mtl_texture : NULL;
+    out->handle = state->slot ? (void *)(UINT_PTR)state->slot->mtl_texture : NULL;
     out->eType = TextureType_Metal;
     *flags = (*flags & ~(Submit_TextureWithMotion | Submit_VulkanTextureWithArrayData)) | pose;
     return out;
 }
 
+const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
+                                     struct macvr_submit *state, uint32_t array_index )
+{
+    const w_Texture_t *in = texture;
+    D3D11_TEXTURE2D_DESC desc;
+    uint32_t slice = array_index;
+
+    AcquireSRWLockExclusive( &dxmt_lock );
+    state->locked = TRUE;
+    state->slot = NULL;
+    state->t_start = now();
+    ID3D11Texture2D_GetDesc( (ID3D11Texture2D *)in->handle, &desc );
+    if (slice == ~0u && desc.ArraySize > 1) slice = eye;
+    if (!copy_and_wait( &dxmt.eyes[eye & 1], "eye", eye, in->handle, slice, state ))
+        state->slot = NULL;
+    return metal_texture( in, flags, texture_out, state );
+}
+
+const void *macvr_load_overlay_dxmt( uint64_t overlay, const void *texture, uint32_t *flags, void *texture_out,
+                                     struct macvr_submit *state )
+{
+    const w_Texture_t *in = texture;
+
+    AcquireSRWLockExclusive( &dxmt_lock );
+    state->locked = TRUE;
+    state->slot = NULL;
+    state->t_start = now();
+    state->overlay = TRUE;
+    if (!copy_and_wait( overlay_target( overlay ), "overlay", overlay, in->handle, 0, state ))
+        state->slot = NULL;
+    return metal_texture( in, flags, texture_out, state );
+}
+
 void macvr_free_texture_dxmt( struct macvr_submit *state )
 {
     struct dxmt_slot *slot = state->slot;
-    if (!slot) return;
-    if (slot->keyed)
+    if (!state->locked) return;
+    if (slot && slot->keyed)
     {
         /* The game side's next AcquireSync(0) on this slot waits for nothing more: the copy is done. */
         D3DKMT_RELEASEKEYEDMUTEX rel = {slot->kmt_mutex, 0, state->fence};
         if (kmt.ReleaseKeyedMutex( &rel )) macvr_log( "D3DKMTReleaseKeyedMutex failed" );
     }
-    stats_add( state, now() );
+    if (slot && !state->overlay) stats_add( state, now() );
     state->slot = NULL;
+    state->locked = FALSE;
+    ReleaseSRWLockExclusive( &dxmt_lock );
 }

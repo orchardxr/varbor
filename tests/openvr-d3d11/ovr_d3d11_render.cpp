@@ -157,6 +157,42 @@ int main(int argc, char** argv)
 	    (unsigned long long)set, (unsigned long long)trig, (unsigned long long)pose, (unsigned long long)skel,
 	    (unsigned long long)hap);
 
+	// The other interfaces Half-Life: Alyx asks for, and a few harmless calls on them.
+	static const char* const alyx_ifaces[] = { "IVROverlay_028", "IVRRenderModels_006", "IVRApplications_007",
+		"IVRChaperone_004", "IVRMailbox_001", "IVRHeadsetView_001", "IVROverlayView_003", "IVRSettings_003" };
+	int missing = 0;
+	for (const char* name : alyx_ifaces) {
+		vr::EVRInitError ge = vr::VRInitError_None;
+		void* p = vr::VR_GetGenericInterface(name, &ge);
+		if (!p)
+			missing++;
+		LOG("%s -> %p (%d)", name, p, ge);
+	}
+	vr::IVRRenderModels* models = vr::VRRenderModels();
+	vr::IVRChaperone* chap = vr::VRChaperone();
+	vr::IVRHeadsetView* hview = vr::VRHeadsetView();
+	float pw = 0, ph = 0;
+	if (chap)
+		chap->GetPlayAreaSize(&pw, &ph);
+	LOG("render models %u, chaperone calibration %d play area %.2fx%.2f, headset view mode %u", models ? models->GetRenderModelCount() : 0,
+	    chap ? (int)chap->GetCalibrationState() : -1, pw, ph, hview ? (unsigned)hview->GetHeadsetViewMode() : 0);
+	vr::IVROverlay* ovl = vr::VROverlay();
+	vr::VROverlayHandle_t overlay = vr::k_ulOverlayHandleInvalid;
+	const uint32_t ovl_px = 0xFF20C0FFu;
+	ID3D11Texture2D* ovl_tex = make_texture(dev, 256, 128, 1, &ovl_px);
+	vr::EVROverlayError oe = ovl ? ovl->CreateOverlay("macvr.vrclient.test", "vrclient test", &overlay) : vr::VROverlayError_InvalidHandle;
+	if (oe == vr::VROverlayError_None) {
+		ovl->SetOverlayWidthInMeters(overlay, 0.5f);
+		vr::HmdMatrix34_t m = { { { 1, 0, 0, 0 }, { 0, 1, 0, 1.2f }, { 0, 0, 1, -1.5f } } };
+		ovl->SetOverlayTransformAbsolute(overlay, vr::TrackingUniverseStanding, &m);
+		vr::Texture_t t = { ovl_tex, vr::TextureType_DirectX, vr::ColorSpace_Gamma };
+		oe = ovl->SetOverlayTexture(overlay, &t);
+		vr::EVROverlayError se = ovl->ShowOverlay(overlay);
+		LOG("overlay %llx: SetOverlayTexture(D3D11) -> %d, ShowOverlay -> %d", (unsigned long long)overlay, oe, se);
+	} else {
+		LOG("CreateOverlay -> %d", oe);
+	}
+
 	int frames = 0, submit_errors = 0, wait_errors = 0, input_errors = 0, events = 0;
 	std::vector<double> submit_ms, frame_ms;
 	double start = now_ms(), last = start;
@@ -209,6 +245,11 @@ int main(int argc, char** argv)
 		}
 		double s1 = now_ms();
 		comp->PostPresentHandoff();
+		if (overlay != vr::k_ulOverlayHandleInvalid && frames % 60 == 59) {
+			vr::Texture_t t = { ovl_tex, vr::TextureType_DirectX, vr::ColorSpace_Gamma };
+			if ((oe = ovl->SetOverlayTexture(overlay, &t)) != vr::VROverlayError_None)
+				LOG("frame %d SetOverlayTexture -> %d", frames, oe);
+		}
 		submit_ms.push_back(s1 - s0);
 		frame_ms.push_back(s1 - last);
 		last = s1;
@@ -224,8 +265,11 @@ int main(int argc, char** argv)
 		std::sort(v.begin(), v.end());
 		return v[std::min(v.size() - 1, size_t(p * v.size()))];
 	};
-	LOG("done: %d frames in %.1f s (%.1f fps), %d submit errors, %d wait errors, %d input errors, %d events", frames,
-	    elapsed, frames / elapsed, submit_errors, wait_errors, input_errors, events);
+	LOG("done: %d frames in %.1f s (%.1f fps), %d submit errors, %d wait errors, %d input errors, %d events, %d missing "
+	    "interfaces", frames, elapsed, frames / elapsed, submit_errors, wait_errors, input_errors, events, missing);
+	if (overlay != vr::k_ulOverlayHandleInvalid)
+		ovl->DestroyOverlay(overlay);
+	ovl_tex->Release();
 	LOG("both-eye Submit ms: median %.2f p99 %.2f max %.2f; frame interval ms: median %.2f p99 %.2f", pct(submit_ms, 0.5),
 	    pct(submit_ms, 0.99), pct(submit_ms, 1), pct(frame_ms, 0.5), pct(frame_ms, 0.99));
 	vr::VR_Shutdown();

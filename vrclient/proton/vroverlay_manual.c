@@ -8,6 +8,9 @@
 #include "d3d11_4.h"
 #include "dxvk-interop.h"
 #include "vrclient_private.h"
+#ifdef MACVR
+#include "macvr_pe.h"
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
@@ -20,9 +23,13 @@ struct set_overlay_texture_state
     VkImageSubresourceRange subresources;
     IDXGIVkInteropSurface *dxvk_surface;
     IDXGIVkInteropDevice *dxvk_device;
+#ifdef MACVR
+    struct macvr_submit macvr;
+    w_VRTextureWithPose_t metal;
+#endif
 };
 
-static void load_overlay_texture_dxvk( const w_Texture_t *texture, struct set_overlay_texture_state *state )
+static void load_overlay_texture_dxvk( uint64_t overlay, const w_Texture_t *texture, struct set_overlay_texture_state *state )
 {
     VkImageCreateInfo image_info;
     IUnknown *texture_iface;
@@ -34,6 +41,15 @@ static void load_overlay_texture_dxvk( const w_Texture_t *texture, struct set_ov
         WARN( "No D3D11 texture %p.\n", texture );
         return;
     }
+
+#ifdef MACVR
+    if (macvr_dxmt_texture( texture_iface ))
+    {
+        uint32_t flags = 0;
+        state->texture = *(const w_Texture_t *)macvr_load_overlay_dxmt( overlay, texture, &flags, &state->metal, &state->macvr );
+        return;
+    }
+#endif
 
     if (FAILED(texture_iface->lpVtbl->QueryInterface( texture_iface, &IID_IDXGIVkInteropSurface,
                                                       (void **)&state->dxvk_surface )))
@@ -58,6 +74,9 @@ static void load_overlay_texture_dxvk( const w_Texture_t *texture, struct set_ov
 
 static void free_unix_overlay_texture_dxvk( struct set_overlay_texture_state *state )
 {
+#ifdef MACVR
+    macvr_free_texture_dxmt( &state->macvr );
+#endif
     if (!state->dxvk_device) return;
 
     state->dxvk_device->lpVtbl->ReleaseSubmissionQueue( state->dxvk_device );
@@ -119,7 +138,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_006_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p %#I64x %d %p.\n", _this, ulOverlayHandle, eTextureType, pTexture );
 
-    if (eTextureType == TextureType_DirectX) load_overlay_texture_dxvk( &texture, &state );
+    if (eTextureType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, &texture, &state );
     params.eTextureType = state.texture.eType;
     params.pTexture = state.texture.handle;
     VRCLIENT_CALL( IVROverlay_IVROverlay_006_SetOverlayTexture, &params );
@@ -141,7 +160,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_007_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_007_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -161,7 +180,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_008_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_008_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -181,7 +200,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_010_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_010_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -201,7 +220,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_011_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_011_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -221,7 +240,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_012_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_012_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -241,7 +260,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_013_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_013_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -261,7 +280,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_014_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_014_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -281,7 +300,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_016_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_016_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -301,7 +320,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_017_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_017_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -321,7 +340,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_018_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_018_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -341,7 +360,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_019_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_019_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -361,7 +380,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_020_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_020_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -381,7 +400,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_021_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_021_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -401,7 +420,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_022_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_022_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -421,7 +440,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_024_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_024_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -441,7 +460,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_025_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_025_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -461,7 +480,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_026_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_026_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -481,7 +500,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_027_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_027_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 
@@ -501,7 +520,7 @@ uint32_t __thiscall winIVROverlay_IVROverlay_028_SetOverlayTexture( struct w_ifa
 
     TRACE( "%p\n", _this );
 
-    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( pTexture, &state );
+    if (pTexture->eType == TextureType_DirectX) load_overlay_texture_dxvk( ulOverlayHandle, pTexture, &state );
     VRCLIENT_CALL( IVROverlay_IVROverlay_028_SetOverlayTexture, &params );
     if (pTexture->eType == TextureType_DirectX) free_unix_overlay_texture_dxvk( &state );
 

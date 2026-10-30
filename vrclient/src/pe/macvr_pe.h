@@ -9,6 +9,7 @@ struct macvr_submit
     struct dxmt_slot *slot;
     UINT64 fence;
     LONGLONG t_start, t_copied, t_waited;
+    BOOL locked, overlay;
 };
 
 void macvr_log( const char *fmt, ... ) __attribute__((format(printf, 1, 2)));
@@ -23,4 +24,8 @@ BOOL macvr_dxmt_texture( IUnknown *texture );
  * which the unix side refuses with VRCompositorError_InvalidTexture. */
 const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
                                      struct macvr_submit *state, uint32_t array_index );
+/* The same for an overlay's texture, with a ring per overlay handle. */
+const void *macvr_load_overlay_dxmt( uint64_t overlay, const void *texture, uint32_t *flags, void *texture_out,
+                                     struct macvr_submit *state );
+/* After the runtime's call; required after every load (releases the bridge's lock). */
 void macvr_free_texture_dxmt( struct macvr_submit *state );

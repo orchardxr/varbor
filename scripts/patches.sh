@@ -11,8 +11,6 @@
 # Projects are the directories under patches/ whose third_party/<project> is a submodule.
 # The pin is the submodule commit recorded in the superproject's index (bump it with
 # `git add third_party/<project>` after checking out the new upstream commit).
-# For monado, WiVRn's own third_party/wivrn/patches/monado/* are applied first (in
-# glob order, like wivrn's apply.sh), so wivrn must be checked out at its pin.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,15 +42,6 @@ git_p() { git -C "$TP/$1" "${@:2}"; }
 patch_list() {
 	local p="$1" f
 	shopt -s nullglob
-	if [[ "$p" == monado ]]; then
-		local wivrn_base
-		wivrn_base="$(base_of wivrn)"
-		[[ "$(git_p wivrn rev-parse HEAD)" == "$(git_p wivrn rev-parse "$wivrn_base^{commit}")" ]] \
-			|| die "third_party/wivrn is not at its pin; run 'patches.sh apply wivrn' first"
-		for f in "$TP"/wivrn/patches/monado/*; do
-			[[ -f "$f" ]] && echo "$f"
-		done
-	fi
 	for f in "$PATCHES/$p"/*.patch; do
 		echo "$f"
 	done
@@ -145,12 +134,7 @@ case "$cmd" in
 		if [[ $# -eq 0 ]]; then
 			projects=()
 			while IFS= read -r p; do projects+=("$p"); done < <(all_projects)
-			# wivrn first: monado's patch list depends on it
-			ordered=()
-			for p in wivrn "${projects[@]}"; do
-				[[ " ${ordered[*]-} " == *" $p "* ]] || [[ ! " ${projects[*]} " == *" $p "* ]] || ordered+=("$p")
-			done
-			set -- "${ordered[@]}"
+			set -- "${projects[@]}"
 		fi
 		for p in "$@"; do
 			case "$cmd" in

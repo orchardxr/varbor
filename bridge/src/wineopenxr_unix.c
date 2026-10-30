@@ -72,9 +72,9 @@ static time_t read_stamp(const char *path, char *buf, size_t size)
     return n && !stat(path, &st) ? st.st_mtime : 0;
 }
 
-/* scripts/ipc-stamp.sh: the client's ipc-stamp must equal the running server's, else the two were built from
+/* The client's ipc-stamp must equal the running server's, else the two were built from
  * different Monado trees; a mismatch refuses the runtime unless WINEOPENXR_IGNORE_IPC_STAMP=1. The server's copy is
- * published to $DARWIN_USER_TEMP_DIR/wivrn/ipc-stamp by the start scripts: the build dir is in ~/Documents, which a
+ * published to $DARWIN_USER_TEMP_DIR/wivrn/ipc-stamp by the server start: the build dir may be in ~/Documents, which a
  * game process must never touch (TCC prompt). A copy older than the server process is stale and only warned about. */
 static int check_ipc_stamp(const char *client_lib, char *msg, size_t size)
 {
@@ -107,13 +107,65 @@ static int check_ipc_stamp(const char *client_lib, char *msg, size_t size)
             snprintf(msg, size, "ipc-stamp: UNVERIFIED, server stamp predates the server (client %s)", client);
             return 1;
         }
-        snprintf(msg, size, "IPC STAMP MISMATCH: client [%s] server [%s]; rebuild with scripts/build-wivrn.sh "
-                 "--client-x86_64 and --client-arm64", client, server);
+        snprintf(msg, size, "IPC STAMP MISMATCH: client [%s] server [%s]; client and server come from different WiVRn builds",
+                 client, server);
         return getenv("WINEOPENXR_IGNORE_IPC_STAMP") != NULL;
     }
     else if (stamp_time < server_start) snprintf(msg, size, "ipc-stamp: match, but server stamp predates the server (%s)", client);
     else snprintf(msg, size, "ipc-stamp match (%s)", client);
     return 1;
+}
+
+/* The "library_path" of an OpenXR runtime manifest, resolved against the manifest's dir. */
+static int manifest_library(const char *json, char *out, size_t size)
+{
+    char buf[8192], dir[PATH_MAX];
+    FILE *f = fopen(json, "r");
+    size_t n;
+    char *k, *q, *e;
+    if (!f) return 0;
+    n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = 0;
+    if (!(k = strstr(buf, "\"library_path\"")) || !(k = strchr(k + 14, ':')) || !(q = strchr(k, '"'))
+        || !(e = strchr(q + 1, '"')))
+        return 0;
+    *e = 0;
+    if (q[1] == '/') snprintf(out, size, "%s", q + 1);
+    else
+    {
+        snprintf(dir, sizeof(dir), "%s", json);
+        snprintf(out, size, "%s/%s", dirname(dir), q + 1);
+    }
+    return 1;
+}
+
+/* Like the host OpenXR loader: XR_RUNTIME_JSON, then active_runtime.json in the XDG config dirs and
+ * /usr/local/share. A runtime next to the .so (test rigs) comes first. */
+static int find_runtime(char *path, size_t size)
+{
+    Dl_info dli;
+    char self[1024], json[PATH_MAX];
+    const char *home, *xdg = getenv("XDG_CONFIG_HOME"), *env = getenv("XR_RUNTIME_JSON");
+    struct passwd *pw = getpwuid(getuid());
+
+    if (dladdr((void *)find_runtime, &dli))
+    {
+        snprintf(self, sizeof(self), "%s", dli.dli_fname);
+        snprintf(path, size, "%s/libopenxr_monado.dylib", dirname(self));
+        if (!access(path, F_OK)) return 1;
+    }
+    if (env && manifest_library(env, path, size)) return 1;
+    home = pw ? pw->pw_dir : getenv("HOME");
+    const char *dirs[] = {xdg, home ? "~" : NULL, "/etc/xdg", "/usr/local/share", "/usr/share"};
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(*dirs); i++)
+    {
+        if (!dirs[i]) continue;
+        if (!strcmp(dirs[i], "~")) snprintf(json, sizeof(json), "%s/.config/openxr/1/active_runtime.json", home);
+        else snprintf(json, sizeof(json), "%s/openxr/1/active_runtime.json", dirs[i]);
+        if (manifest_library(json, path, size)) return 1;
+    }
+    return 0;
 }
 
 static void load_runtime(void)
@@ -123,17 +175,11 @@ static void load_runtime(void)
     const char *rt = getenv("MACVR_OPENXR_RUNTIME");
     if (!rt)
     {
-        Dl_info dli;
-        char self[1024];
-        if (!dladdr((void *)load_runtime, &dli)) return;
-        snprintf(self, sizeof(self), "%s", dli.dli_fname);
-        snprintf(path, sizeof(path), "%s/libopenxr_monado.dylib", dirname(self));
-        /* Installed into a runner's lib/wine (MacVR runner mode): the client stays in MacVR's own dir. */
-        if (access(path, F_OK))
+        if (!find_runtime(path, sizeof(path)))
         {
-            struct passwd *pw = getpwuid(getuid());
-            snprintf(path, sizeof(path), "%s/Library/Application Support/macvr/current/bridge/x86_64-unix/"
-                     "libopenxr_monado.dylib", pw ? pw->pw_dir : getenv("HOME"));
+            snprintf(init_info, sizeof(init_info), "no OpenXR runtime: install WiVRn (XR_RUNTIME_JSON or "
+                     "~/.config/openxr/1/active_runtime.json)");
+            return;
         }
         rt = path;
     }

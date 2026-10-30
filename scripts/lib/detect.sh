@@ -44,3 +44,14 @@ llvm_mingw() {
 	fi
 	echo "$d"
 }
+
+# Vulkan headers dir (holds vulkan/vulkan_core.h): VULKAN_INCLUDE, else /usr/local/include (LunarG SDK), else Homebrew's
+# vulkan-headers
+vulkan_include() {
+	local d
+	for d in "${VULKAN_INCLUDE:-}" /usr/local/include "$(brew --prefix vulkan-headers 2>/dev/null)/include"; do
+		[[ -n "$d" && -f "$d/vulkan/vulkan_core.h" ]] && { echo "$d"; return; }
+	done
+	echo "vulkan_include: no Vulkan headers; brew install vulkan-headers or set VULKAN_INCLUDE" >&2
+	return 1
+}

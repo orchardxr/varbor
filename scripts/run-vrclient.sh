@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Run a Windows OpenVR program through the vrclient bridge (vrclient/) and the native macOS OpenComposite
-# (build/oc-macos/runtime, Metal compositor) against our arm64 monado-service (null compositor, simulated HMD):
+# (opencomposite-macos's runtime dir, Metal compositor) against an arm64 monado-service (null compositor, simulated HMD):
 #   game -> openvr_api.dll -> vrclient_x64.dll -> vrclient_x64.so -> vrclient.dylib -> XR_KHR_metal_enable -> Monado
 #   scripts/run-vrclient.sh [seconds] [exe [args...]]      (default: 30 s of build/vrclient/tests/ovr_d3d11_render.exe)
 #
 # Environment:
+#   OC_RUNTIME=<dir>   OpenComposite runtime dir with bin/osx64/vrclient.dylib (default
+#                      ../opencomposite-macos/build/oc-macos/runtime next to this checkout)
+#   MONADO_BUILD=<dir> monado-service and the x86_64/arm64 IPC clients with XR_KHR_metal_enable, as wivrn-macos builds
+#                      them (default ../wivrn-macos/build/bridge)
 #   OUT=<dir>          scratch dir (default $DARWIN_USER_TEMP_DIR/macvr-vrclient): staged root/runtime/client, prefix,
 #                      logs and frame dumps. Wine must not touch ~/Documents (TCC prompt), so everything it loads is
 #                      copied there first.
@@ -53,9 +57,10 @@ rm -f "$png" "$vlog"
 
 # Stage what Wine loads
 rsync -a --delete "$ROOT/build/vrclient/root/" "$OUT/root/"
-rsync -a --delete "$ROOT/build/oc-macos/runtime/" "$OUT/runtime/"
-client="$ROOT/build/bridge/monado-$xr_arch/src/xrt/targets/openxr/libopenxr_monado.dylib"
-[[ -f "$client" ]] || { echo "no $client (scripts/build-bridge.sh monado-$xr_arch)" >&2; exit 1; }
+MB="${MONADO_BUILD:-$ROOT/../wivrn-macos/build/bridge}"
+rsync -a --delete "${OC_RUNTIME:-$ROOT/../opencomposite-macos/build/oc-macos/runtime}/" "$OUT/runtime/"
+client="$MB/monado-$xr_arch/src/xrt/targets/openxr/libopenxr_monado.dylib"
+[[ -f "$client" ]] || { echo "no $client (build it in wivrn-macos or set MONADO_BUILD)" >&2; exit 1; }
 mkdir -p "$OUT/xr-$xr_arch"
 cp "$client" "$OUT/xr-$xr_arch/"
 printf '{\n  "file_format_version": "1.0.0",\n  "runtime": { "name": "Monado", "library_path": "%s" }\n}\n' \
@@ -101,7 +106,7 @@ rm -f "$sock"
 (
 	export XRT_NO_STDIN=1 XRT_COMPOSITOR_NULL=1 SIMULATED_ENABLE=1
 	export XRT_COMPOSITOR_NULL_DUMP="$png" XRT_COMPOSITOR_NULL_DUMP_FRAME="${DUMP_FRAME:-300}"
-	exec perl -e 'alarm shift; exec @ARGV' $((secs + 120)) "$ROOT/build/bridge/monado/src/xrt/targets/service/monado-service"
+	exec perl -e 'alarm shift; exec @ARGV' $((secs + 120)) "$MB/monado/src/xrt/targets/service/monado-service"
 ) > "$slog" 2>&1 &
 spid=$!
 for _ in $(seq 50); do

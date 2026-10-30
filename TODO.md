@@ -860,6 +860,33 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   (pacing, not frames); DXMT's AGENTS.md forbids AI-generated contributions, so the patch is MacVR-local, not for
   upstream as is.
 
+## DXVK on the vrclient bridge, the Mac way (2026-10-30, vrclient-native step 6)
+- MoltenVK: CX 26.3 (lib64, x86_64) and CX 27 (lib/x86_64 Rosetta, lib/aarch64 FEX) all export `vkExportMetalObjectsEXT`
+  and list VK_EXT_metal_objects, timeline/external semaphores. DXVK is `cxaddon-1.10.3-1-25` (needs timelineSemaphore).
+  CX 27 FEX has no ARM64EC DXVK: `CX_GRAPHICS_BACKEND=dxvk` logs "using dxvk" but loads wined3d's d3d11 (a native x86_64
+  DXVK d3d11.dll next to the exe was ignored too), so DXVK = Rosetta runners only.
+- Bridge (`vrclient/src/vk_pe.c`, `vk_unix.mm`): Proton's DXVK sequence (IDXGIVkInteropSurface, transition to
+  TRANSFER_SRC, flush, LockSubmissionQueue ... Release, transition back); the unix side calls CrossOver's MoltenVK
+  directly (found among the loaded images, CX_ROOT first; host handles via vulkan_driver.h's client->unix_handle) and
+  exports the VkImage's MTLTexture. Sync: two exported timeline semaphores, `ready` (signalled on DXVK's queue) and
+  `done` (signalled by OpenComposite's copy via oc_metal_submit_sync); if the copy took it, DXVK's queue waits for
+  `done` before later work. Copy fallback (ring of 3 per target, vkCmdCopyImage/Resolve on DXVK's queue, slot reuse
+  waits on the GPU for its `done`): overlays/skybox, MSAA, other slices, no shader read, no GPU sync,
+  `VRCLIENT_VK_DIRECT=0`. TextureType_Vulkan eye submits take the same path (untested: no Vulkan test app).
+- DXVK asked the runtime for Vulkan extensions and OpenComposite aborted: setup-vrclient-prefix.sh now writes
+  HKCU\Software\Wine\VR (state 1, instance list `VK_KHR_surface`) like Proton's steam.exe. DXVK still logs
+  "could not query value" for the missing PCIID device list (harmless).
+- Measured (1832x1920, 30 s, 2 windows of 500, bridge total per eye median/p99 ms): CX 27 Rosetta direct 0.26-0.27/
+  0.57-0.59, stress64 0.24-0.26/0.55-0.70, copy (VRCLIENT_VK_DIRECT=0) 0.27-0.28/0.53-0.71, msaa (resolve) 0.27/
+  0.58-0.65; CX 26.3 direct 0.27/0.56-0.57, stress64 0.25/0.61-0.72. All 599-601 frames, 0 submit/service errors,
+  both eyes in the dumps. DXMT unchanged (CX 27 FEX): stock 0.20/0.55-0.59 (stress 0.20/0.41-0.67), MacVR DXMT
+  0.13/0.32-0.34 (stress 0.13/0.40-0.43).
+- Open: native Vulkan games also need GetVulkan{Instance,Device}ExtensionsRequired answered by the bridge
+  (OpenComposite aborts) and Vulkan overlays converted; the GPU-side ordering relies on MoltenVK encoding timeline
+  waits as MTLEvent waits that hold the queue (as DXMT's WaitEvent does); the DXVK queue stalls for OpenComposite's
+  copy per eye (not measured on GPU); Alyx on DXVK not run (needs the Rosetta runner, `CX_GRAPHICS_BACKEND=dxvk`
+  instead of dxmt in its launch options and the prefix's Software\Wine\VR key from setup-vrclient-prefix.sh).
+
 ## Morning A/B: MacVR path vs vrclient path, real WiVRn server (prepared 2026-10-30)
 A = MacVR's path (MacVR.app's payload and its own wivrn-server: Windows OpenComposite -> wineopenxr). B = the vrclient
 path (vrclient_x64 -> native OpenComposite, Metal -> this tree's WiVRn client with Monado 0017 -> `build/wivrn` server,

@@ -19,6 +19,8 @@
 #   VRCLIENT_DXMT_SYNC=query   force the event-query sync (DXMT without keyed mutexes)
 #   VRCLIENT_DXMT_DIRECT=0     MacVR DXMT runner: copy the eye textures instead of handing over DXMT's own
 #   VRCLIENT_DXMT_GPU_SYNC=0   CPU wait before OpenComposite's copy instead of its GPU wait (oc_metal_submit_sync)
+#   VRCLIENT_VK_DIRECT=0       BACKEND=dxvk (Rosetta runners; CX 27 FEX has no DXVK and falls back to wined3d): copy
+#                              the eye images instead of handing over DXVK's own MTLTexture
 # The service gets its own XDG_RUNTIME_DIR ($OUT/rt). Never touches the runners, NotProton's template or game prefixes.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

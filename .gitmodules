@@ -22,3 +22,7 @@
 	path = third_party/directxmath
 	url = https://github.com/microsoft/DirectXMath.git
 	shallow = true
+[submodule "third_party/dxmt"]
+	path = third_party/dxmt
+	url = https://github.com/3Shain/dxmt.git
+	ignore = dirty

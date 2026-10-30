@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var bottles: [URL] = []
     @Published var libraries: [URL] = []
     @Published var components: [Components.State] = []
+    @Published var engines: [Engines.RunnerState] = []
     @Published var working: String?
     @Published var message: String?
     @Published var update: Updater.Release?
@@ -56,6 +57,7 @@ final class AppModel: ObservableObject {
                 }
                 self.tick()
                 self.checkForUpdates(quiet: true)
+                self.checkEngines()
             }
         }
     }
@@ -171,6 +173,53 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The one network call for engines besides an install: at launch and from the Runners section.
+    func checkEngines() {
+        let ctx = ctx
+        Task.detached {
+            let e = await Engines.check(ctx, source: GitHubEngineSource())
+            await MainActor.run { self.engines = e }
+        }
+    }
+
+    func installEngines(_ r: Engines.StockRunner) {
+        guard working == nil else { return }
+        if Steam.gameRunning { message = "Quit the game first: the VarboR runner is rebuilt from \(r.name)."; return }
+        working = "Installing engines for \(r.name)…"
+        message = nil
+        let ctx = ctx
+        Task.detached {
+            var msg: String?
+            do {
+                try await Engines.install(ctx, r, source: GitHubEngineSource())
+                Varbor.refreshRunners(ctx)
+                Varbor.rescan(ctx)
+            } catch { msg = "\(error)" }
+            let m = msg
+            await MainActor.run {
+                self.message = m
+                self.working = nil
+                self.checkEngines()
+                self.refreshDetails()
+            }
+        }
+    }
+
+    func registerTools(_ st: Engines.RunnerState) {
+        let a = NSAlert()
+        a.messageText = "Add the VarboR tools to NotProton?"
+        a.informativeText = "VarboR adds \(st.unregistered.joined(separator: ", ")) to NotProton's list of compatibility tools "
+            + "(a backup of the list is kept). Steam shows them after it restarts; pick one in a game's Compatibility settings."
+        a.addButton(withTitle: "Add")
+        a.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        perform("Registering…") { ctx in
+            _ = try Engines.register(ctx, st.runner)
+            return nil
+        }
+    }
+
     func rescanNow() {
         perform("Rescanning…") { ctx in Varbor.rescan(ctx) }
     }
@@ -207,8 +256,11 @@ final class AppModel: ObservableObject {
             let p = Varbor.prefixStates(ctx), r = RunnerInstall.fileStates(ctx), b = ctx.bottles, l = ctx.extraLibraries
             let n = ctx.steam.appNames
             let c = Components.all(.real(ctx))
+            let e = Engines.status(ctx)
             await MainActor.run {
                 self.components = c
+                let known = Dictionary(self.engines.map { ($0.runner.name, $0.available) }, uniquingKeysWith: { a, _ in a })
+                self.engines = e.map { var s = $0; s.available = known[s.runner.name] ?? nil; return s }
                 self.prefixes = p
                 self.appNames = n
                 self.runnerFiles = r

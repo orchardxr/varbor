@@ -201,12 +201,21 @@ struct StatusPage: View {
             } footer: {
                 Text("Separate apps VarboR works with. Each installs and updates itself; VarboR only checks them.")
             }
-            Section("Runners") {
+            Section {
                 if runners.isEmpty { Text("No NotProton runners found.") }
                 ForEach(runners, id: \.self) { r in
                     let files = model.runnerFiles.filter { $0.runner == r }
                     let ok = files.filter { $0.state == "ok" }.count
                     Row(title: r, subtitle: ["Bridge: \(ok) of \(files.count) files"], dot: ok == files.count ? .green : .orange)
+                    if let st = model.engines.first(where: { $0.runner.name == r }) { EngineRow(model: model, st: st) }
+                }
+            } header: {
+                Text("Runners")
+            } footer: {
+                HStack {
+                    Text("The VarboR runner is a copy of a stock runner with VarboR's DXMT and ARM64EC DXVK.")
+                    Spacer()
+                    Button("Check for Engines") { model.checkEngines() }.disabled(model.working != nil)
                 }
             }
             Section {
@@ -227,6 +236,32 @@ struct StatusPage: View {
         var out: [String] = []
         for f in model.runnerFiles where !out.contains(f.runner) { out.append(f.runner) }
         return out
+    }
+}
+
+struct EngineRow: View {
+    @ObservedObject var model: AppModel
+    let st: Engines.RunnerState
+
+    var subtitle: [String] {
+        var out = [st.installed ? "Installed (\(st.installedTag!))" : "Not installed"]
+        if !st.tools.isEmpty { out.append("Steam tools: \(st.tools.joined(separator: ", "))") }
+        if !st.unregistered.isEmpty { out.append("Not in NotProton's tool list yet") }
+        if case .none(let why)? = st.available { out.append(why) }
+        return out
+    }
+
+    var body: some View {
+        Row(title: "VarboR runner", subtitle: subtitle,
+            dot: st.installed && !st.updateAvailable && st.unregistered.isEmpty ? .green : st.updateAvailable ? .blue : .secondary) {
+            if st.updateAvailable {
+                Button(st.installed ? "Update Engines" : "Install Engines") { model.installEngines(st.runner) }
+                    .disabled(model.working != nil || model.gameRunning)
+            }
+            if !st.unregistered.isEmpty {
+                Button("Add to NotProton…") { model.registerTools(st) }.disabled(model.working != nil)
+            }
+        }
     }
 }
 

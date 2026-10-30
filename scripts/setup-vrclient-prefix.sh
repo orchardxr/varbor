@@ -2,6 +2,7 @@
 # Set a Wine prefix up for the vrclient bridge (vrclient/), the way Proton's setup_openvr_paths does it:
 #   C:\vrclient\bin\vrclient_x64.dll       placeholder for openvr_api.dll to load (Wine then runs the builtin)
 #   <user>\AppData\Local\openvr\openvrpaths.vrpath   runtime -> C:\vrclient, for every Wine user in the prefix
+#   HKCU\Software\Wine\VR                  ready, no Vulkan extensions (for DXVK; see vr_key below)
 # Optionally installs the builtin into a CrossOver runner tree and points the macOS openvrpaths.vrpath at the native
 # runtime (OpenComposite's vrclient.dylib), which the unix side reads when MACVR_VRCLIENT_RUNTIME is unset.
 #
@@ -32,7 +33,7 @@ while [[ $# -gt 1 ]]; do
 		*) echo "unknown option $1" >&2; exit 2 ;;
 	esac
 done
-[[ $# -eq 1 ]] || { sed -n '2,17p' "$0" >&2; exit 2; }
+[[ $# -eq 1 ]] || { sed -n '2,19p' "$0" >&2; exit 2; }
 prefix="$1"
 [[ -d "$prefix/drive_c" ]] || { echo "$prefix: no drive_c" >&2; exit 1; }
 dll="$vrroot/x86_64-windows/vrclient_x64.dll"
@@ -71,6 +72,39 @@ with open(path, "w") as f:
 EOF
 }
 
+# HKCU\Software\Wine\VR, what Proton's steam.exe has vrclient_init_registry() write before a game starts: DXVK's
+# OpenVR support reads its Vulkan extension lists from there (state 1 = ready) instead of asking the runtime, which
+# the Metal-only OpenComposite answers with an abort. The bridge hands Metal textures to the runtime, so nothing is
+# needed: the instance list names VK_KHR_surface, which DXVK enables anyway (an empty string becomes an empty
+# extension name and vkCreateInstance fails). Edits user.reg directly, like VR_OVERRIDE below: the prefix's
+# wineserver must not be running.
+vr_key() {
+	python3 -I - "$1" "$2" <<'EOF'
+import re, sys, time
+path, mode = sys.argv[1], sys.argv[2]
+try:
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+except OSError:
+    sys.exit(0)
+section = re.compile(r'\n\[Software\\\\Wine\\\\VR\] [^\n]*\n(?:[^\n\[][^\n]*\n|\n(?!\[))*')
+m = section.search(text)
+if mode == "set":
+    if m and '"macvr"=' not in m.group(0):
+        sys.exit(0)
+    if m:
+        text = text[:m.start()] + text[m.end():]
+    text = text.rstrip("\n") + "\n\n[Software\\\\Wine\\\\VR] %d\n" % int(time.time()) + \
+        '"macvr"="vrclient"\n"openvr_vulkan_instance_extensions"="VK_KHR_surface"\n"state"=dword:00000001\n'
+elif m and '"macvr"=' in m.group(0):
+    text = text[:m.start()] + "\n" + text[m.end():].lstrip("\n")
+else:
+    sys.exit(0)
+with open(path, "w", encoding="utf-8") as f:
+    f.write(text)
+EOF
+}
+
 users=()
 for u in "$prefix"/drive_c/users/*/; do
 	u=$(basename "$u")
@@ -81,6 +115,7 @@ done
 if [[ $remove == 1 ]]; then
 	rm -rf "$prefix/drive_c/vrclient"
 	for u in "${users[@]}"; do vrpath "$prefix/drive_c/users/$u/AppData/Local/openvr/openvrpaths.vrpath" restore; done
+	vr_key "$prefix/user.reg" remove
 	echo "vrclient removed from $prefix"
 	exit 0
 fi
@@ -89,6 +124,7 @@ fi
 mkdir -p "$prefix/drive_c/vrclient/bin" "$prefix/drive_c/vrclient/config" "$prefix/drive_c/vrclient/logs"
 cp "$dll" "$prefix/drive_c/vrclient/bin/vrclient_x64.dll"
 for u in "${users[@]}"; do vrpath "$prefix/drive_c/users/$u/AppData/Local/openvr/openvrpaths.vrpath" set; done
+vr_key "$prefix/user.reg" set
 echo "prefix $prefix: C:\\vrclient\\bin\\vrclient_x64.dll, openvrpaths.vrpath for ${users[*]}"
 
 # openvr_api.dll prefers VR_OVERRIDE (MacVR's Windows OpenComposite install sets it machine-wide) over

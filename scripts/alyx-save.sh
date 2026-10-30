@@ -8,6 +8,8 @@ VC=${0:A:h}/../tools/vconsole.py
 
 if pgrep -qf 'hlvr.exe'; then
 	osascript -e 'quit app "Half-Life Alyx"' >/dev/null 2>&1
+	for i in {1..20}; do pgrep -qf 'hlvr.exe' || break; sleep 1; done
+	pgrep -qf 'hlvr.exe' && python3 $VC quit >/dev/null
 	while pgrep -qf 'hlvr.exe'; do sleep 1; done
 	sleep 3
 fi

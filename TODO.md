@@ -814,3 +814,67 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   Steam update had replaced only rendersystemdx11/renderingpipelines on top of the 25487405 rollback (VR_001 vtable
   mismatch: GetOutputDevice landed in an IVRInput wrapper, crash on every path); those two are back at 25487405,
   the 26283546 copies are kept outside the game dir. Not checked: Rosetta (needs a Steam restart), headset, real size.
+- IVRInputInternal_002 (step 5): hand-written wrapper (`vrclient/src/inputinternal_pe.c` + `inputinternal_unix.cpp`,
+  unix call `macvr_input_internal`, registered under `MACVR` in vrclient_generated.c). Not generatable: the interface
+  isn't in any OpenVR SDK header. OpenComposite's definition (`OpenVRHeaders/custom_interfaces/IVRInputInternal_002.h`)
+  is 20 placeholder `void UknFuncNNN()` methods that all abort, so the wrapper has 20 slots, each forwarding to the
+  same native slot with the first three integer arguments, and logs the first call of each to VRCLIENT_LOG. Verified:
+  `ovr_d3d11_render.exe` (now also asks for it) gets a wrapper on CX 27 FEX and CX 26.3 Rosetta; Alyx (FEX, monado-service)
+  gets it (`IVRInputInternal_002 -> ... (native ...)`), reaches the main menu, and never calls a method of it.
+
+## Morning A/B: MacVR path vs vrclient path, real WiVRn server (prepared 2026-10-30)
+A = MacVR's path (MacVR.app's payload and its own wivrn-server: Windows OpenComposite -> wineopenxr). B = the vrclient
+path (vrclient_x64 -> native OpenComposite, Metal -> this tree's WiVRn client with Monado 0017 -> `build/wivrn` server,
+started with MacVR.app's pacer env). Both servers come from the same WiVRn/Monado patches; 0017 only adds client code.
+A's server uses MacVR's bundled MoltenVK, B's Homebrew's (scripts/env-macos.sh). B logs bridge stats every 500 submits
+(VRCLIENT_STATS=1, cheap); A runs without wineopenxr stats. OpenComposite defaults on both (A's ini only has
+`initUsingVulkan=false`). Checked tonight: `build/wivrn` server + both clients build (ipc-stamps equal), the server
+starts and publishes `_wivrn._tcp` (accepts apps only once a headset connects; stopped again); `on wivrn` / `off`
+round trip; `off` (and `check`) verifies MacVR's deployed payload and runner files against its own manifest/records.
+
+One-time setup (worktree root):
+```sh
+caffeinate -dimsu &                       # whole session
+pgrep -l screensharingd                   # must print nothing: no Screen Sharing (it shares the HW encoder/GPU)
+tail -3 ~/Library/Application\ Support/Steam/logs/content_log.txt   # no download running
+mkdir -p build/ab
+clang -O2 -o build/ab/gpufreq tools/mql-ab/gpufreq.c -framework CoreFoundation -lIOReport
+clang -O2 -fobjc-arc -o build/ab/gpustress tools/mql-ab/gpustress.m -framework Metal -framework Foundation
+clang -O1 -o build/ab/xr_refresh tools/mql-ab/xr_refresh.c -Ithird_party/openxr-sdk/include -Ibuild/openxr-sdk/include \
+  -I/usr/local/include -Lbuild/openxr-sdk/src/loader -lopenxr_loader -L/usr/local/lib -lvulkan \
+  -Wl,-rpath,$PWD/build/openxr-sdk/src/loader -Wl,-rpath,/usr/local/lib
+printf '{"file_format_version":"1.0.0","runtime":{"name":"Monado","library_path":"%s"}}\n' \
+  "$HOME/Library/Application Support/macvr/current/server/libopenxr_wivrn.dylib" > build/ab/openxr_macvr.json
+launchctl setenv MTL_HUD_LOG_ENABLED 1    # Metal HUD fps in the log (launch options already have MTL_HUD_ENABLED=1)
+```
+
+B, vrclient path (FEX first; Alyx's runner as `scripts/alyx-runner.sh` left it):
+```sh
+# MacVR.app must not run (own server, rescans prefixes)
+scripts/alyx-vrclient.sh on wivrn
+scripts/alyx-vrclient.sh wivrn            # terminal 2, foreground; PIN printed if the headset isn't paired
+adb shell am start -a android.intent.action.VIEW -d "wivrn://<mac address>:9757" -n org.meumeu.wivrn/.MainActivity
+XR_RUNTIME_JSON=$PWD/build/wivrn/openxr_wivrn-dev.json build/ab/xr_refresh 72
+tools/mql-ab/vrab.sh b72-1                # loads s6/steamvr_quit, fidelity 3, kick, 30-s window, prints abstats
+tools/mql-ab/vrab.sh b72-2
+python3 tools/vconsole.py quit            # quit Alyx; then Ctrl-C the server in terminal 2
+scripts/alyx-vrclient.sh off              # restores the prefix, runner, vrpath, launchd env; checks MacVR's payload
+```
+First look in the headset before measuring: both eyes, menu and balcony correct (B has never run on the headset).
+
+A, MacVR path (restore is `off` above, nothing else):
+```sh
+open -a MacVR                             # starts its wivrn-server; reconnect the headset (same adb command)
+XR_RUNTIME_JSON=$PWD/build/ab/openxr_macvr.json build/ab/xr_refresh 72
+AB_WIVRN_LOG=~/Library/Logs/MacVR/wivrn-server.log tools/mql-ab/vrab.sh a72-1
+AB_WIVRN_LOG=~/Library/Logs/MacVR/wivrn-server.log tools/mql-ab/vrab.sh a72-2
+python3 tools/vconsole.py quit; osascript -e 'quit app "MacVR"'
+```
+
+Rosetta check afterwards (one window each): `scripts/alyx-runner.sh rosetta` (restarts Steam), then B as above with
+labels `b72-rosetta` and A with `a72-rosetta`, then `scripts/alyx-runner.sh fex`.
+
+End: `launchctl unsetenv MTL_HUD_LOG_ENABLED`, `scripts/alyx-vrclient.sh check`, quit caffeinate, headset back to
+90 Hz (`build/ab/xr_refresh 90` against the running server) if wanted. Compare with docs/ab-alyx.md's B72 rows
+(72.0 fps, lowest second 70-71, HUD GPU 8.45-8.5 ms). If the `.hud` files are empty, the launcher didn't get
+MTL_HUD_LOG_ENABLED from launchd: restart Steam once and rerun.

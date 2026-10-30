@@ -3,6 +3,7 @@
 # logs over one window, into build/ab/<label>.*. Summarise with abstats.py.
 # Stack A (optional reference: Windows Steam + SteamVR in a CrossOver bottle): AB_DRIVE_C=<bottle drive_c>,
 # AB_ENCODER_LOG / AB_SHIM_LOG (its encoder and frame-path logs), AB_ENCODER_PROC (its encoder process name).
+# AB_WIVRN_LOG: the WiVRn server log (default build/logs/wivrn-server.log; MacVR.app's is ~/Library/Logs/MacVR/).
 set -u
 ROOT=${0:A:h:h:h}
 OUT=$ROOT/build/ab/$1
@@ -10,7 +11,7 @@ SECS=$2
 A=${AB_DRIVE_C:-/nonexistent}
 EL=${AB_ENCODER_LOG:-/nonexistent}; SL=${AB_SHIM_LOG:-/nonexistent}
 L="$A/Program Files (x86)/Steam/logs"
-W=$ROOT/build/logs/wivrn-server.log
+W=${AB_WIVRN_LOG:-$ROOT/build/logs/wivrn-server.log}
 lines() { wc -l < "$1" 2>/dev/null || echo 0; }
 e0=$(lines $EL); s0=$(lines $SL)
 v0=$(lines "$L/driver_vrlink.txt"); c0=$(lines "$L/vrcompositor.txt"); w0=$(lines $W)

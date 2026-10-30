@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published var runnerFiles: [RunnerInstall.FileState] = []
     @Published var bottles: [URL] = []
     @Published var libraries: [URL] = []
+    @Published var components: [Components.State] = []
     @Published var working: String?
     @Published var message: String?
     @Published var update: Updater.Release?
@@ -205,7 +206,9 @@ final class AppModel: ObservableObject {
         Task.detached {
             let p = Varbor.prefixStates(ctx), r = RunnerInstall.fileStates(ctx), b = ctx.bottles, l = ctx.extraLibraries
             let n = ctx.steam.appNames
+            let c = Components.all(.real(ctx))
             await MainActor.run {
+                self.components = c
                 self.prefixes = p
                 self.appNames = n
                 self.runnerFiles = r

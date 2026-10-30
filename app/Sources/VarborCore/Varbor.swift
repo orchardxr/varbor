@@ -125,6 +125,13 @@ public enum Varbor {
         var out: [String] = []
         out.append("version: \(Deploy.currentStamp(ctx) ?? "not installed")"
                    + ((try? FileManager.default.destinationOfSymbolicLink(atPath: ctx.previous.path)).map { " (previous \(URL(fileURLWithPath: $0).lastPathComponent))" } ?? ""))
+        out.append("components:")
+        for c in Components.all(.real(ctx)) {
+            out.append("  \(c.name): \(c.health.rawValue)" + (c.version.map { " \($0)" } ?? "") + (c.location.map { " (\($0))" } ?? ""))
+            out += c.notes.map { "    \($0)" }
+            if c.health == .missing || c.health == .outdated { out.append("    get it: \(c.page.absoluteString)") }
+            out += c.items.map { "    \($0)" }
+        }
         out.append("runner files:")
         out += RunnerInstall.status(ctx).map { "  " + $0 }
         out.append("prefixes:")

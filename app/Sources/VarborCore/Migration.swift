@@ -6,6 +6,11 @@ public enum Migration {
     /// a rescan hasn't reached yet (busy ones) still find the bridge. Same for the logs dir, without a link.
     public static func run(_ ctx: Context) {
         let fm = FileManager.default
+        // MacVR still running (the CLI ran first): its server and rescans use the old dir
+        if ctx.system && !Processes.pids(exact: "MacVR").isEmpty {
+            log("migration: MacVR is running, its support dir stays until VarboR.app retires it")
+            return
+        }
         if let old = ctx.legacySupport, isRealDir(old), !fm.fileExists(atPath: ctx.support.path) {
             if rename(old.path, ctx.support.path) == 0 {
                 try? fm.createSymbolicLink(atPath: old.path, withDestinationPath: ctx.support.lastPathComponent)

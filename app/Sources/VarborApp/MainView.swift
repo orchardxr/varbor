@@ -193,9 +193,62 @@ struct StatusPage: View {
                 Row(title: title, subtitle: [text], dot: color) {
                     if model.working != nil || model.setup.hasPrefix("setting up") { ProgressView().controlSize(.small) }
                 }
+            }
+            Section {
+                ForEach(model.components, id: \.name) { c in ComponentRow(c: c) }
+            } header: {
+                Text("Components")
+            } footer: {
+                Text("Separate apps VarboR works with. Each installs and updates itself; VarboR only checks them.")
+            }
+            Section("Runners") {
+                if runners.isEmpty { Text("No NotProton runners found.") }
+                ForEach(runners, id: \.self) { r in
+                    let files = model.runnerFiles.filter { $0.runner == r }
+                    let ok = files.filter { $0.state == "ok" }.count
+                    Row(title: r, subtitle: ["Bridge: \(ok) of \(files.count) files"], dot: ok == files.count ? .green : .orange)
+                }
+            }
+            Section {
+                let ok = model.prefixes.filter { $0.state == "ok" }.count
+                let excluded = model.prefixes.filter { $0.excluded }.count
+                Row(title: "\(ok) of \(model.prefixes.count - excluded) set up",
+                    subtitle: excluded == 0 ? [] : ["\(excluded) excluded"],
+                    dot: ok == model.prefixes.count - excluded ? .green : .orange)
+            } header: {
+                Text("Prefixes")
             } footer: {
                 Text(Varbor.backendNote)
             }
+        }
+    }
+
+    var runners: [String] {
+        var out: [String] = []
+        for f in model.runnerFiles where !out.contains(f.runner) { out.append(f.runner) }
+        return out
+    }
+}
+
+struct ComponentRow: View {
+    let c: Components.State
+
+    var color: Color {
+        switch c.health {
+        case .ok: .green
+        case .warning: .orange
+        case .missing, .outdated: .red
+        }
+    }
+
+    var body: some View {
+        Row(title: c.name + (c.version.map { " \($0)" } ?? ""), subtitle: (c.location.map { [$0] } ?? []) + c.notes, dot: color) {
+            switch c.health {
+            case .missing: Button("Install…") { NSWorkspace.shared.open(c.page) }
+            case .outdated: Button("Update…") { NSWorkspace.shared.open(c.page) }
+            default: EmptyView()
+            }
+            if let l = c.location { MoreMenu { PathMenu(path: l) } }
         }
     }
 }

@@ -20,6 +20,32 @@
 
 #define LOG(...) (printf("ovr_render: " __VA_ARGS__), printf("\n"), fflush(stdout))
 
+// abi_call(fn, a, b, c): fn(a, b, c) with sentinels in the Win64 callee-saved registers; returns a mask of the ones
+// fn changed (rbx, rsi, rdi, rbp, r12..r15 = bits 0..7).
+extern "C" unsigned abi_call(void* fn, void* a, const void* b, void* c);
+asm(".globl abi_call\n"
+    "abi_call:\n"
+    "  push %rbx\n push %rsi\n push %rdi\n push %rbp\n push %r12\n push %r13\n push %r14\n push %r15\n"
+    "  sub $40, %rsp\n"
+    "  mov %rcx, %rax\n mov %rdx, %rcx\n mov %r8, %rdx\n mov %r9, %r8\n"
+    "  movabs $0x1111111111111111, %rbx\n movabs $0x2222222222222222, %rsi\n"
+    "  movabs $0x3333333333333333, %rdi\n movabs $0x4444444444444444, %rbp\n"
+    "  movabs $0x5555555555555555, %r12\n movabs $0x6666666666666666, %r13\n"
+    "  movabs $0x7777777777777777, %r14\n movabs $0x0123456789abcdef, %r15\n"
+    "  call *%rax\n"
+    "  xor %eax, %eax\n"
+    "  movabs $0x1111111111111111, %rcx\n cmp %rcx, %rbx\n setne %al\n"
+    "  movabs $0x2222222222222222, %rcx\n cmp %rcx, %rsi\n setne %cl\n shl $1, %cl\n or %cl, %al\n"
+    "  movabs $0x3333333333333333, %rcx\n cmp %rcx, %rdi\n setne %cl\n shl $2, %cl\n or %cl, %al\n"
+    "  movabs $0x4444444444444444, %rcx\n cmp %rcx, %rbp\n setne %cl\n shl $3, %cl\n or %cl, %al\n"
+    "  movabs $0x5555555555555555, %rcx\n cmp %rcx, %r12\n setne %cl\n shl $4, %cl\n or %cl, %al\n"
+    "  movabs $0x6666666666666666, %rcx\n cmp %rcx, %r13\n setne %cl\n shl $5, %cl\n or %cl, %al\n"
+    "  movabs $0x7777777777777777, %rcx\n cmp %rcx, %r14\n setne %cl\n shl $6, %cl\n or %cl, %al\n"
+    "  movabs $0x0123456789abcdef, %rcx\n cmp %rcx, %r15\n setne %cl\n shl $7, %cl\n or %cl, %al\n"
+    "  add $40, %rsp\n"
+    "  pop %r15\n pop %r14\n pop %r13\n pop %r12\n pop %rbp\n pop %rdi\n pop %rsi\n pop %rbx\n"
+    "  ret\n");
+
 static const char* kManifest = R"({
   "default_bindings": [ { "controller_type": "oculus_touch", "binding_url": "ovr_render_bindings_touch.json" } ],
   "actions": [
@@ -224,7 +250,8 @@ int main(int argc, char** argv)
 	vr::EVRInputError ie = input->SetActionManifestPath((dir + "\\ovr_render_actions.json").c_str());
 	vr::VRActionSetHandle_t set = 0;
 	vr::VRActionHandle_t trig = 0, pose = 0, skel = 0, hap = 0;
-	input->GetActionSetHandle("/actions/main", &set);
+	unsigned clobbered = abi_call((*(void***)input)[1], input, "/actions/main", &set);
+	LOG("GetActionSetHandle callee-saved registers changed: %#x", clobbered);
 	input->GetActionHandle("/actions/main/in/trigger", &trig);
 	input->GetActionHandle("/actions/main/in/hand_left", &pose);
 	input->GetActionHandle("/actions/main/in/skeleton_left", &skel);

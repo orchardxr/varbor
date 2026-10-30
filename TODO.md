@@ -804,3 +804,13 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   `VRCLIENT_DXMT_GPU_SYNC=0`: the old CPU wait. Per-eye bridge cost median/p99 (ms, 1832x1920, 30 s, before -> after):
   27 Rosetta 1.14/2.5 -> 0.47/1.1, 27 FEX 1.10/2.3 -> 0.41/0.8; with `ovr_d3d11_render.exe 30 stress64` (~4 ms GPU per
   eye) 4.3/6.2 -> 0.48/1.1 and 4.3/5.7 -> 0.42/0.8; 26.3 unchanged (1.0/2.4 plain, 4.3/6.0 stress).
+- Alyx on the bridge (2026-10-30, step 4, FEX, CX 27): `scripts/alyx-vrclient.sh on|service|off` (prefix + runner + macOS
+  vrpath + `launchctl setenv XR_RUNTIME_JSON`, all backed up and restored; launch options untouched). Reaches the main
+  menu in VR, 2 × 4 min stable at 20 fps (null compositor), 0 service errors, frame dumps show the menu in both eyes.
+  Bridge per eye at 906x339: total median 0.30 ms, p99 1.6-5 ms (copy and OpenComposite Submit spikes).
+  Fixed: vrclient_x64.dll's CodeView path pointed into ~/Documents, so Alyx's crash handler hit a TCC prompt and hung
+  (now `/pdbaltpath:%_PDB%`); SetSkyboxOverride with DXMT textures (OpenComposite aborted on the D3D11 texture).
+  Open: IVRInputInternal_002 has no Proton wrapper (Alyx gets NULL, the old path gets OpenComposite's); the 26283546
+  Steam update had replaced only rendersystemdx11/renderingpipelines on top of the 25487405 rollback (VR_001 vtable
+  mismatch: GetOutputDevice landed in an IVRInput wrapper, crash on every path); those two are back at 25487405,
+  the 26283546 copies are kept outside the game dir. Not checked: Rosetta (needs a Steam restart), headset, real size.

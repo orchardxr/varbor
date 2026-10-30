@@ -251,7 +251,7 @@ anyway, and the record is rewritten. The registry and vrpath contents don't depe
 ## 3. WiVRn server in the GUI session
 
 Constraint: the Monado client finds the service's Mach port with `bootstrap_look_up` on the per-login-session
-bootstrap (patch 0012, name `org.macvr.monado.<uid>.<socket>.<fnv>`). The socket is
+bootstrap (patch 0012; the WiVRn runtime's Mach bootstrap name, see wivrn-macos). The socket is
 `$(getconf DARWIN_USER_TEMP_DIR)wivrn/comp_ipc` (patch 0010 + `XRT_IPC_MSG_SOCK_FILENAME "wivrn/comp_ipc"`). That
 directory exists here (*verified*).
 

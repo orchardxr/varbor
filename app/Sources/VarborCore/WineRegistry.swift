@@ -6,7 +6,7 @@ public struct WineRegistry {
     let trailingNewline: Bool
 
     public init(text: String) throws {
-        guard text.hasPrefix("WINE REGISTRY Version 2") else { throw MacVRError("not a Wine registry file") }
+        guard text.hasPrefix("WINE REGISTRY Version 2") else { throw VarborError("not a Wine registry file") }
         trailingNewline = text.hasSuffix("\n")
         var l = text.components(separatedBy: "\n")
         if trailingNewline { l.removeLast() }

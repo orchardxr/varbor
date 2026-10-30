@@ -1,4 +1,4 @@
-name: Build MacVR.app
+name: Build VarboR.app
 
 on:
   push:
@@ -96,7 +96,7 @@ jobs:
       - name: vrclient bridge
         run: scripts/build-bridge.sh vrclient
 
-      - name: MacVR.app
+      - name: VarboR.app
         run: scripts/build-app.sh --test
 
       - name: Build logs
@@ -106,13 +106,13 @@ jobs:
           name: build-logs
           path: build/logs
 
-      - name: Zip MacVR.app
-        run: ditto -c -k --keepParent build/app/MacVR.app build/MacVR.app.zip
+      - name: Zip VarboR.app
+        run: ditto -c -k --keepParent build/app/VarboR.app build/VarboR.app.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MacVR.app
-          path: build/MacVR.app.zip
+          name: VarboR.app
+          path: build/VarboR.app.zip
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -120,10 +120,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          version="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/app/MacVR.app/Contents/Info.plist)"
+          version="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/app/VarboR.app/Contents/Info.plist)"
           [[ "v$version" == "$TAG" ]] || { echo "tag $TAG does not match app version $version" >&2; exit 1; }
-          zip="build/MacVR-$version.zip"
-          cp build/MacVR.app.zip "$zip"
+          zip="build/VarboR-$version.zip"
+          cp build/VarboR.app.zip "$zip"
           notes="docs/releases/$TAG.md"
           if [[ -f "$notes" ]]; then args=(--notes-file "$notes"); else args=(--generate-notes); fi
-          gh release create "$TAG" "$zip" --verify-tag --title "MacVR $version" "${args[@]}"
+          gh release create "$TAG" "$zip" --verify-tag --title "VarboR $version" "${args[@]}"

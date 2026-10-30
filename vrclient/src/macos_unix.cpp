@@ -77,11 +77,11 @@ static bool runtime_from_vrpath( std::string &out )
     return false;
 }
 
-/* MACVR_VRCLIENT_RUNTIME (a runtime directory or the dylib itself), then the path the PE side got from
+/* VARBOR_VRCLIENT_RUNTIME (a runtime directory or the dylib itself), then the path the PE side got from
  * PROTON_VR_RUNTIME, then the macOS openvrpaths.vrpath. */
-extern "C" const char *macvr_find_runtime( const char *given )
+extern "C" const char *varbor_find_runtime( const char *given )
 {
-    const char *env = getenv( "MACVR_VRCLIENT_RUNTIME" );
+    const char *env = getenv( "VARBOR_VRCLIENT_RUNTIME" );
     std::string found;
 
     if (env && *env && runtime_dylib( env, found )) runtime_path = found;
@@ -95,9 +95,9 @@ extern "C" const char *macvr_find_runtime( const char *given )
     return runtime_path.c_str();
 }
 
-NTSTATUS macvr_runtime_info( void *args )
+NTSTATUS varbor_runtime_info( void *args )
 {
-    struct macvr_runtime_info_params *params = (struct macvr_runtime_info_params *)args;
+    struct varbor_runtime_info_params *params = (struct varbor_runtime_info_params *)args;
     snprintf( params->path, sizeof(params->path), "%s", runtime_path.c_str() );
     return 0;
 }

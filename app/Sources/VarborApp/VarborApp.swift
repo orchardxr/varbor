@@ -1,5 +1,5 @@
 import AppKit
-import MacVRCore
+import VarborCore
 import SwiftUI
 
 @MainActor
@@ -10,7 +10,7 @@ final class AppModel: ObservableObject {
 
     @Published var gameRunning = false
     @Published var setup = "setting up…"
-    @Published var prefixes: [MacVR.PrefixState] = []
+    @Published var prefixes: [Varbor.PrefixState] = []
     @Published var appNames: [String: String] = [:]
     @Published var runnerFiles: [RunnerInstall.FileState] = []
     @Published var bottles: [URL] = []
@@ -29,12 +29,14 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
 
     private init() {
+        Self.retireMacVR(home: ctx.home)
+        Migration.run(ctx)
         Log.shared.open(ctx, fresh: true)
         Task.detached { [ctx] in
             let result: String
             var retry = false
             do {
-                let rep = try MacVR.install(ctx, payload: Deploy.bundledPayload())
+                let rep = try Varbor.install(ctx, payload: Deploy.bundledPayload())
                 retry = rep.needsRetry
                 result = rep.errors.isEmpty ? (rep.busy.isEmpty ? "ready" : "\(rep.busy.count) prefix(es) in use, fixed later")
                     : "errors, see log"
@@ -57,6 +59,23 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// VarboR replaces MacVR: a running MacVR (and the wivrn-server it supervises) is quit, its app moved to the Trash,
+    /// so the two never rescan the same prefixes. Runs before the support dir moves.
+    static func retireMacVR(home: URL) {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: Migration.macVRBundleID)
+        running.forEach { $0.terminate() }
+        let deadline = Date().addingTimeInterval(10)
+        while running.contains(where: { !$0.isTerminated }) && Date() < deadline { usleep(100_000) }
+        for app in Migration.macVRApps(home: home) {
+            do {
+                try FileManager.default.trashItem(at: app, resultingItemURL: nil)
+                Log.shared("migration: moved \(app.path) to the Trash")
+            } catch {
+                Log.shared("migration: \(app.path): \(error)")
+            }
+        }
+    }
+
     /// Quiet (automatic) checks offer each new version once, and not while a game runs.
     func checkForUpdates(quiet: Bool) {
         Task {
@@ -69,7 +88,7 @@ final class AppModel: ObservableObject {
                     UserDefaults.standard.set(r.version, forKey: key)
                     offer(r)
                 } else if !quiet {
-                    alert("MacVR \(Updater.currentVersion) is the latest version.")
+                    alert("VarboR \(Updater.currentVersion) is the latest version.")
                 }
             } catch {
                 Log.shared("update: \(error)")
@@ -80,8 +99,8 @@ final class AppModel: ObservableObject {
 
     func offer(_ r: Updater.Release) {
         let a = NSAlert()
-        a.messageText = "MacVR \(r.version) is available"
-        a.informativeText = "You have \(Updater.currentVersion). MacVR quits, installs the update and opens again."
+        a.messageText = "VarboR \(r.version) is available"
+        a.informativeText = "You have \(Updater.currentVersion). VarboR quits, installs the update and opens again."
         a.addButton(withTitle: "Install")
         a.addButton(withTitle: "Release Notes")
         a.addButton(withTitle: "Later")
@@ -109,7 +128,7 @@ final class AppModel: ObservableObject {
             NSWorkspace.shared.open(r.page)
             return
         }
-        updating = "Downloading MacVR \(r.version)…"
+        updating = "Downloading VarboR \(r.version)…"
         Task {
             do {
                 let new = try await Updater.download(r)
@@ -135,11 +154,11 @@ final class AppModel: ObservableObject {
             let running = Steam.gameRunning
             var still: Bool?
             if RunnerInstall.needsInstall(ctx) {
-                MacVR.refreshRunners(ctx)
-                MacVR.rescan(ctx)
+                Varbor.refreshRunners(ctx)
+                Varbor.rescan(ctx)
             }
             if rescanDue && !running {
-                let rep = MacVR.rescan(ctx)
+                let rep = Varbor.rescan(ctx)
                 still = rep.needsRetry
             }
             let s = still
@@ -152,7 +171,7 @@ final class AppModel: ObservableObject {
     }
 
     func rescanNow() {
-        perform("Rescanning…") { ctx in MacVR.rescan(ctx) }
+        perform("Rescanning…") { ctx in Varbor.rescan(ctx) }
     }
 
     func applied(_ rep: Rescan.Report) {
@@ -184,7 +203,7 @@ final class AppModel: ObservableObject {
     func refreshDetails() {
         let ctx = ctx
         Task.detached {
-            let p = MacVR.prefixStates(ctx), r = RunnerInstall.fileStates(ctx), b = ctx.bottles, l = ctx.extraLibraries
+            let p = Varbor.prefixStates(ctx), r = RunnerInstall.fileStates(ctx), b = ctx.bottles, l = ctx.extraLibraries
             let n = ctx.steam.appNames
             await MainActor.run {
                 self.prefixes = p
@@ -211,28 +230,28 @@ final class AppModel: ObservableObject {
     func addBottle() {
         guard let url = choose("Choose a CrossOver bottle", from: Bottles.defaultDir(ctx)) else { return }
         if let why = Bottles.forbidden(ctx, url) { message = why; return }
-        perform("Adding \(url.lastPathComponent)…") { ctx in try MacVR.addBottle(ctx, url) }
+        perform("Adding \(url.lastPathComponent)…") { ctx in try Varbor.addBottle(ctx, url) }
     }
 
     func addLibrary() {
         guard let url = choose("Choose a Steam library folder (the one that contains steamapps)", from: ctx.home) else { return }
         if let why = Bottles.forbidden(ctx, url) { message = why; return }
-        perform("Adding \(url.lastPathComponent)…") { ctx in try MacVR.addLibrary(ctx, url) }
+        perform("Adding \(url.lastPathComponent)…") { ctx in try Varbor.addLibrary(ctx, url) }
     }
 
-    func setExcluded(_ p: MacVR.PrefixState, _ excluded: Bool) {
+    func setExcluded(_ p: Varbor.PrefixState, _ excluded: Bool) {
         let owner = URL(fileURLWithPath: p.path).deletingLastPathComponent()
         perform(excluded ? "Excluding \(appNames[p.name] ?? p.name)…" : "Setting up \(appNames[p.name] ?? p.name)…") { ctx in
-            try MacVR.setExcluded(ctx, owner, excluded)
+            try Varbor.setExcluded(ctx, owner, excluded)
         }
     }
 
     func removeBottle(_ url: URL) {
-        perform("Removing \(url.lastPathComponent)…") { ctx in try MacVR.removeBottle(ctx, url); return nil }
+        perform("Removing \(url.lastPathComponent)…") { ctx in try Varbor.removeBottle(ctx, url); return nil }
     }
 
     func removeLibrary(_ url: URL) {
-        perform("Removing \(url.lastPathComponent)…") { ctx in try MacVR.removeLibrary(ctx, url); return nil }
+        perform("Removing \(url.lastPathComponent)…") { ctx in try Varbor.removeLibrary(ctx, url); return nil }
     }
 
     func showWindow() {
@@ -246,12 +265,12 @@ final class AppModel: ObservableObject {
 
     func about() {
         let a = NSAlert()
-        a.messageText = "MacVR"
+        a.messageText = "VarboR"
         a.informativeText = """
             Gives Windows VR games under NotProton what Proton gives them on Linux: the OpenVR (vrclient) and
             OpenXR (wineopenxr) bridges, set up in every runner and prefix. WiVRn and OpenComposite are separate apps.
 
-            \(MacVR.backendNote)
+            \(Varbor.backendNote)
 
             Version \(Updater.currentVersion), payload \(Deploy.currentStamp(ctx) ?? "?"). Logs: \(ctx.logDir.path)
             """
@@ -281,19 +300,19 @@ struct MenuContent: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        Button("Show MacVR") { model.showWindow() }
+        Button("Show VarboR") { model.showWindow() }
         Divider()
         Text("Setup: \(model.setup)")
         Divider()
-        Button("Open MacVR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
+        Button("Open VarboR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
         Button("Rescan Games") { model.rescanNow() }
         Divider()
         if let r = model.update {
-            Button("Install MacVR \(r.version)") { model.installUpdate() }.disabled(model.updating != nil)
+            Button("Install VarboR \(r.version)") { model.installUpdate() }.disabled(model.updating != nil)
         }
         Button("Check for Updates…") { model.checkForUpdates(quiet: false) }
-        Button("About MacVR") { model.about() }
-        Button("Quit MacVR") { model.quit() }.keyboardShortcut("q")
+        Button("About VarboR") { model.about() }
+        Button("Quit VarboR") { model.quit() }.keyboardShortcut("q")
     }
 }
 
@@ -315,12 +334,12 @@ struct MenuLabel: View {
 }
 
 @main
-struct MacVRApp: App {
+struct VarborApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var model = AppModel.shared
 
     var body: some Scene {
-        Window("MacVR", id: "main") {
+        Window("VarboR", id: "main") {
             MainView(model: model)
         }
         .defaultSize(width: 820, height: 640)
@@ -329,7 +348,7 @@ struct MacVRApp: App {
                 Button("Check for Updates…") { model.checkForUpdates(quiet: false) }
             }
             CommandGroup(replacing: .appTermination) {
-                Button("Quit MacVR") { model.quit() }.keyboardShortcut("q")
+                Button("Quit VarboR") { model.quit() }.keyboardShortcut("q")
             }
         }
 

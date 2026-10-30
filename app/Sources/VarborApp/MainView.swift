@@ -1,5 +1,5 @@
 import AppKit
-import MacVRCore
+import VarborCore
 import SwiftUI
 
 enum Page: String, CaseIterable, Identifiable {
@@ -45,7 +45,7 @@ struct MainView: View {
                     if let r = model.update, model.updating == nil {
                         ToolbarItem(placement: .primaryAction) {
                             Button("Update to \(r.version)", systemImage: "arrow.down.circle") { model.installUpdate() }
-                                .help("Install MacVR \(r.version)")
+                                .help("Install VarboR \(r.version)")
                                 .disabled(model.gameRunning)
                         }
                     }
@@ -105,10 +105,10 @@ struct PageForm<Content: View>: View {
             }
             if let r = model.update {
                 Section {
-                    Row(title: "MacVR \(r.version) is available",
+                    Row(title: "VarboR \(r.version) is available",
                         subtitle: [model.updating ?? (model.gameRunning
                             ? "Quit the VR game to install it."
-                            : "You have \(Updater.currentVersion). MacVR restarts to install it.")], dot: .blue) {
+                            : "You have \(Updater.currentVersion). VarboR restarts to install it.")], dot: .blue) {
                         if model.updating != nil {
                             ProgressView().controlSize(.small)
                         } else {
@@ -194,13 +194,13 @@ struct StatusPage: View {
                     if model.working != nil || model.setup.hasPrefix("setting up") { ProgressView().controlSize(.small) }
                 }
             } footer: {
-                Text(MacVR.backendNote)
+                Text(Varbor.backendNote)
             }
         }
     }
 }
 
-extension MacVR.PrefixState {
+extension Varbor.PrefixState {
     var color: Color {
         switch state {
         case "ok": warning == nil ? .green : .orange
@@ -221,7 +221,7 @@ extension MacVR.PrefixState {
 }
 
 struct PrefixRow: View {
-    let p: MacVR.PrefixState
+    let p: Varbor.PrefixState
     let title: String
     var id: String?
     var model: AppModel?
@@ -230,9 +230,9 @@ struct PrefixRow: View {
         Row(title: title, subtitle: [id.map { "\($0) · \(p.path)" } ?? p.path] + p.issues, dot: p.color) {
             Text(p.userAdded && p.kind != .bottle ? "Added · \(p.label)" : p.label).foregroundStyle(.secondary)
             if let model, p.kind == .steam {
-                Toggle("Use MacVR", isOn: Binding(get: { !p.excluded }, set: { model.setExcluded(p, !$0) }))
+                Toggle("Use VarboR", isOn: Binding(get: { !p.excluded }, set: { model.setExcluded(p, !$0) }))
                     .toggleStyle(.switch).labelsHidden().controlSize(.small)
-                    .help(p.excluded ? "Excluded: MacVR keeps its VR settings out of this prefix" : "MacVR sets up VR in this prefix")
+                    .help(p.excluded ? "Excluded: VarboR keeps its VR settings out of this prefix" : "VarboR sets up VR in this prefix")
                     .disabled(model.working != nil || p.busy)
             }
             MoreMenu { PathMenu(path: p.path) }
@@ -243,8 +243,8 @@ struct PrefixRow: View {
 struct PrefixesPage: View {
     @ObservedObject var model: AppModel
 
-    var steam: [MacVR.PrefixState] { model.prefixes.filter { $0.kind == .steam } }
-    var templates: [MacVR.PrefixState] { model.prefixes.filter { $0.kind == .template } }
+    var steam: [Varbor.PrefixState] { model.prefixes.filter { $0.kind == .steam } }
+    var templates: [Varbor.PrefixState] { model.prefixes.filter { $0.kind == .template } }
 
     var body: some View {
         PageForm(model: model) {
@@ -257,7 +257,7 @@ struct PrefixesPage: View {
             } header: {
                 Text("Steam Games")
             } footer: {
-                Text("Prefixes NotProton made in your Steam libraries. Turn a game off to keep MacVR's VR settings out of its prefix; the game then runs without MacVR.")
+                Text("Prefixes NotProton made in your Steam libraries. Turn a game off to keep VarboR's VR settings out of its prefix; the game then runs without Varbor.")
             }
             Section("NotProton Templates") {
                 if templates.isEmpty { Text("No NotProton templates found.") }
@@ -274,7 +274,7 @@ struct AddedPage: View {
 
     var busy: Bool { model.working != nil }
 
-    func state(_ bottle: URL) -> MacVR.PrefixState? {
+    func state(_ bottle: URL) -> Varbor.PrefixState? {
         model.prefixes.first {
             $0.kind == .bottle && URL(fileURLWithPath: $0.path).standardizedFileURL.path == bottle.standardizedFileURL.path
         }
@@ -289,7 +289,7 @@ struct AddedPage: View {
         PageForm(model: model) {
             Section {
                 if model.bottles.isEmpty {
-                    Text("MacVR finds Steam's libraries and NotProton's prefixes by itself. Add a CrossOver bottle it doesn't know about here.")
+                    Text("VarboR finds Steam's libraries and NotProton's prefixes by itself. Add a CrossOver bottle it doesn't know about here.")
                 }
                 ForEach(model.bottles, id: \.self) { b in
                     let st = state(b)
@@ -367,7 +367,7 @@ struct RunnersPage: View {
                 } header: {
                     if r == runners.first { Text("NotProton Runners") }
                 } footer: {
-                    if r == runners.last { Text("MacVR installs its OpenVR and OpenXR bridges into each runner.") }
+                    if r == runners.last { Text("VarboR installs its OpenVR and OpenXR bridges into each runner.") }
                 }
             }
         }
@@ -379,7 +379,7 @@ struct LogsPage: View {
 
     var logs: [(String, String, URL)] {
         [
-            ("MacVR Log", "Setup, rescans and prefix changes", Log.shared.url ?? model.ctx.logDir.appendingPathComponent("macvr.log")),
+            ("VarboR Log", "Setup, rescans and prefix changes", Log.shared.url ?? model.ctx.logDir.appendingPathComponent("varbor.log")),
         ]
     }
 

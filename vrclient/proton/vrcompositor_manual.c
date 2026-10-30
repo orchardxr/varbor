@@ -9,8 +9,8 @@
 #include "dxvk-interop.h"
 #include "vkd3d-proton-interop.h"
 #include "vrclient_private.h"
-#ifdef MACVR
-#include "macvr_pe.h"
+#ifdef VARBOR
+#include "varbor_pe.h"
 #endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
@@ -33,8 +33,8 @@ struct submit_state
     ID3D12DXVKInteropDevice *d3d12_device;
     ID3D12DXVKInteropDevice2 *d3d12_device2;
     ID3D12CommandQueue *d3d12_queue;
-#ifdef MACVR
-    struct macvr_submit macvr;
+#ifdef VARBOR
+    struct varbor_submit varbor;
 #endif
 };
 
@@ -448,17 +448,17 @@ static const w_Texture_t *load_compositor_texture( uint32_t eye, const w_Texture
     switch (texture->eType)
     {
     case TextureType_DirectX:
-#ifdef MACVR
-        if (macvr_dxmt_texture( texture->handle ))
-            return macvr_load_texture_dxmt( eye, texture, flags, &state->texture, &state->macvr, array_index );
-        return macvr_load_texture_vk( eye, texture, flags, &state->texture, &state->macvr, array_index );
+#ifdef VARBOR
+        if (varbor_dxmt_texture( texture->handle ))
+            return varbor_load_texture_dxmt( eye, texture, flags, &state->texture, &state->varbor, array_index );
+        return varbor_load_texture_vk( eye, texture, flags, &state->texture, &state->varbor, array_index );
 #endif
         return load_compositor_texture_dxvk( eye, texture, flags, state, array_index );
     case TextureType_DirectX12:
         return load_compositor_texture_d3d12( eye, texture, flags, state, array_index );
-#ifdef MACVR
+#ifdef VARBOR
     case TextureType_Vulkan:
-        return macvr_load_texture_vk( eye, texture, flags, &state->texture, &state->macvr, array_index );
+        return varbor_load_texture_vk( eye, texture, flags, &state->texture, &state->varbor, array_index );
 #endif
     default: return texture;
     }
@@ -466,9 +466,9 @@ static const w_Texture_t *load_compositor_texture( uint32_t eye, const w_Texture
 
 static void free_compositor_texture( uint32_t type, struct submit_state *state )
 {
-#ifdef MACVR
-    macvr_free_texture_dxmt( &state->macvr );
-    macvr_free_texture_vk( &state->macvr );
+#ifdef VARBOR
+    varbor_free_texture_dxmt( &state->varbor );
+    varbor_free_texture_vk( &state->varbor );
 #endif
     if (type == TextureType_DirectX) free_compositor_texture_dxvk( state );
     else if (type == TextureType_DirectX12) free_compositor_texture_d3d12( state );
@@ -489,8 +489,8 @@ struct set_skybox_override_state
     }
     images[6];
     unsigned int image_count;
-#ifdef MACVR
-    struct macvr_submit macvr;
+#ifdef VARBOR
+    struct varbor_submit varbor;
     w_VRTextureWithPose_t metal;
 #endif
 };
@@ -654,13 +654,13 @@ static const w_Texture_t *set_skybox_override_init( const w_Texture_t *textures,
         return textures;
     }
 
-#ifdef MACVR
+#ifdef VARBOR
     /* OpenComposite shows only the first texture, as a quad: every face gets that one, in an overlay ring of its own. */
-    if (textures[0].eType == TextureType_DirectX && macvr_dxmt_texture( textures[0].handle ))
+    if (textures[0].eType == TextureType_DirectX && varbor_dxmt_texture( textures[0].handle ))
     {
         uint32_t flags = 0, i;
-        const w_Texture_t *metal = macvr_load_overlay_dxmt( ~(uint64_t)0, &textures[0], &flags, &state->metal,
-                                                            &state->macvr );
+        const w_Texture_t *metal = varbor_load_overlay_dxmt( ~(uint64_t)0, &textures[0], &flags, &state->metal,
+                                                            &state->varbor );
         for (i = 0; i < count; i++) state->textures[i] = *metal;
         state->texture_type = TextureType_Metal;
         return state->textures;
@@ -668,8 +668,8 @@ static const w_Texture_t *set_skybox_override_init( const w_Texture_t *textures,
     if (textures[0].eType == TextureType_DirectX)
     {
         uint32_t flags = 0, i;
-        const w_Texture_t *metal = macvr_load_overlay_vk( ~(uint64_t)0, &textures[0], &flags, &state->metal,
-                                                          &state->macvr );
+        const w_Texture_t *metal = varbor_load_overlay_vk( ~(uint64_t)0, &textures[0], &flags, &state->metal,
+                                                          &state->varbor );
         for (i = 0; i < count; i++) state->textures[i] = *metal;
         state->texture_type = TextureType_Metal;
         return state->textures;
@@ -689,9 +689,9 @@ static void set_skybox_override_done( struct set_skybox_override_state *state )
 {
     unsigned int i;
 
-#ifdef MACVR
-    macvr_free_texture_dxmt( &state->macvr );
-    macvr_free_texture_vk( &state->macvr );
+#ifdef VARBOR
+    varbor_free_texture_dxmt( &state->varbor );
+    varbor_free_texture_vk( &state->varbor );
 #endif
     if (state->texture_type == TextureType_DirectX)
     {

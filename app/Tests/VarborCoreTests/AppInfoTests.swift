@@ -1,5 +1,5 @@
 import Foundation
-@testable import MacVRCore
+@testable import VarborCore
 import XCTest
 
 /// Writes appinfo.vdf like Steam: v41 keys go through a string table at the end, v40 keys are inline.
@@ -88,7 +88,7 @@ final class AppInfoTests: XCTestCase {
 
     func testSteamVRGamesUsesAppInfoThenDLL() throws {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory.appendingPathComponent("macvr-appinfo-\(UUID().uuidString)")
+        let root = fm.temporaryDirectory.appendingPathComponent("varbor-appinfo-\(UUID().uuidString)")
         defer { try? fm.removeItem(at: root) }
         let sa = root.appendingPathComponent("steamapps")
         for (id, dir) in [("546560", "Alyx"), ("250820", "SteamVR"), ("1000001", "Flat"), ("42", "Unknown")] {

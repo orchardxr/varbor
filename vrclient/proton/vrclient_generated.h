@@ -464,7 +464,7 @@ extern struct w_iface *create_winIVRTrackedCamera_IVRTrackedCamera_006( struct u
 extern struct w_iface *create_winIVRTrackedCamera_IVRTrackedCamera_006_FnTable( struct u_iface );
 extern void destroy_winIVRTrackedCamera_IVRTrackedCamera_006(struct w_iface *);
 extern void destroy_winIVRTrackedCamera_IVRTrackedCamera_006_FnTable(struct w_iface *);
-#ifdef MACVR
+#ifdef VARBOR
 extern struct w_iface *create_winIVRInputInternal_IVRInputInternal_002( struct u_iface );
 extern void destroy_winIVRInputInternal_IVRInputInternal_002(struct w_iface *);
 #endif

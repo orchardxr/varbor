@@ -1,9 +1,9 @@
-# MacVR
+# VarboR
 
-[![Build](https://github.com/somsarashvili/macvr/actions/workflows/build.yml/badge.svg)](https://github.com/somsarashvili/macvr/actions/workflows/build.yml)
+[![Build](https://github.com/orchardxr/varbor/actions/workflows/build.yml/badge.svg)](https://github.com/orchardxr/varbor/actions/workflows/build.yml)
 
 Windows PC VR games from Steam on an Apple Silicon Mac, streamed to a Meta Quest running the stock
-[WiVRn](https://github.com/WiVRn/WiVRn) client. Games run under NotProton (Wine). MacVR adds the missing pieces:
+[WiVRn](https://github.com/WiVRn/WiVRn) client. Games run under NotProton (Wine). VarboR adds the missing pieces:
 an OpenXR bridge out of Wine, a macOS port of the WiVRn server with a VideoToolbox encoder, and a menu-bar app that
 sets everything up.
 
@@ -13,13 +13,13 @@ sets everything up.
 game → openvr_api.dll → OpenComposite (vrclient_x64.dll, OpenVR → OpenXR)
      → wineopenxr.dll + wineopenxr.so (bridge out of Wine)
      → libopenxr_monado.dylib (universal IPC client: x86_64 under Rosetta, arm64 under FEX)
-     → wivrn-server (arm64, Monado + VideoToolbox HEVC, child of MacVR.app)
+     → wivrn-server (arm64, Monado + VideoToolbox HEVC, child of VarboR.app)
      → Wi-Fi → WiVRn client on the Quest
 ```
 
 | Path | What |
 |---|---|
-| `app/` | MacVR.app (SwiftUI window + menu bar), the `macvr` CLI, the web-overlay broker/helper ([docs/macvr-app.md](docs/macvr-app.md), [docs/web-overlays.md](docs/web-overlays.md)) |
+| `app/` | VarboR.app (SwiftUI window + menu bar), the `varbor` CLI, the web-overlay broker/helper ([docs/varbor-app.md](docs/varbor-app.md), [docs/web-overlays.md](docs/web-overlays.md)) |
 | `bridge/` | `wineopenxr` Wine builtin: PE side (llvm-mingw) + unix side ([docs/bridge-plan.md](docs/bridge-plan.md)) |
 | `encoder/` | libmvt, the VideoToolbox HEVC encoder used by the WiVRn server ([docs/encoder.md](docs/encoder.md)) |
 | `patches/` | Our changes to upstream projects, as patch series ([docs/build.md](docs/build.md)) |
@@ -49,7 +49,7 @@ the Homebrew and Vulkan libraries it needs and updates itself from GitHub releas
   Windows side. `scripts/lib/detect.sh` finds it through `LLVM_MINGW`, `scripts/local.env` (git-ignored, one line
   `LLVM_MINGW=<path>`), `x86_64-w64-mingw32-clang` on `PATH`, or `~/toolchains/llvm-mingw-*`.
 - Steam for macOS with NotProton installed (its CrossOver-based runners, Rosetta or FEX). CrossOver bottles are
-  supported too ([docs/macvr-app.md](docs/macvr-app.md)).
+  supported too ([docs/varbor-app.md](docs/varbor-app.md)).
 - A Meta Quest (tested: Quest 3S) with the stock WiVRn client 26.9 from the store, on the same network as the Mac.
 
 ## Build
@@ -58,8 +58,8 @@ With `ccache` installed (`brew install ccache`) the CMake builds compile through
 `patches.sh apply` (which gives the sources fresh mtimes) reuses earlier objects.
 
 ```sh
-git clone --recursive https://github.com/somsarashvili/macvr.git
-cd macvr
+git clone --recursive https://github.com/orchardxr/varbor.git
+cd varbor
 scripts/patches.sh apply                  # reset each submodule to its pin, apply patches/<project>/* (staged)
 
 scripts/build.sh openxr-sdk               # native loader + hello_xr (used by the server's test programs)
@@ -69,7 +69,7 @@ WIVRN_BUILD_DIR=$PWD/build/wivrn-next scripts/build-wivrn.sh --snapshot   # wivr
 scripts/build-wivrn.sh --client-x86_64    # IPC client for Rosetta runners
 scripts/build-wivrn.sh --client-arm64     # IPC client for FEX runners
 scripts/build-bridge.sh bridge            # wineopenxr.dll/.so + universal client in build/bridge/root
-scripts/build-app.sh --test               # build/app/MacVR.app (runs the unit tests too)
+scripts/build-app.sh --test               # build/app/VarboR.app (runs the unit tests too)
 ```
 
 `scripts/patches.sh status` shows each tree's pin and patch count; `scripts/patches.sh new <project> <name>` turns
@@ -77,19 +77,19 @@ work in progress in `third_party/<project>` into the next patch. Never commit in
 [docs/build.md](docs/build.md), [docs/wivrn.md](docs/wivrn.md).
 
 CI ([.github/workflows/build.yml](.github/workflows/build.yml)) runs the same steps on a hosted macOS runner and
-uploads `MacVR.app` as an artifact.
+uploads `VarboR.app` as an artifact.
 
 ## Releasing
 
 Bump `CFBundleShortVersionString` in `app/Resources/Info.plist`, add notes as `docs/releases/v<version>.md`
 (optional: GitHub generates them otherwise), commit, then push a tag `v<version>`. The CI build of the tag publishes
-the release with `MacVR-<version>.zip`; installed apps pick it up through self-update.
+the release with `VarboR-<version>.zip`; installed apps pick it up through self-update.
 
 ## Install and use
 
-1. Copy `build/app/MacVR.app` to `/Applications` and open it. It deploys its payload, adds the bridge to every
+1. Copy `build/app/VarboR.app` to `/Applications` and open it. It deploys its payload, adds the bridge to every
    NotProton runner, fixes the prefix templates and game prefixes, and starts `wivrn-server` and the web-overlay broker.
-   Nothing has to be edited by hand. `macvr status` (`MacVR.app/Contents/Helpers/macvr`) shows the same state.
+   Nothing has to be edited by hand. `varbor status` (`VarboR.app/Contents/Helpers/varbor`) shows the same state.
 2. Start the WiVRn client on the Quest and pair it with the Mac (it finds the server through Bonjour).
 3. Launch the VR game from Steam with NotProton as its compatibility tool.
 
@@ -108,4 +108,4 @@ the release with `MacVR-<version>.zip`; installed apps pick it up through self-u
   ([patches/LICENSE.md](patches/LICENSE.md)): `patches/wivrn/` and `patches/opencomposite/` are GPL-3.0,
   `patches/monado/` is BSL-1.0, `patches/openxr-sdk/` is Apache-2.0.
 - `third_party/` submodules keep their own licenses.
-- A built MacVR.app bundles separately licensed programs: the WiVRn server (GPL-3.0) and OpenComposite (GPL-3.0).
+- A built VarboR.app bundles separately licensed programs: the WiVRn server (GPL-3.0) and OpenComposite (GPL-3.0).

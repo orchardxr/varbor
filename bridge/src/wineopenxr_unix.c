@@ -85,7 +85,12 @@ static int check_ipc_stamp(const char *client_lib, char *msg, size_t size)
     time_t server_start = 0, stamp_time;
 
     snprintf(path, sizeof(path), "%.*sipc-stamp", slash ? (int)(slash - client_lib + 1) : 0, client_lib);
-    read_stamp(path, client, sizeof(client));
+    if (!read_stamp(path, client, sizeof(client)))
+    {
+        /* wivrn-macos install tree: lib/wivrn/<client>, share/wivrn/ipc-stamp */
+        snprintf(path, sizeof(path), "%.*s../../share/wivrn/ipc-stamp", slash ? (int)(slash - client_lib + 1) : 0, client_lib);
+        read_stamp(path, client, sizeof(client));
+    }
     for (int i = 0; i < count; i++)
     {
         struct proc_bsdinfo info;
@@ -172,7 +177,7 @@ static void load_runtime(void)
 {
     char stamp_msg[320];
     char path[1024];
-    const char *rt = getenv("MACVR_OPENXR_RUNTIME");
+    const char *rt = getenv("VARBOR_OPENXR_RUNTIME");
     if (!rt)
     {
         if (!find_runtime(path, sizeof(path)))

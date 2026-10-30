@@ -58,7 +58,7 @@ This was written before the direction change. It is kept for reference only; DXM
 
 ## 4. M2 step 1 probe: `xr_probe_test.exe` (2026-10-24), ALL PASS
 
-`vkprobe.so` also loads the bridge-flavour x86_64 `libopenxr_monado.dylib` (`MACVR_OPENXR_RUNTIME`, Monado patch
+`vkprobe.so` also loads the bridge-flavour x86_64 `libopenxr_monado.dylib` (`VARBOR_OPENXR_RUNTIME`, Monado patch
 0014, `XRT_VK_GIPA_LIBRARY` = the MoltenVK image win32u loaded) and drives it on DXVK's unwrapped handles against our
 arm64 `monado-service` (null compositor). Run steps are in [docs/bridge-plan.md](../../docs/bridge-plan.md) §0.
 

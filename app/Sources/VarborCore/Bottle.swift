@@ -123,7 +123,7 @@ public struct CXConfigFile {
 }
 
 /// CrossOver bottles the user added. CrossOver.app's own Wine runs them, which we don't touch, so the bridge reaches a
-/// bottle through its `cxbottle.conf`: `[Wine] "LibPath"` gets MacVR's `bottle-lib` appended. CrossOver's `bin/wine`
+/// bottle through its `cxbottle.conf`: `[Wine] "LibPath"` gets VarboR's `bottle-lib` appended. CrossOver's `bin/wine`
 /// builds WINEDLLPATH from LibPath (`<lib>/wine/x86_64-windows` and `<lib>/wine` per entry) and overwrites any
 /// WINEDLLPATH from `[EnvironmentVariables]`. Registry values are the same as in NotProton prefixes; the record and
 /// backups live in `state/bottles/<id>`.
@@ -138,10 +138,10 @@ public enum Bottles {
         ctx.home.appendingPathComponent("Library/Application Support/CrossOver/Bottles")
     }
 
-    /// Trees MacVR never touches: the `protected-paths` setting (`macvr protect add`) and `MACVR_PROTECTED_PATHS`
+    /// Trees VarboR never touches: the `protected-paths` setting (`varbor protect add`) and `VARBOR_PROTECTED_PATHS`
     /// (colon-separated).
     public static func forbiddenRoots(_ ctx: Context) -> [URL] {
-        let env = ProcessInfo.processInfo.environment["MACVR_PROTECTED_PATHS"] ?? ""
+        let env = ProcessInfo.processInfo.environment["VARBOR_PROTECTED_PATHS"] ?? ""
         let fromEnv = env.split(separator: ":").map { URL(fileURLWithPath: String($0)) }
         return ctx.protectedPaths + fromEnv
     }
@@ -152,7 +152,7 @@ public enum Bottles {
         for r in forbiddenRoots(ctx) {
             for root in Set([r.standardizedFileURL.path, r.resolvingSymlinksInPath().standardizedFileURL.path])
             where p == root || p.hasPrefix(root + "/") {
-                return "\(url.path) is under \(r.path), which MacVR leaves alone"
+                return "\(url.path) is under \(r.path), which VarboR leaves alone"
             }
         }
         return nil
@@ -164,16 +164,16 @@ public enum Bottles {
         (try? String(contentsOf: conf(bottle), encoding: .utf8)).map(CXConfigFile.init)
     }
 
-    /// Checks that a folder is a 64-bit CrossOver bottle MacVR may edit.
+    /// Checks that a folder is a 64-bit CrossOver bottle VarboR may edit.
     public static func validate(_ ctx: Context, _ url: URL) throws {
-        if let why = forbidden(ctx, url) { throw MacVRError(why) }
+        if let why = forbidden(ctx, url) { throw VarborError(why) }
         let fm = FileManager.default
         guard fm.fileExists(atPath: conf(url).path), fm.fileExists(atPath: url.appendingPathComponent("system.reg").path),
               let c = readConf(url) else {
-            throw MacVRError("\(url.path) isn't a CrossOver bottle (no cxbottle.conf and system.reg)")
+            throw VarborError("\(url.path) isn't a CrossOver bottle (no cxbottle.conf and system.reg)")
         }
         if let arch = c.get("Bottle", "WineArch"), arch.lowercased() != "win64" {
-            throw MacVRError("\(url.lastPathComponent) is a 32-bit bottle (\(arch)): VR needs a 64-bit bottle")
+            throw VarborError("\(url.lastPathComponent) is a 32-bit bottle (\(arch)): VR needs a 64-bit bottle")
         }
     }
 
@@ -218,15 +218,15 @@ public enum Bottles {
         for f in RunnerInstall.files {
             let src = ctx.bridgeDir.appendingPathComponent(f.src)
             let dst = libWine(ctx).appendingPathComponent(f.dst)
-            guard let want = Deploy.sha256(src) else { throw MacVRError("no \(src.path): run install") }
+            guard let want = Deploy.sha256(src) else { throw VarborError("no \(src.path): run install") }
             if Deploy.sha256(dst) == want { continue }
             try FileManager.default.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let tmp = dst.deletingLastPathComponent().appendingPathComponent(".\(dst.lastPathComponent).macvr-tmp")
+            let tmp = dst.deletingLastPathComponent().appendingPathComponent(".\(dst.lastPathComponent).varbor-tmp")
             try? FileManager.default.removeItem(at: tmp)
             try FileManager.default.copyItem(at: src, to: tmp)
             guard rename(tmp.path, dst.path) == 0 else {
                 try? FileManager.default.removeItem(at: tmp)
-                throw MacVRError("rename \(dst.path) failed")
+                throw VarborError("rename \(dst.path) failed")
             }
             changed = true
         }
@@ -246,6 +246,11 @@ public enum Bottles {
         value.split(separator: ":").contains { $0 == ctx.bottleLib.path }
     }
 
+    /// Our bottle-lib in any of our support dirs (MacVR's included).
+    static func isOurLib(_ entry: Substring, _ ctx: Context) -> Bool {
+        ctx.supportDirs.contains { entry == $0.appendingPathComponent("bottle-lib").path }
+    }
+
     /// LibPath with our dir appended; CrossOver's default is `${CX_ROOT}/lib`.
     static func wantedLibPath(_ current: String?, _ ctx: Context) -> String {
         guard let current, !current.isEmpty else { return "${CX_ROOT}/lib:\(ctx.bottleLib.path)" }
@@ -261,6 +266,12 @@ public enum Bottles {
         let cur = c.get(wineSection, libPath)
         if let cur, hasOurs(cur, ctx) { return nil }
         var out = c
+        if let cur, cur.split(separator: ":").contains(where: { isOurLib($0, ctx) }) {
+            let moved = cur.split(separator: ":", omittingEmptySubsequences: false)
+                .map { isOurLib($0, ctx) ? ctx.bottleLib.path : String($0) }.joined(separator: ":")
+            out.setRaw(wineSection, libPath, CXConfigFile.fieldLine(libPath, moved))
+            return out
+        }
         if rec[recordKey] == nil { rec[recordKey] = c.rawLine(wineSection, libPath) ?? "-" }
         if !c.hasSection(wineSection) { rec[sectionRecordKey] = "created" }
         out.setRaw(wineSection, libPath, CXConfigFile.fieldLine(libPath, wantedLibPath(cur, ctx)))
@@ -269,11 +280,11 @@ public enum Bottles {
 
     /// The conf with our LibPath entry taken out again (the previous line restored); nil when nothing changes.
     static func revertedConf(_ c: CXConfigFile, _ ctx: Context, _ rec: Record) -> CXConfigFile? {
-        guard let cur = c.get(wineSection, libPath), hasOurs(cur, ctx) else { return nil }
+        guard let cur = c.get(wineSection, libPath), cur.split(separator: ":").contains(where: { isOurLib($0, ctx) }) else { return nil }
         var out = c
         let prev = rec[recordKey] ?? "-"
         if prev == "-" {
-            let rest = cur.split(separator: ":", omittingEmptySubsequences: false).filter { $0 != ctx.bottleLib.path }
+            let rest = cur.split(separator: ":", omittingEmptySubsequences: false).filter { !isOurLib($0, ctx) }
             if rest.isEmpty || rest == ["${CX_ROOT}/lib"] {
                 out.delete(wineSection, libPath)
                 if rec[sectionRecordKey] == "created" { out.deleteSectionIfEmpty(wineSection) }

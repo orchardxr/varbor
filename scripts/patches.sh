@@ -113,7 +113,7 @@ do_new() {
 		die "$p: no unstaged changes to export"
 	fi
 	{
-		echo "From: macvr"
+		echo "From: varbor"
 		echo "Subject: [PATCH] ${name#[0-9][0-9][0-9][0-9]-}"
 		echo
 		echo "---"

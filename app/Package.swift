@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "MacVR",
+    name: "Varbor",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "macvr", targets: ["macvr"]),
-        .executable(name: "MacVRApp", targets: ["MacVRApp"]),
+        .executable(name: "varbor", targets: ["varbor"]),
+        .executable(name: "VarborApp", targets: ["VarborApp"]),
     ],
     targets: [
-        .target(name: "MacVRCore", swiftSettings: [.swiftLanguageMode(.v5)]),
-        .executableTarget(name: "macvr", dependencies: ["MacVRCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
-        .executableTarget(name: "MacVRApp", dependencies: ["MacVRCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
-        .testTarget(name: "MacVRCoreTests", dependencies: ["MacVRCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "VarborCore", swiftSettings: [.swiftLanguageMode(.v5)]),
+        .executableTarget(name: "varbor", dependencies: ["VarborCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .executableTarget(name: "VarborApp", dependencies: ["VarborCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .testTarget(name: "VarborCoreTests", dependencies: ["VarborCore"], swiftSettings: [.swiftLanguageMode(.v5)]),
     ]
 )

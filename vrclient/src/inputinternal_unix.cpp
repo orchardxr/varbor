@@ -7,15 +7,15 @@
 #include "winbase.h"
 
 #include "unix_private.h"
-#include "macvr_unixlib.h"
+#include "varbor_unixlib.h"
 
 #if 0
 #pragma makedep unix
 #endif
 
-NTSTATUS macvr_input_internal( void *args )
+NTSTATUS varbor_input_internal( void *args )
 {
-    struct macvr_input_internal_params *params = (struct macvr_input_internal_params *)args;
+    struct varbor_input_internal_params *params = (struct varbor_input_internal_params *)args;
     typedef uint64_t (*method)( void *, uint64_t, uint64_t, uint64_t );
     void *object = (void *)(uintptr_t)params->u_iface;
     method *vtable = *(method **)object;

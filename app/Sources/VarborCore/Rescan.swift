@@ -25,7 +25,7 @@ public struct RegValue: Equatable {
 }
 
 /// Puts every NotProton prefix (and template) in the state VR needs, the way Proton prepares its prefixes, idempotently,
-/// and records what it changed in `<compatdata/appid or template>/macvr-vr` so uninstall can revert exactly that:
+/// and records what it changed in `<compatdata/appid or template>/varbor-vr` so uninstall can revert exactly that:
 /// - OpenXR: `ActiveRuntime` -> our wineopenxr.json.
 /// - OpenVR: `C:\vrclient\bin\vrclient_x64.dll` (openvr_api.dll loads it, Wine runs the runner's builtin) and a
 ///   read-only `openvrpaths.vrpath` per Wine user naming `C:\vrclient` (Proton's setup_openvr_paths).
@@ -88,10 +88,10 @@ public enum Rescan {
         // templates first: they are the primary mechanism, game prefixes only get what they miss
         for p in ctx.steam.prefixes.sorted(by: { $0.isTemplate && !$1.isTemplate }) + bottles {
             if ctx.isExcluded(p) {
-                // macvrreg.dll re-adds our values whenever wineboot updates the prefix, so revert on every rescan.
+                // varborreg.dll re-adds our values whenever wineboot updates the prefix, so revert on every rescan.
                 do {
-                    if try MacVR.revertPrefix(ctx, p) { rep.changed.append(p.name) } else { rep.unchanged.append(p.name) }
-                } catch let e as MacVRError where e.description == "busy" {
+                    if try Varbor.revertPrefix(ctx, p) { rep.changed.append(p.name) } else { rep.unchanged.append(p.name) }
+                } catch let e as VarborError where e.description == "busy" {
                     rep.busy.append(p.name)
                 } catch {
                     rep.errors.append("\(p.name): \(error)")
@@ -119,6 +119,7 @@ public enum Rescan {
     static func busy(_ p: WinePrefix) -> Bool { Wineserver.running(prefix: p.pfx) }
 
     static func fix(_ ctx: Context, _ p: WinePrefix, want: [RegValue]) throws -> Outcome {
+        Migration.prefix(p)
         var rec = Record.load(p.record) ?? Record()
         let before = rec.values
         var changed = false
@@ -237,7 +238,7 @@ public enum Rescan {
     static func fixVRClient(_ ctx: Context, _ p: WinePrefix, _ rec: inout Record) throws -> Bool {
         let fm = FileManager.default
         let dst = vrclientPlaceholder(p)
-        guard let want = Deploy.sha256(ctx.vrclientDLL) else { throw MacVRError("no \(ctx.vrclientDLL.path): run install") }
+        guard let want = Deploy.sha256(ctx.vrclientDLL) else { throw VarborError("no \(ctx.vrclientDLL.path): run install") }
         let have = Deploy.sha256(dst)
         if have == want { return false }
         if have != nil && rec["vrclient"] != "ours" {

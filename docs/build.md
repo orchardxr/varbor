@@ -29,7 +29,7 @@ Nothing machine-specific is hardcoded. `scripts/lib/detect.sh` finds it at run t
 | Mac IP for `wivrn://` | `MAC_IP` | IPv4 address of the default-route interface |
 | llvm-mingw root | `LLVM_MINGW` | `scripts/local.env` (git-ignored, `LLVM_MINGW=<path>`), `x86_64-w64-mingw32-clang` on `PATH`, newest `~/toolchains/llvm-mingw-*` |
 
-Steam accounts are not configured: scripts and MacVR scan every `userdata/*/config/localconfig.vdf`.
+Steam accounts are not configured: scripts and VarboR scan every `userdata/*/config/localconfig.vdf`.
 
 ## Patches
 
@@ -149,10 +149,10 @@ scripts/run-hello-xr.sh service 5 -g Vulkan2      # in another shell
 - Graphics buffers are IOSurface Mach ports; sync objects are MTLSharedEvent Mach ports. Neither can go through
   SCM_RIGHTS, so each IPC connection gets a Mach channel next to its unix socket (`ipc/shared/ipc_mach_apple.c`).
 - The service checks in a per-user bootstrap service (`bootstrap_check_in`, fallback `bootstrap_register2`):
-  `org.macvr.monado.<uid>.<socket basename>.<fnv1a32 of the socket's realpath, 8 hex>`.
+  `org.varbor.monado.<uid>.<socket basename>.<fnv1a32 of the socket's realpath, 8 hex>`.
   - It takes the socket path from `getsockname()` on the listening socket. A socket handed in via
     `listen_socket` (WiVRn) gets its own name too.
-  - Example: `org.macvr.monado.501.monado_comp_ipc.42323fd1` (logged at startup as "Mach IPC: registered ..."); WiVRn's `wivrn/comp_ipc` → `org.macvr.monado.501.comp_ipc.<hash>`.
+  - Example: `org.varbor.monado.501.monado_comp_ipc.42323fd1` (logged at startup as "Mach IPC: registered ..."); WiVRn's `wivrn/comp_ipc` → `org.varbor.monado.501.comp_ipc.<hash>`.
 - Handshake:
   1. The client sends HELLO (receive port + random 64-bit nonce) to the service port.
   2. It writes `{'MVRM', 1, nonce}` (16 bytes) as the first bytes on the socket.

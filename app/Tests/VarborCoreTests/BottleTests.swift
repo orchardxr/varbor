@@ -1,5 +1,5 @@
 import Foundation
-@testable import MacVRCore
+@testable import VarborCore
 import XCTest
 
 let confText = """
@@ -28,13 +28,13 @@ final class CXConfigTests: XCTestCase {
     }
 
     func testLibPathAddedAndRevertedByteIdentical() throws {
-        let ctx = Context(home: URL(fileURLWithPath: "/h"), support: URL(fileURLWithPath: "/h/S p/macvr"),
+        let ctx = Context(home: URL(fileURLWithPath: "/h"), support: URL(fileURLWithPath: "/h/S p/varbor"),
                           steamRoot: URL(fileURLWithPath: "/h/Steam"), logDir: URL(fileURLWithPath: "/h/l"),
                           runners: URL(fileURLWithPath: "/h/r"), system: false)
         var rec = Record()
         let fixed = try XCTUnwrap(Bottles.fixedConf(CXConfigFile(text: confText), ctx, &rec))
-        XCTAssertEqual(fixed.get("Wine", "LibPath"), "${CX_ROOT}/lib:/h/S p/macvr/bottle-lib")
-        XCTAssertTrue(fixed.text.hasSuffix("\n\n[Wine]\n\"LibPath\" = \"${CX_ROOT}/lib:/h/S p/macvr/bottle-lib\"\n"))
+        XCTAssertEqual(fixed.get("Wine", "LibPath"), "${CX_ROOT}/lib:/h/S p/varbor/bottle-lib")
+        XCTAssertTrue(fixed.text.hasSuffix("\n\n[Wine]\n\"LibPath\" = \"${CX_ROOT}/lib:/h/S p/varbor/bottle-lib\"\n"))
         XCTAssertEqual(rec[Bottles.recordKey], "-")
         XCTAssertNil(Bottles.fixedConf(fixed, ctx, &rec))
         XCTAssertEqual(try XCTUnwrap(Bottles.revertedConf(fixed, ctx, rec)).text, confText)
@@ -42,7 +42,7 @@ final class CXConfigTests: XCTestCase {
         let own = confText + "[wine]\n\"LibPath\" = \"/opt/lib\"\n\"BinPath\" = \"/opt/bin\"\n"
         var rec2 = Record()
         let fixed2 = try XCTUnwrap(Bottles.fixedConf(CXConfigFile(text: own), ctx, &rec2))
-        XCTAssertEqual(fixed2.get("Wine", "LibPath"), "/opt/lib:/h/S p/macvr/bottle-lib")
+        XCTAssertEqual(fixed2.get("Wine", "LibPath"), "/opt/lib:/h/S p/varbor/bottle-lib")
         XCTAssertEqual(fixed2.get("Wine", "BinPath"), "/opt/bin")
         XCTAssertNil(rec2[Bottles.sectionRecordKey])
         XCTAssertEqual(try XCTUnwrap(Bottles.revertedConf(fixed2, ctx, rec2)).text, own)
@@ -55,9 +55,9 @@ final class BottleTreeTests: XCTestCase {
     var bottle: URL!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory.appendingPathComponent("macvr-bottle-tests-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("varbor-bottle-tests-\(UUID().uuidString)")
         let fm = FileManager.default
-        ctx = Context(home: root, support: root.appendingPathComponent("macvr"), steamRoot: root.appendingPathComponent("Steam"),
+        ctx = Context(home: root, support: root.appendingPathComponent("varbor"), steamRoot: root.appendingPathComponent("Steam"),
                       logDir: root.appendingPathComponent("logs"), runners: root.appendingPathComponent("runners"),
                       system: false)
         try fm.createDirectory(at: ctx.steamRoot.appendingPathComponent("steamapps"), withIntermediateDirectories: true)
@@ -99,7 +99,7 @@ final class BottleTreeTests: XCTestCase {
 
     func testAddRescanUninstallRoundTrip() throws {
         let before = try files(bottle)
-        let rep = try MacVR.addBottle(ctx, bottle)
+        let rep = try Varbor.addBottle(ctx, bottle)
         XCTAssertEqual(rep.changed, ["bottle/Game One"])
         XCTAssertEqual(ctx.bottles.map(\.path), [bottle.path])
         let reg = try WineRegistry(text: String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8))
@@ -113,17 +113,17 @@ final class BottleTreeTests: XCTestCase {
         let p = Bottles.prefix(ctx, bottle)
         XCTAssertTrue(p.owner.path.hasPrefix(ctx.stateDir.path))
         XCTAssertEqual(Record.load(p.record)?[Bottles.recordKey], "-")
-        XCTAssertNil(try files(bottle).keys.first { $0.contains("macvr") })
-        let st = try XCTUnwrap(MacVR.prefixStates(ctx).first { $0.kind == .bottle })
+        XCTAssertNil(try files(bottle).keys.first { $0.contains("varbor") })
+        let st = try XCTUnwrap(Varbor.prefixStates(ctx).first { $0.kind == .bottle })
         XCTAssertEqual(st.state, "ok")
         XCTAssertTrue(st.userAdded)
         XCTAssertNotNil(st.warning)
 
         let mid = try files(bottle)
-        XCTAssertEqual(MacVR.rescan(ctx).changed, [])
+        XCTAssertEqual(Varbor.rescan(ctx).changed, [])
         XCTAssertEqual(try files(bottle), mid)
 
-        let un = MacVR.uninstall(ctx)
+        let un = Varbor.uninstall(ctx)
         XCTAssertEqual(un.errors, [])
         XCTAssertEqual(try files(bottle), before)
         XCTAssertFalse(FileManager.default.fileExists(atPath: ctx.bottleLib.path))
@@ -135,22 +135,22 @@ final class BottleTreeTests: XCTestCase {
         r.setString(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE", dosPath(ctx.support.appendingPathComponent("current/opencomposite")))
         try r.text.write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
         let unlinked = regText.replacingOccurrences(of: "ControlSet001", with: "CurrentControlSet")
-        try MacVR.addBottle(ctx, bottle)
+        try Varbor.addBottle(ctx, bottle)
         let text = try String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8)
         XCTAssertFalse(text.contains("ControlSet001"))
         XCTAssertNil(try WineRegistry(text: text).string(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE"))
-        XCTAssertEqual(MacVR.prefixStates(ctx).first?.missing, [])
-        _ = MacVR.uninstall(ctx)
+        XCTAssertEqual(Varbor.prefixStates(ctx).first?.missing, [])
+        _ = Varbor.uninstall(ctx)
         XCTAssertEqual(try String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8), unlinked)
     }
 
     func testRemoveRevertsAndForgets() throws {
         let before = try files(bottle)
-        try MacVR.addBottle(ctx, bottle)
-        try MacVR.removeBottle(ctx, bottle)
+        try Varbor.addBottle(ctx, bottle)
+        try Varbor.removeBottle(ctx, bottle)
         XCTAssertEqual(ctx.bottles, [])
         XCTAssertEqual(try files(bottle), before)
-        XCTAssertThrowsError(try MacVR.removeBottle(ctx, bottle))
+        XCTAssertThrowsError(try Varbor.removeBottle(ctx, bottle))
     }
 
     func testForbiddenAndInvalidBottlesRefused() throws {
@@ -158,20 +158,20 @@ final class BottleTreeTests: XCTestCase {
         let cxp = root.appendingPathComponent("Protected/other")
         try makeBottle(cxp)
         let before = try files(cxp)
-        XCTAssertThrowsError(try MacVR.addBottle(ctx, cxp)) { XCTAssertTrue("\($0)".contains("Protected")) }
+        XCTAssertThrowsError(try Varbor.addBottle(ctx, cxp)) { XCTAssertTrue("\($0)".contains("Protected")) }
         let link = root.appendingPathComponent("link")
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: cxp)
-        XCTAssertThrowsError(try MacVR.addBottle(ctx, link))
-        XCTAssertThrowsError(try MacVR.addLibrary(ctx, root.appendingPathComponent("Protected")))
+        XCTAssertThrowsError(try Varbor.addBottle(ctx, link))
+        XCTAssertThrowsError(try Varbor.addLibrary(ctx, root.appendingPathComponent("Protected")))
         // a forbidden path put into the settings by hand is still skipped
         try ctx.setPathList("bottles", [cxp])
-        _ = MacVR.rescan(ctx)
+        _ = Varbor.rescan(ctx)
         XCTAssertEqual(try files(cxp), before)
 
         let b32 = root.appendingPathComponent("b32")
         try makeBottle(b32, conf: confText.replacingOccurrences(of: "win64", with: "win32"))
-        XCTAssertThrowsError(try MacVR.addBottle(ctx, b32)) { XCTAssertTrue("\($0)".contains("32-bit")) }
-        XCTAssertThrowsError(try MacVR.addBottle(ctx, root.appendingPathComponent("Steam")))
+        XCTAssertThrowsError(try Varbor.addBottle(ctx, b32)) { XCTAssertTrue("\($0)".contains("32-bit")) }
+        XCTAssertThrowsError(try Varbor.addBottle(ctx, root.appendingPathComponent("Steam")))
     }
 
     func testBackendWarning() throws {
@@ -198,17 +198,17 @@ final class BottleTreeTests: XCTestCase {
         try regText.write(to: pfx.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
         let before = try files(lib)
         XCTAssertFalse(ctx.steam.prefixes.contains { $0.name == "300" })
-        XCTAssertThrowsError(try MacVR.addLibrary(ctx, root.appendingPathComponent("nothing")))
-        let rep = try MacVR.addLibrary(ctx, lib.appendingPathComponent("steamapps"))
+        XCTAssertThrowsError(try Varbor.addLibrary(ctx, root.appendingPathComponent("nothing")))
+        let rep = try Varbor.addLibrary(ctx, lib.appendingPathComponent("steamapps"))
         XCTAssertEqual(ctx.extraLibraries.map(\.path), [lib.path])
         XCTAssertEqual(rep.changed, ["300"])
         XCTAssertEqual(ctx.steam.libraries.map(\.path), [ctx.steamRoot.path, lib.path])
-        XCTAssertTrue(MacVR.prefixStates(ctx).first { $0.name == "300" }!.userAdded)
-        try MacVR.addLibrary(ctx, lib)
+        XCTAssertTrue(Varbor.prefixStates(ctx).first { $0.name == "300" }!.userAdded)
+        try Varbor.addLibrary(ctx, lib)
         XCTAssertEqual(ctx.extraLibraries.count, 1)
-        try MacVR.removeLibrary(ctx, lib)
+        try Varbor.removeLibrary(ctx, lib)
         XCTAssertEqual(ctx.extraLibraries, [])
-        XCTAssertEqual(try files(lib).filter { !$0.key.contains("/macvr-backup/") }, before)
+        XCTAssertEqual(try files(lib).filter { !$0.key.contains("/varbor-backup/") }, before)
     }
 
     func testLibraryListedBySteamIsNotDuplicated() throws {

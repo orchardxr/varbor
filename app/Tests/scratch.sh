@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Scratch tree for MacVR tests (docs/macvr-app.md "Testing"): APFS clones of real prefixes, a template and a runner
-# under ~/Library/Application Support/macvr-test/app, plus a fake Steam library. Prints the env for the CLI.
+# Scratch tree for VarboR tests (docs/varbor-app.md "Testing"): APFS clones of real prefixes, a template and a runner
+# under ~/Library/Application Support/varbor-test/app, plus a fake Steam library. Prints the env for the CLI.
 #   FLAT_APPID=<appid of an installed non-VR game> app/Tests/scratch.sh setup | env | check-reg <prefix dir> | clean
 set -euo pipefail
 S="$HOME/Library/Application Support/Steam"
-T="$HOME/Library/Application Support/macvr-test/app"
+T="$HOME/Library/Application Support/varbor-test/app"
 RUNNER=crossover-27.0.0.41073-fex
 TEMPLATE=crossover-27.0.0.41073-fex-x86_64-unix
 
@@ -27,7 +27,7 @@ case "${1:-}" in
 		cp -cR "$HOME/Library/Application Support/notproton/runners/$RUNNER" "$T/runners/"
 		echo "scratch tree: $T" ;;
 	env)
-		echo "export MACVR_SUPPORT='${MACVR_SUPPORT:-$T/macvr}' MACVR_STEAM_ROOT='$T/Steam' MACVR_RUNNERS='$T/runners' MACVR_LOG_DIR='$T/logs' MACVR_NO_SYSTEM=1" ;;
+		echo "export VARBOR_SUPPORT='${VARBOR_SUPPORT:-$T/varbor}' VARBOR_STEAM_ROOT='$T/Steam' VARBOR_RUNNERS='$T/runners' VARBOR_LOG_DIR='$T/logs' VARBOR_NO_SYSTEM=1" ;;
 	check-reg)
 		# Wine itself must read our values back (validates the file format)
 		pfx="$2/pfx"

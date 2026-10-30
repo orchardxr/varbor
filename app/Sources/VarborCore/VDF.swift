@@ -69,7 +69,7 @@ public enum VDF {
                     out.append(b[j])
                     j += 1
                 }
-                guard j < b.count else { throw MacVRError("vdf: unterminated string at \(i)") }
+                guard j < b.count else { throw VarborError("vdf: unterminated string at \(i)") }
                 toks.append(Token(kind: .string, text: String(decoding: out, as: UTF8.self), range: s..<j, start: i, end: j + 1))
                 i = j + 1
                 continue
@@ -90,9 +90,9 @@ public enum VDF {
             while i < toks.count {
                 let t = toks[i]
                 if t.kind == .close { parent.closeStart = t.start; i += 1; return }
-                guard t.kind == .string else { throw MacVRError("vdf: unexpected { at \(t.start)") }
+                guard t.kind == .string else { throw VarborError("vdf: unexpected { at \(t.start)") }
                 i += 1
-                guard i < toks.count else { throw MacVRError("vdf: key without value at \(t.start)") }
+                guard i < toks.count else { throw VarborError("vdf: key without value at \(t.start)") }
                 let node = VDFNode(key: t.text)
                 node.depth = parent.depth + 1
                 let v = toks[i]
@@ -107,11 +107,11 @@ public enum VDF {
                     node.entryRange = t.start..<v.end
                     i += 1
                 } else {
-                    throw MacVRError("vdf: unexpected } at \(v.start)")
+                    throw VarborError("vdf: unexpected } at \(v.start)")
                 }
                 parent.children.append(node)
             }
-            if parent.depth >= 0 { throw MacVRError("vdf: missing } for \(parent.key)") }
+            if parent.depth >= 0 { throw VarborError("vdf: missing } for \(parent.key)") }
             parent.closeStart = toks.last?.end ?? 0
         }
         try parseObject(root)

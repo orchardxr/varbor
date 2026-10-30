@@ -1,5 +1,5 @@
 import Foundation
-@testable import MacVRCore
+@testable import VarborCore
 import XCTest
 
 let regText = """
@@ -54,9 +54,9 @@ final class ScratchTreeTests: XCTestCase {
     var ctx: Context!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory.appendingPathComponent("macvr-tests-\(UUID().uuidString)")
+        root = FileManager.default.temporaryDirectory.appendingPathComponent("varbor-tests-\(UUID().uuidString)")
         let steam = root.appendingPathComponent("Steam")
-        ctx = Context(home: root, support: root.appendingPathComponent("macvr"), steamRoot: steam,
+        ctx = Context(home: root, support: root.appendingPathComponent("varbor"), steamRoot: steam,
                       logDir: root.appendingPathComponent("logs"), runners: root.appendingPathComponent("runners"),
                       system: false)
         let fm = FileManager.default
@@ -92,7 +92,7 @@ final class ScratchTreeTests: XCTestCase {
     func snapshot() throws -> [String: Data] {
         var out: [String: Data] = [:]
         let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)!
-        for case let u as URL in e where !u.path.contains("/macvr/") && !u.path.contains("macvr-backup") {
+        for case let u as URL in e where !u.path.contains("/varbor/") && !u.path.contains("varbor-backup") {
             var isDir: ObjCBool = false
             if FileManager.default.fileExists(atPath: u.path, isDirectory: &isDir), !isDir.boolValue {
                 out[String(u.path.dropFirst(root.path.count))] = try Data(contentsOf: u)
@@ -104,25 +104,25 @@ final class ScratchTreeTests: XCTestCase {
     func testExcludedPrefixIsRevertedAndRestored() throws {
         let p100 = { Steam(root: self.ctx.steamRoot).prefixes.first { $0.name == "100" }! }
         let original = try Data(contentsOf: p100().systemReg)
-        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
         let runtime = { try WineRegistry(text: String(contentsOf: p100().systemReg, encoding: .utf8)).string(Rescan.openxrKey, "ActiveRuntime") }
         XCTAssertEqual(try runtime(), dosPath(ctx.runtimeJSON))
 
-        let rep = try MacVR.setExcluded(ctx, p100().owner, true)
+        let rep = try Varbor.setExcluded(ctx, p100().owner, true)
         XCTAssertTrue(rep.changed.contains("100"))
         XCTAssertNil(try runtime())
         XCTAssertEqual(try Data(contentsOf: p100().systemReg), original)
-        XCTAssertEqual(MacVR.prefixStates(ctx).first { $0.name == "100" }?.state, "excluded")
-        XCTAssertEqual(MacVR.rescan(ctx).changed, [])
+        XCTAssertEqual(Varbor.prefixStates(ctx).first { $0.name == "100" }?.state, "excluded")
+        XCTAssertEqual(Varbor.rescan(ctx).changed, [])
 
-        try MacVR.setExcluded(ctx, p100().owner, false)
+        try Varbor.setExcluded(ctx, p100().owner, false)
         XCTAssertEqual(try runtime(), dosPath(ctx.runtimeJSON))
-        XCTAssertEqual(MacVR.prefixStates(ctx).first { $0.name == "100" }?.state, "ok")
+        XCTAssertEqual(Varbor.prefixStates(ctx).first { $0.name == "100" }?.state, "ok")
     }
 
     func testInstallIdempotentAndUninstallRoundTrip() throws {
         let before = try snapshot()
-        let rep = try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        let rep = try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
         XCTAssertEqual(rep.changed.count, 3)
         XCTAssertEqual(rep.changed.first, "template/crossover-1-x86_64-unix")
         let p = Steam(root: ctx.steamRoot).prefixes.first { $0.name == "100" }!
@@ -144,20 +144,20 @@ final class ScratchTreeTests: XCTestCase {
                        "bridge/x86_64-unix/vrclient_x64.so")
 
         let mid = try snapshot()
-        let again = try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        let again = try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
         XCTAssertEqual(again.changed, [])
         XCTAssertEqual(try snapshot(), mid)
 
-        let un = MacVR.uninstall(ctx)
+        let un = Varbor.uninstall(ctx)
         XCTAssertEqual(un.busy, [])
         XCTAssertEqual(un.errors, [])
         XCTAssertEqual(try snapshot(), before)
     }
 
     func testCorrectPrefixIsNotTouched() throws {
-        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
         let p200 = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/200")
-        let rec = p200.appendingPathComponent("macvr-vr")
+        let rec = p200.appendingPathComponent("varbor-vr")
         let snap = try snapshot()
         let recData = try Data(contentsOf: rec)
         let rep = Rescan.run(ctx)
@@ -173,7 +173,7 @@ final class ScratchTreeTests: XCTestCase {
         reg.setString(Rescan.hklmEnvKey, "VR_OVERRIDE", dosPath(ctx.support.appendingPathComponent("current/opencomposite")))
         reg.setString(Rescan.hklmEnvKey, "VR_LOG_PATH", "C:\\theirs")
         try reg.text.write(to: sys, atomically: true, encoding: .utf8)
-        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
         let after = try WineRegistry(text: String(contentsOf: sys, encoding: .utf8))
         XCTAssertNil(after.string(Rescan.hklmEnvKey, "VR_OVERRIDE"))
         XCTAssertEqual(after.string(Rescan.hklmEnvKey, "VR_LOG_PATH"), "C:\\theirs")
@@ -184,9 +184,9 @@ final class ScratchTreeTests: XCTestCase {
         try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "{\"runtime\":[\"C:\\\\other\"]}".write(to: f, atomically: true, encoding: .utf8)
         let theirs = try Data(contentsOf: f)
-        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
+        try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
         XCTAssertEqual(try String(contentsOf: f, encoding: .utf8), Rescan.vrpathJSON(ctx))
-        _ = MacVR.uninstall(ctx)
+        _ = Varbor.uninstall(ctx)
         XCTAssertEqual(try Data(contentsOf: f), theirs)
         XCTAssertFalse(FileManager.default.fileExists(atPath: f.deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -199,8 +199,8 @@ final class ScratchTreeTests: XCTestCase {
         reg.setString(Rescan.openxrKey, "ActiveRuntime", "C:\\other.json", now: Date(timeIntervalSince1970: 1))
         try reg.text.write(to: sys, atomically: true, encoding: .utf8)
         let orig = reg.text
-        try MacVR.install(ctx, payload: root.appendingPathComponent("payload"))
-        _ = MacVR.uninstall(ctx)
+        try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
+        _ = Varbor.uninstall(ctx)
         XCTAssertEqual(try String(contentsOf: sys, encoding: .utf8), orig)
     }
 
@@ -261,7 +261,7 @@ final class RunnerRegistrationTests: XCTestCase {
     }
 
     func testFillKeepsSize() throws {
-        let region = Data("MACVR-RGS-BEGIN".utf8) + Data(repeating: 0x20, count: 40) + Data("MACVR-RGS-END".utf8)
+        let region = Data("VARBOR-RGS-BEGIN".utf8) + Data(repeating: 0x20, count: 40) + Data("VARBOR-RGS-END".utf8)
         let dll = Data("MZhead".utf8) + region + Data("tail".utf8)
         let out = try XCTUnwrap(RunnerRegistration.fill(dll, script: "HKLM\n{\n}\n"))
         XCTAssertEqual(out.count, dll.count)
@@ -274,7 +274,7 @@ final class RunnerRegistrationTests: XCTestCase {
 
 final class LogRotationTests: XCTestCase {
     func testKeepsAtMostTenFiles() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("macvr-logrot-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("varbor-logrot-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let log = dir.appendingPathComponent("x.log")

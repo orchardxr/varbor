@@ -11,10 +11,10 @@ public final class Log: @unchecked Sendable {
     public func open(_ ctx: Context, fresh: Bool = false) {
         let fm = FileManager.default
         try? fm.createDirectory(at: ctx.logDir, withIntermediateDirectories: true)
-        let url = ctx.logDir.appendingPathComponent("macvr.log")
+        let url = ctx.logDir.appendingPathComponent("varbor.log")
         let legacy = ctx.support.appendingPathComponent("logs")
         if fm.fileExists(atPath: legacy.path) {
-            if !fm.fileExists(atPath: url.path) { try? fm.moveItem(at: legacy.appendingPathComponent("macvr.log"), to: url) }
+            if !fm.fileExists(atPath: url.path) { try? fm.moveItem(at: legacy.appendingPathComponent("varbor.log"), to: url) }
             try? fm.removeItem(at: legacy)
         }
         let size = (try? fm.attributesOfItem(atPath: url.path))?[.size] as? Int ?? 0

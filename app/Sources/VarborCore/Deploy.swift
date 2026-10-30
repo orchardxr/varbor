@@ -3,9 +3,9 @@ import Foundation
 
 /// Payload (the wineopenxr and vrclient bridges) -> `versions/<stamp>`, then `current` switched atomically.
 public enum Deploy {
-    /// The payload shipped in the app bundle (`Contents/Resources/payload`), or `MACVR_PAYLOAD`.
+    /// The payload shipped in the app bundle (`Contents/Resources/payload`), or `VARBOR_PAYLOAD`.
     public static func bundledPayload() -> URL? {
-        if let p = ProcessInfo.processInfo.environment["MACVR_PAYLOAD"] { return URL(fileURLWithPath: p) }
+        if let p = ProcessInfo.processInfo.environment["VARBOR_PAYLOAD"] { return URL(fileURLWithPath: p) }
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
         var dir = exe.deletingLastPathComponent()
         for _ in 0..<3 {
@@ -47,7 +47,7 @@ public enum Deploy {
         var shas: [String: String] = [:]
         var all = SHA256()
         for f in files {
-            guard let s = sha256(dir.appendingPathComponent(f)) else { throw MacVRError("can't read \(f)") }
+            guard let s = sha256(dir.appendingPathComponent(f)) else { throw VarborError("can't read \(f)") }
             shas[f] = s
             all.update(data: Data("\(f) \(s)\n".utf8))
         }
@@ -64,7 +64,7 @@ public enum Deploy {
     public static func install(_ ctx: Context, payload: URL) throws -> String {
         let fm = FileManager.default
         for r in required where !fm.fileExists(atPath: payload.appendingPathComponent(r).path) {
-            throw MacVRError("payload \(payload.path) lacks \(r)")
+            throw VarborError("payload \(payload.path) lacks \(r)")
         }
         let list = files(in: payload)
         let (stamp, shas) = try stamp(payload, list)
@@ -105,7 +105,7 @@ public enum Deploy {
         let tmp = link.deletingLastPathComponent().appendingPathComponent(".\(link.lastPathComponent).new")
         try? FileManager.default.removeItem(at: tmp)
         try FileManager.default.createSymbolicLink(atPath: tmp.path, withDestinationPath: target)
-        guard rename(tmp.path, link.path) == 0 else { throw MacVRError("rename \(link.path) failed") }
+        guard rename(tmp.path, link.path) == 0 else { throw VarborError("rename \(link.path) failed") }
     }
 
     /// Keeps current and previous.

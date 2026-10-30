@@ -21,11 +21,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "macvr_unixlib.h"
+#include "varbor_unixlib.h"
 
 typedef int NTSTATUS;
 
-extern "C" bool macvr_oc_sync( void (**begin)( void *, uint64_t, void *, uint64_t ), int (**end)( void ) );
+extern "C" bool varbor_oc_sync( void (**begin)( void *, uint64_t, void *, uint64_t ), int (**end)( void ) );
 
 #define RING 3
 #define OVERLAYS 16
@@ -317,9 +317,9 @@ static const char *direct_refusal( id<MTLTexture> tex, uint32_t slice, uint32_t 
     return NULL;
 }
 
-extern "C" NTSTATUS macvr_vk_begin( void *args )
+extern "C" NTSTATUS varbor_vk_begin( void *args )
 {
-    struct macvr_vk_begin_params *p = (struct macvr_vk_begin_params *)args;
+    struct varbor_vk_begin_params *p = (struct varbor_vk_begin_params *)args;
     VkImage image = (VkImage)(uintptr_t)p->image;
     VkDevice device = host<VkDevice>( p->device );
     VkQueue queue = host<VkQueue>( p->queue );
@@ -339,7 +339,7 @@ extern "C" NTSTATUS macvr_vk_begin( void *args )
     }
     if (!load_moltenvk( p->info, sizeof(p->info) )) return 0;
     if (!device_init( device, physical_device, p->queue_family, p->info, sizeof(p->info) )) return 0;
-    gpu = macvr_oc_sync( &oc_begin, &oc_end );
+    gpu = varbor_oc_sync( &oc_begin, &oc_end );
 
     @autoreleasepool
     {
@@ -427,9 +427,9 @@ extern "C" NTSTATUS macvr_vk_begin( void *args )
     return 0;
 }
 
-extern "C" NTSTATUS macvr_vk_end( void *args )
+extern "C" NTSTATUS varbor_vk_end( void *args )
 {
-    struct macvr_vk_end_params *p = (struct macvr_vk_end_params *)args;
+    struct varbor_vk_end_params *p = (struct varbor_vk_end_params *)args;
 
     p->taken = cur.armed && oc_end && oc_end();
     if (cur.armed)

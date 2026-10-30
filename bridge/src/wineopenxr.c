@@ -231,11 +231,11 @@ static void stat_commit(struct stats *st, enum stat total)
 }
 
 /* WINEOPENXR_* settings for games whose launcher passes no custom environment (NotProton): KEY=VALUE lines in
- * C:\macvr\wineopenxr.env, the environment wins. */
+ * C:\varbor\wineopenxr.env, the environment wins. */
 static void load_env_file(void)
 {
     char line[256];
-    FILE *f = fopen("C:\\macvr\\wineopenxr.env", "r");
+    FILE *f = fopen("C:\\varbor\\wineopenxr.env", "r");
     if (!f) return;
     while (fgets(line, sizeof(line), f))
     {
@@ -1905,12 +1905,12 @@ static int async_setting(void)
     return v ? atoi(v) : 0;
 }
 
-/* WINEOPENXR_ASYNC_RELOAD=1 (A/B tests): re-read WINEOPENXR_ASYNC from C:\macvr\wineopenxr.env every 300 frames. */
+/* WINEOPENXR_ASYNC_RELOAD=1 (A/B tests): re-read WINEOPENXR_ASYNC from C:\varbor\wineopenxr.env every 300 frames. */
 static int async_reload(void)
 {
     char line[256];
     int mode = -1;
-    FILE *f = fopen("C:\\macvr\\wineopenxr.env", "r");
+    FILE *f = fopen("C:\\varbor\\wineopenxr.env", "r");
     if (!f) return -1;
     while (fgets(line, sizeof(line), f))
         if (!strncmp(line, "WINEOPENXR_ASYNC=", 17)) mode = atoi(line + 17);

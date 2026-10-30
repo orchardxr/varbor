@@ -1,8 +1,15 @@
 import Foundation
 
-/// Self-update from the GitHub releases of the repo: the latest release's .zip holds MacVR.app.
+/// Self-update from the GitHub releases of the repo: the latest release's .zip holds VarboR.app.
 public enum Updater {
-    public static let repo = "somsarashvili/macvr"
+    public static let repo = "orchardxr/varbor"
+    public static let bundleID = "org.orchardxr.varbor"
+
+    /// The release asset with VarboR.app: `VarboR-<version>.zip`. A release may also carry a MacVR-*.zip for MacVR
+    /// installs that still update themselves (docs/varbor-app.md, "From MacVR").
+    public static func appAsset(_ names: [String]) -> String? {
+        names.first { $0.hasPrefix("VarboR-") && $0.hasSuffix(".zip") }
+    }
 
     public struct Release: Sendable, Equatable {
         public let version: String
@@ -42,9 +49,10 @@ public enum Updater {
         let (data, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         if code == 404 { return nil }
-        guard code == 200 else { throw MacVRError("update check: GitHub answered \(code)") }
+        guard code == 200 else { throw VarborError("update check: GitHub answered \(code)") }
         let r = try JSONDecoder().decode(APIRelease.self, from: data)
-        guard !r.draft, !r.prerelease, let zip = r.assets.first(where: { $0.name.hasSuffix(".zip") }) else { return nil }
+        guard !r.draft, !r.prerelease, let name = appAsset(r.assets.map(\.name)),
+              let zip = r.assets.first(where: { $0.name == name }) else { return nil }
         let v = r.tag_name.hasPrefix("v") ? String(r.tag_name.dropFirst()) : r.tag_name
         return Release(version: v, zip: zip.browser_download_url, page: r.html_url)
     }
@@ -54,24 +62,24 @@ public enum Updater {
         return r
     }
 
-    /// Downloads and unpacks the release; returns the new MacVR.app, checked against the running one.
+    /// Downloads and unpacks the release; returns the new VarboR.app, checked against the running one.
     public static func download(_ r: Release) async throws -> URL {
         let (file, resp) = try await URLSession.shared.download(from: r.zip)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw MacVRError("update: download failed") }
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw VarborError("update: download failed") }
         let fm = FileManager.default
-        let dir = fm.temporaryDirectory.appendingPathComponent("macvr-update-\(r.version)")
+        let dir = fm.temporaryDirectory.appendingPathComponent("varbor-update-\(r.version)")
         try? fm.removeItem(at: dir)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let x = run("/usr/bin/ditto", ["-x", "-k", file.path, dir.path])
         try? fm.removeItem(at: file)
-        guard x.status == 0 else { throw MacVRError("update: unzip failed: \(x.err)") }
-        let app = dir.appendingPathComponent("MacVR.app")
-        guard let b = Bundle(url: app), b.bundleIdentifier == Bundle.main.bundleIdentifier,
+        guard x.status == 0 else { throw VarborError("update: unzip failed: \(x.err)") }
+        let app = dir.appendingPathComponent("VarboR.app")
+        guard let b = Bundle(url: app), b.bundleIdentifier == bundleID,
               b.infoDictionary?["CFBundleShortVersionString"] as? String == r.version else {
-            throw MacVRError("update: the release zip has no matching MacVR.app")
+            throw VarborError("update: the release zip has no matching VarboR.app")
         }
         let v = run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
-        guard v.status == 0 else { throw MacVRError("update: signature check failed: \(v.err)") }
+        guard v.status == 0 else { throw VarborError("update: signature check failed: \(v.err)") }
         return app
     }
 

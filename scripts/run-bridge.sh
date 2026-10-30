@@ -6,8 +6,8 @@
 #
 # Environment:
 #   RUNNER=27.0.0.41073-fex   NotProton runner build
-#   RUNNER_DIR=<dir>          runner copy to use instead (e.g. app/Tests/scratch.sh's clone with MacVR's runner files)
-#   RUNNER_MODE=1             MacVR's runner mode: no BRIDGE_ROOT in WINEDLLPATH and no system32 copy; the runner (see
+#   RUNNER_DIR=<dir>          runner copy to use instead (e.g. app/Tests/scratch.sh's clone with VarboR's runner files)
+#   RUNNER_MODE=1             VarboR's runner mode: no BRIDGE_ROOT in WINEDLLPATH and no system32 copy; the runner (see
 #                             RUNNER_DIR) must have the dll/.so and BRIDGE_ROOT holds wineopenxr.json + x86_64-windows/
 #   FEX=1                     arm64 Wine with FEX (notproton-fex): aarch64-unix wineopenxr.so + arm64 client, the
 #                             runner's aarch64-unix template; the PE side stays x86_64
@@ -19,7 +19,7 @@
 #   WIVRN=1                   no service: connect to a running WiVRn server (the wivrn-macos install) through the
 #                             runtime the bridge finds itself (XR_RUNTIME_JSON or active_runtime.json), with
 #                             XDG_RUNTIME_DIR unset (as a game under NotProton). Otherwise the client is the
-#                             standalone $MONADO_BUILD/monado-{x86_64,arm64} one (MACVR_OPENXR_RUNTIME), matching
+#                             standalone $MONADO_BUILD/monado-{x86_64,arm64} one (VARBOR_OPENXR_RUNTIME), matching
 #                             monado-service.
 #   SERVICE=monado            monado: our monado-service (default); none: nothing on the socket (no server);
 #                             listen: a socket that listens but never accepts and no Mach service (WiVRn without a
@@ -93,7 +93,7 @@ export MONADO_SYNC_STATS=1
 [[ "${SYNC:-auto}" == cpu ]] && export MONADO_MACOS_SYNC=cpu
 
 # Install: placeholder in system32 (Wine then loads the builtin from WINEDLLPATH), runtime json, ActiveRuntime.
-# RUNNER_MODE=1 as MacVR installs it: the runner has the dll/.so, ActiveRuntime names <root>/wineopenxr.json by Z: path.
+# RUNNER_MODE=1 as VarboR installs it: the runner has the dll/.so, ActiveRuntime names <root>/wineopenxr.json by Z: path.
 sys32="$prefix/drive_c/windows/system32"
 if [[ "${RUNNER_MODE:-0}" == 1 ]]; then
 	rm -f "$sys32/wineopenxr.dll" "$sys32/wineopenxr.json"
@@ -110,7 +110,7 @@ if [[ "${WIVRN:-0}" == 1 ]]; then
 	[[ -S "$(getconf DARWIN_USER_TEMP_DIR)wivrn/comp_ipc" ]] || { echo "WiVRn server not running" >&2; exit 1; }
 	spid=""
 else
-export MACVR_OPENXR_RUNTIME="${MACVR_OPENXR_RUNTIME:-$MB/$client_dir/src/xrt/targets/openxr/libopenxr_monado.dylib}"
+export VARBOR_OPENXR_RUNTIME="${VARBOR_OPENXR_RUNTIME:-$MB/$client_dir/src/xrt/targets/openxr/libopenxr_monado.dylib}"
 mkdir -p "$XDG_RUNTIME_DIR"
 sock="$XDG_RUNTIME_DIR/monado_comp_ipc"
 rm -f "$sock"

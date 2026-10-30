@@ -57,7 +57,7 @@ public final class PrefixLock {
 }
 
 /// One Wine prefix: a NotProton game's `compatdata/<appid>/pfx`, a template's `notproton-template/<runner>/pfx`, or a
-/// CrossOver bottle the user added (its record and backups live in MacVR's `state/bottles/<id>`).
+/// CrossOver bottle the user added (its record and backups live in VarboR's `state/bottles/<id>`).
 public struct WinePrefix {
     public enum Kind: String { case steam, template, bottle }
 
@@ -81,8 +81,11 @@ public struct WinePrefix {
         }
     }
     public var systemReg: URL { pfx.appendingPathComponent("system.reg") }
-    public var record: URL { owner.appendingPathComponent("macvr-vr") }
-    public var backupDir: URL { owner.appendingPathComponent("macvr-backup") }
+    public var record: URL { owner.appendingPathComponent("varbor-vr") }
+    public var backupDir: URL { owner.appendingPathComponent("varbor-backup") }
+    /// MacVR's names for the two, taken over by `Migration.prefix`.
+    var legacyRecord: URL { owner.appendingPathComponent("macvr-vr") }
+    var legacyBackupDir: URL { owner.appendingPathComponent("macvr-backup") }
     public var lockFile: URL? {
         switch kind {
         case .template: owner.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".notproton-template.lock")

@@ -1,7 +1,7 @@
 /* D3D11 submits through DXVK (CX_GRAPHICS_BACKEND=dxvk) and Vulkan games' submits, for the Metal-only native
  * runtime. DXVK's side is Proton's: IDXGIVkInteropSurface names the VkImage, its layout and DXVK's device and queue,
  * the image goes to TRANSFER_SRC_OPTIMAL, DXVK flushes, and its submission queue stays locked until after the
- * runtime's call. vk_unix.mm turns the image into a Metal texture for the runtime (macvr_vk_begin_params). A Vulkan
+ * runtime's call. vk_unix.mm turns the image into a Metal texture for the runtime (varbor_vk_begin_params). A Vulkan
  * game's texture comes in that state already (OpenVR's contract), its queue is the game's. */
 #include <stdarg.h>
 #include <stdlib.h>
@@ -13,7 +13,7 @@
 
 #include "dxvk-interop.h"
 #include "vrclient_private.h"
-#include "macvr_pe.h"
+#include "varbor_pe.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
@@ -23,7 +23,7 @@ enum { TARGET_OVERLAY = 2 };
 static SRWLOCK vk_lock = SRWLOCK_INIT;
 static int copy_only = -1;
 
-BOOL macvr_dxvk_texture( IUnknown *texture )
+BOOL varbor_dxvk_texture( IUnknown *texture )
 {
     IUnknown *surface;
     if (!texture || FAILED(IUnknown_QueryInterface( texture, &IID_IDXGIVkInteropSurface, (void **)&surface )))
@@ -32,13 +32,13 @@ BOOL macvr_dxvk_texture( IUnknown *texture )
     return TRUE;
 }
 
-static void log_path( const struct macvr_vk_begin_params *p, BOOL dxvk )
+static void log_path( const struct varbor_vk_begin_params *p, BOOL dxvk )
 {
     static char last[2][256];
     char *prev = last[p->target == TARGET_OVERLAY];
     if (!strcmp( prev, p->info )) return;
     strcpy( prev, p->info );
-    macvr_log( "%s %s: %s", dxvk ? "DXVK" : "Vulkan", p->target == TARGET_OVERLAY ? "overlay" : "eye", p->info );
+    varbor_log( "%s %s: %s", dxvk ? "DXVK" : "Vulkan", p->target == TARGET_OVERLAY ? "overlay" : "eye", p->info );
 }
 
 static const void *metal_texture( const w_Texture_t *in, uint32_t *flags, w_VRTextureWithPose_t *out, UINT64 texture )
@@ -52,9 +52,9 @@ static const void *metal_texture( const w_Texture_t *in, uint32_t *flags, w_VRTe
 }
 
 static const void *load( uint32_t target, uint64_t target_id, uint32_t slice, const w_Texture_t *in, uint32_t *flags,
-                         void *texture_out, struct macvr_submit *state, BOOL copy )
+                         void *texture_out, struct varbor_submit *state, BOOL copy )
 {
-    struct macvr_vk_begin_params p = {0};
+    struct varbor_vk_begin_params p = {0};
     w_VRVulkanTextureData_t vkdata;
 
     AcquireSRWLockExclusive( &vk_lock );
@@ -63,12 +63,12 @@ static const void *load( uint32_t target, uint64_t target_id, uint32_t slice, co
     state->dxvk = NULL;
     state->dxvk_surface = NULL;
     state->overlay = target == TARGET_OVERLAY;
-    state->t_start = macvr_now();
+    state->t_start = varbor_now();
     if (copy_only < 0)
     {
         const char *env = getenv( "VRCLIENT_VK_DIRECT" );
         copy_only = env && !atoi( env );
-        if (copy_only) macvr_log( "VRCLIENT_VK_DIRECT=0: copying Vulkan images" );
+        if (copy_only) varbor_log( "VRCLIENT_VK_DIRECT=0: copying Vulkan images" );
     }
 
     if (in->eType == TextureType_DirectX)
@@ -97,7 +97,7 @@ static const void *load( uint32_t target, uint64_t target_id, uint32_t slice, co
         if (*flags & Submit_VulkanTextureWithArrayData)
             slice = ((const w_VRVulkanTextureArrayData_t *)in->handle)->m_unArrayIndex;
     }
-    state->t_copied = macvr_now();
+    state->t_copied = varbor_now();
 
     p.device = (UINT_PTR)vkdata.m_pDevice;
     p.physical_device = (UINT_PTR)vkdata.m_pPhysicalDevice;
@@ -112,8 +112,8 @@ static const void *load( uint32_t target, uint64_t target_id, uint32_t slice, co
     p.target = target;
     p.target_id = target_id;
     p.copy = copy || copy_only;
-    VRCLIENT_CALL( macvr_vk_begin, &p );
-    state->t_waited = macvr_now();
+    VRCLIENT_CALL( varbor_vk_begin, &p );
+    state->t_waited = varbor_now();
     state->vk_texture = p.texture;
     log_path( &p, state->dxvk != NULL );
 
@@ -121,26 +121,26 @@ done:
     return metal_texture( in, flags, texture_out, state->vk_texture );
 }
 
-const void *macvr_load_texture_vk( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
-                                   struct macvr_submit *state, uint32_t array_index )
+const void *varbor_load_texture_vk( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
+                                   struct varbor_submit *state, uint32_t array_index )
 {
     return load( eye & 1, eye, array_index, texture, flags, texture_out, state, FALSE );
 }
 
 /* Overlays (and the skybox) are copied, like DXMT's: OpenComposite may show them long after the call. */
-const void *macvr_load_overlay_vk( uint64_t overlay, const void *texture, uint32_t *flags, void *texture_out,
-                                   struct macvr_submit *state )
+const void *varbor_load_overlay_vk( uint64_t overlay, const void *texture, uint32_t *flags, void *texture_out,
+                                   struct varbor_submit *state )
 {
     return load( TARGET_OVERLAY, overlay, 0, texture, flags, texture_out, state, TRUE );
 }
 
-void macvr_free_texture_vk( struct macvr_submit *state )
+void varbor_free_texture_vk( struct varbor_submit *state )
 {
     if (!state->vk_locked) return;
     if (state->vk_texture)
     {
-        struct macvr_vk_end_params e = {0};
-        VRCLIENT_CALL( macvr_vk_end, &e );
+        struct varbor_vk_end_params e = {0};
+        VRCLIENT_CALL( varbor_vk_end, &e );
     }
     if (state->dxvk)
     {
@@ -150,7 +150,7 @@ void macvr_free_texture_vk( struct macvr_submit *state )
         state->dxvk->lpVtbl->Release( state->dxvk );
     }
     if (state->dxvk_surface) state->dxvk_surface->lpVtbl->Release( state->dxvk_surface );
-    if (state->vk_texture && !state->overlay) macvr_stats_add( state, macvr_now() );
+    if (state->vk_texture && !state->overlay) varbor_stats_add( state, varbor_now() );
     state->dxvk = NULL;
     state->dxvk_surface = NULL;
     state->vk_texture = 0;

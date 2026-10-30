@@ -11,15 +11,15 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "macvr_unixlib.h"
+#include "varbor_unixlib.h"
 
 typedef int NTSTATUS;
 
-@interface MTLSharedTextureHandle (MacvrSPI)
+@interface MTLSharedTextureHandle (VarborSPI)
 - (instancetype)initWithMachPort:(mach_port_t)port;
 @end
 
-@protocol MacvrMTLDeviceSPI <MTLDevice>
+@protocol VarborMTLDeviceSPI <MTLDevice>
 - (id<MTLSharedEvent>)newSharedEventWithMachPort:(mach_port_t)port;
 @end
 
@@ -54,7 +54,7 @@ static bool gpu_sync(void)
 }
 
 /* For vk_unix.mm */
-extern "C" bool macvr_oc_sync( void (**begin)( void *, uint64_t, void *, uint64_t ), int (**end)( void ) )
+extern "C" bool varbor_oc_sync( void (**begin)( void *, uint64_t, void *, uint64_t ), int (**end)( void ) )
 {
     if (!gpu_sync()) return false;
     *begin = oc_sync_begin;
@@ -85,9 +85,9 @@ static mach_port_t look_up( const char *name )
     return port;
 }
 
-extern "C" NTSTATUS macvr_dxmt_import( void *args )
+extern "C" NTSTATUS varbor_dxmt_import( void *args )
 {
-    struct macvr_dxmt_import_params *p = (struct macvr_dxmt_import_params *)args;
+    struct varbor_dxmt_import_params *p = (struct varbor_dxmt_import_params *)args;
     struct image *img;
     mach_port_t port;
 
@@ -118,7 +118,7 @@ extern "C" NTSTATUS macvr_dxmt_import( void *args )
         {
             port = look_up( p->event_name );
             if (MACH_PORT_VALID(port) && [device respondsToSelector:@selector(newSharedEventWithMachPort:)])
-                img->event = [(id<MacvrMTLDeviceSPI>)device newSharedEventWithMachPort:port];
+                img->event = [(id<VarborMTLDeviceSPI>)device newSharedEventWithMachPort:port];
             if (!img->event)
             {
                 snprintf( p->info, sizeof(p->info), "keyed mutex event %s not importable", p->event_name );
@@ -137,9 +137,9 @@ extern "C" NTSTATUS macvr_dxmt_import( void *args )
     return 0;
 }
 
-extern "C" NTSTATUS macvr_dxmt_wait( void *args )
+extern "C" NTSTATUS varbor_dxmt_wait( void *args )
 {
-    struct macvr_dxmt_wait_params *p = (struct macvr_dxmt_wait_params *)args;
+    struct varbor_dxmt_wait_params *p = (struct varbor_dxmt_wait_params *)args;
     struct image *img = (struct image *)(uintptr_t)p->image;
     uint64_t t0 = clock_gettime_nsec_np( CLOCK_UPTIME_RAW );
     bool gpu = p->gpu && gpu_sync();
@@ -165,9 +165,9 @@ extern "C" NTSTATUS macvr_dxmt_wait( void *args )
     return 0;
 }
 
-extern "C" NTSTATUS macvr_dxmt_end( void *args )
+extern "C" NTSTATUS varbor_dxmt_end( void *args )
 {
-    struct macvr_dxmt_end_params *p = (struct macvr_dxmt_end_params *)args;
+    struct varbor_dxmt_end_params *p = (struct varbor_dxmt_end_params *)args;
     struct image *img = (struct image *)(uintptr_t)p->image;
 
     p->taken = oc_sync_end && oc_sync_end();
@@ -179,9 +179,9 @@ extern "C" NTSTATUS macvr_dxmt_end( void *args )
     return 0;
 }
 
-extern "C" NTSTATUS macvr_dxmt_idle( void *args )
+extern "C" NTSTATUS varbor_dxmt_idle( void *args )
 {
-    struct macvr_dxmt_idle_params *p = (struct macvr_dxmt_idle_params *)args;
+    struct varbor_dxmt_idle_params *p = (struct varbor_dxmt_idle_params *)args;
     struct image *img = (struct image *)(uintptr_t)p->image;
     uint64_t t0 = clock_gettime_nsec_np( CLOCK_UPTIME_RAW );
 
@@ -197,9 +197,9 @@ static struct
     uint64_t value;
 } direct;
 
-extern "C" NTSTATUS macvr_dxmt_direct_begin( void *args )
+extern "C" NTSTATUS varbor_dxmt_direct_begin( void *args )
 {
-    struct macvr_dxmt_direct_params *p = (struct macvr_dxmt_direct_params *)args;
+    struct varbor_dxmt_direct_params *p = (struct varbor_dxmt_direct_params *)args;
     id<MTLDevice> device = (id<MTLDevice>)(uintptr_t)p->device;
 
     p->gpu = 0;
@@ -220,16 +220,16 @@ extern "C" NTSTATUS macvr_dxmt_direct_begin( void *args )
     return 0;
 }
 
-extern "C" NTSTATUS macvr_dxmt_direct_end( void *args )
+extern "C" NTSTATUS varbor_dxmt_direct_end( void *args )
 {
-    struct macvr_dxmt_direct_params *p = (struct macvr_dxmt_direct_params *)args;
+    struct varbor_dxmt_direct_params *p = (struct varbor_dxmt_direct_params *)args;
     p->taken = oc_sync_end && oc_sync_end();
     return 0;
 }
 
-extern "C" NTSTATUS macvr_dxmt_destroy( void *args )
+extern "C" NTSTATUS varbor_dxmt_destroy( void *args )
 {
-    struct macvr_dxmt_destroy_params *p = (struct macvr_dxmt_destroy_params *)args;
+    struct varbor_dxmt_destroy_params *p = (struct varbor_dxmt_destroy_params *)args;
     struct image *img = (struct image *)(uintptr_t)p->image;
     if (!img) return 0;
     [img->texture release];

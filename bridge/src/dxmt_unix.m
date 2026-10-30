@@ -13,11 +13,11 @@
 #include <string.h>
 #include "wineopenxr_unix.h"
 
-@interface MTLSharedTextureHandle (MacvrSPI)
+@interface MTLSharedTextureHandle (VarborSPI)
 - (instancetype)initWithMachPort:(mach_port_t)port;
 @end
 
-@protocol MacvrMTLDeviceSPI <MTLDevice>
+@protocol VarborMTLDeviceSPI <MTLDevice>
 - (id<MTLSharedEvent>)newSharedEventWithMachPort:(mach_port_t)port;
 @end
 
@@ -305,7 +305,7 @@ static XrResult import_image(struct dxmt_import_image_params *p, struct dxmt_ctx
         port = look_up(p->event_name);
         id<MTLSharedEvent> event = nil;
         if (MACH_PORT_VALID(port) && [c->mtl respondsToSelector:@selector(newSharedEventWithMachPort:)])
-            event = [(id<MacvrMTLDeviceSPI>)c->mtl newSharedEventWithMachPort:port];
+            event = [(id<VarborMTLDeviceSPI>)c->mtl newSharedEventWithMachPort:port];
         if (!event)
         {
             snprintf(p->info, sizeof(p->info), "keyed mutex event %s not importable", p->event_name);
@@ -450,7 +450,7 @@ NTSTATUS bridge_unsupported_device(void *args)
     {
         NSString *header = [NSString stringWithFormat:@"%s can't run in VR with this graphics backend", game];
         NSString *text = [NSString stringWithFormat:
-            @"MacVR needs DXMT or DXVK, but the game started with %s.\n\n"
+            @"VarboR needs DXMT or DXVK, but the game started with %s.\n\n"
             @"In Steam, open the game's Properties → Compatibility and set Graphics to DXMT or DXVK.\n\n"
             @"Run Anyway continues, and the game's VR start-up will fail.",
             backend && *backend ? backend : "Automatic (CrossOver's choice)"];

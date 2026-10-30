@@ -1,7 +1,7 @@
 import Foundation
 
 /// The bridge in every NotProton runner's `CrossOver/lib/wine`: the builtins `wineopenxr.dll` (OpenXR games) and
-/// `vrclient_x64.dll` (OpenVR games, Proton's vrclient), their universal (x86_64 + arm64) unixlibs, and `macvrreg.dll`
+/// `vrclient_x64.dll` (OpenVR games, Proton's vrclient), their universal (x86_64 + arm64) unixlibs, and `varborreg.dll`
 /// (RunnerRegistration). Each .so goes to two places: `x86_64-unix`, which Rosetta (x86_64 Wine) pairs with the PE in
 /// `x86_64-windows`, and `x86_64-windows`, because FEX (arm64 Wine) finds the x86_64 PE only through NotProton's flat
 /// WINEDLLPATH entry `lib/wine/x86_64-windows` and takes the unixlib from that same dir (as NotProton stages its
@@ -18,11 +18,11 @@ public enum RunnerInstall {
         ("x86_64-windows/vrclient_x64.so", "x86_64-unix/vrclient_x64.so"),
     ]
 
-    /// `files` from the payload plus the per-user `macvrreg.dll` (when the payload has its template).
+    /// `files` from the payload plus the per-user `varborreg.dll` (when the payload has its template).
     static func sources(_ ctx: Context, generate: Bool) throws -> [(dst: String, src: URL)] {
         var out = files.map { (dst: $0.dst, src: ctx.bridgeDir.appendingPathComponent($0.src)) }
         let reg = generate ? try RunnerRegistration.generate(ctx) : RunnerRegistration.generated(ctx)
-        if let reg { out.append((dst: "x86_64-windows/macvrreg.dll", src: reg)) }
+        if let reg { out.append((dst: "x86_64-windows/varborreg.dll", src: reg)) }
         return out
     }
 
@@ -84,7 +84,7 @@ public enum RunnerInstall {
                 let src = f.src
                 let dst = lib.appendingPathComponent(f.dst)
                 wanted.insert(dst.path)
-                guard let want = Deploy.sha256(src) else { throw MacVRError("no \(src.path): run install") }
+                guard let want = Deploy.sha256(src) else { throw VarborError("no \(src.path): run install") }
                 if let have = Deploy.sha256(dst) {
                     if have == want { rec[dst.path] = want; res.current += 1; continue }
                     guard rec[dst.path] == have else {
@@ -93,12 +93,12 @@ public enum RunnerInstall {
                         continue
                     }
                 }
-                let tmp = dst.deletingLastPathComponent().appendingPathComponent(".\(dst.lastPathComponent).macvr-tmp")
+                let tmp = dst.deletingLastPathComponent().appendingPathComponent(".\(dst.lastPathComponent).varbor-tmp")
                 try? FileManager.default.removeItem(at: tmp)
                 try FileManager.default.copyItem(at: src, to: tmp)
                 guard rename(tmp.path, dst.path) == 0 else {
                     try? FileManager.default.removeItem(at: tmp)
-                    throw MacVRError("rename \(dst.path) failed")
+                    throw VarborError("rename \(dst.path) failed")
                 }
                 rec[dst.path] = want
                 res.installed += 1

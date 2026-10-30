@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 #include "vrclient_private.h"
-#include "macvr_unixlib.h"
+#include "varbor_unixlib.h"
 
-void macvr_log( const char *fmt, ... ) __attribute__((format(printf, 1, 2)));
+void varbor_log( const char *fmt, ... ) __attribute__((format(printf, 1, 2)));
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
@@ -16,7 +16,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 static uint64_t forward( struct w_iface *_this, uint32_t index, uint64_t a, uint64_t b, uint64_t c )
 {
     static LONG logged[METHODS];
-    struct macvr_input_internal_params params =
+    struct varbor_input_internal_params params =
     {
         .u_iface = _this->u_iface.handle,
         .index = index,
@@ -25,9 +25,9 @@ static uint64_t forward( struct w_iface *_this, uint32_t index, uint64_t a, uint
         .c = c,
     };
     if (!InterlockedExchange( &logged[index], 1 ))
-        macvr_log( "IVRInputInternal_002 method %u (%#llx, %#llx, %#llx)", index, (unsigned long long)a,
+        varbor_log( "IVRInputInternal_002 method %u (%#llx, %#llx, %#llx)", index, (unsigned long long)a,
                    (unsigned long long)b, (unsigned long long)c );
-    VRCLIENT_CALL( macvr_input_internal, &params );
+    VRCLIENT_CALL( varbor_input_internal, &params );
     return params._ret;
 }
 
@@ -59,7 +59,7 @@ struct w_iface *create_winIVRInputInternal_IVRInputInternal_002( struct u_iface 
 {
     struct w_iface *r = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*r) );
     TRACE( "-> %p\n", r );
-    macvr_log( "IVRInputInternal_002 -> %p (native %#llx)", r, (unsigned long long)u_iface.handle );
+    varbor_log( "IVRInputInternal_002 -> %p (native %#llx)", r, (unsigned long long)u_iface.handle );
     r->vtable = &winIVRInputInternal_IVRInputInternal_002_vtable;
     r->u_iface = u_iface;
     return r;

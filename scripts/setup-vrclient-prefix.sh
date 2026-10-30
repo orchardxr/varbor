@@ -4,7 +4,7 @@
 #   <user>\AppData\Local\openvr\openvrpaths.vrpath   runtime -> C:\vrclient, for every Wine user in the prefix
 #   HKCU\Software\Wine\VR                  ready, no Vulkan extensions (for DXVK; see vr_key below)
 # Optionally installs the builtin into a CrossOver runner tree and points the macOS openvrpaths.vrpath at the native
-# runtime (OpenComposite's vrclient.dylib), which the unix side reads when MACVR_VRCLIENT_RUNTIME is unset.
+# runtime (OpenComposite's vrclient.dylib), which the unix side reads when VARBOR_VRCLIENT_RUNTIME is unset.
 #
 #   scripts/setup-vrclient-prefix.sh [options] <prefix>      (<prefix> holds drive_c)
 #     --root DIR           vrclient build root with x86_64-windows/ and x86_64-unix/ (default build/vrclient/root)
@@ -14,7 +14,7 @@
 #                          (a dir with bin/osx64/vrclient.dylib), keeping its other keys
 #     --remove             undo the prefix part (C:\vrclient and the prefix's openvrpaths.vrpath)
 #
-# Like Proton, a runtime the prefix's openvrpaths.vrpath named before (not C:\vrclient) is kept in a "macvr_previous"
+# Like Proton, a runtime the prefix's openvrpaths.vrpath named before (not C:\vrclient) is kept in a "varbor_previous"
 # key; --remove restores it. Never touches anything but the given prefix, runner dir and (with --macos-vrpath) the
 # macOS openvrpaths.vrpath.
 set -euo pipefail
@@ -52,7 +52,7 @@ except (OSError, ValueError):
     c = {}
 if mode == "set":
     if c.get("runtime") and c["runtime"] != ours:
-        c["macvr_previous"] = c["runtime"]
+        c["varbor_previous"] = c["runtime"]
     c["runtime"] = ours
     c.setdefault("config", ["C:\\vrclient\\config"])
     c.setdefault("log", ["C:\\vrclient\\logs"])
@@ -62,10 +62,10 @@ if mode == "set":
 else:
     if c.get("runtime") != ours:
         sys.exit(0)
-    if "macvr_previous" not in c:
+    if "varbor_previous" not in c:
         os.remove(path)
         sys.exit(0)
-    c["runtime"] = c.pop("macvr_previous")
+    c["runtime"] = c.pop("varbor_previous")
 os.makedirs(os.path.dirname(path), exist_ok=True)
 with open(path, "w") as f:
     json.dump(c, f, indent=3)
@@ -90,13 +90,13 @@ except OSError:
 section = re.compile(r'\n\[Software\\\\Wine\\\\VR\] [^\n]*\n(?:[^\n\[][^\n]*\n|\n(?!\[))*')
 m = section.search(text)
 if mode == "set":
-    if m and '"macvr"=' not in m.group(0):
+    if m and '"varbor"=' not in m.group(0):
         sys.exit(0)
     if m:
         text = text[:m.start()] + text[m.end():]
     text = text.rstrip("\n") + "\n\n[Software\\\\Wine\\\\VR] %d\n" % int(time.time()) + \
-        '"macvr"="vrclient"\n"openvr_vulkan_instance_extensions"="VK_KHR_surface"\n"state"=dword:00000001\n'
-elif m and '"macvr"=' in m.group(0):
+        '"varbor"="vrclient"\n"openvr_vulkan_instance_extensions"="VK_KHR_surface"\n"state"=dword:00000001\n'
+elif m and '"varbor"=' in m.group(0):
     text = text[:m.start()] + "\n" + text[m.end():].lstrip("\n")
 else:
     sys.exit(0)
@@ -127,7 +127,7 @@ for u in "${users[@]}"; do vrpath "$prefix/drive_c/users/$u/AppData/Local/openvr
 vr_key "$prefix/user.reg" set
 echo "prefix $prefix: C:\\vrclient\\bin\\vrclient_x64.dll, openvrpaths.vrpath for ${users[*]}"
 
-# openvr_api.dll prefers VR_OVERRIDE (MacVR's Windows OpenComposite install sets it machine-wide) over
+# openvr_api.dll prefers VR_OVERRIDE (VarboR's Windows OpenComposite install sets it machine-wide) over
 # openvrpaths.vrpath; Proton drops it too. Edits system.reg directly: the prefix's wineserver must not be running.
 if grep -q '^"VR_OVERRIDE"=' "$prefix/system.reg" 2>/dev/null; then
 	sed -i '' '/^"VR_OVERRIDE"=/d' "$prefix/system.reg"

@@ -1,4 +1,4 @@
-vrclient (MacVR's Wine OpenVR bridge, vrclient_x64.dll + vrclient_x64.so)
+vrclient (VarboR's Wine OpenVR bridge, vrclient_x64.dll + vrclient_x64.so)
 
 proton/ is imported from Valve's Proton (github.com/ValveSoftware/Proton, branch experimental_11.0, commit 7a94df4,
 directory vrclient_x64/, without the openvr_* SDK header copies that only its generator reads). Those files keep their
@@ -6,12 +6,12 @@ own licenses and headers:
   - BSD 3-Clause, Copyright (c) 2015 Valve Corporation: proton/LICENSE. Covers everything in proton/ except below.
   - proton/cxx.h: GNU LGPL 2.1 or later (Wine, Copyright 2012 Piotr Caban for CodeWeavers), as stated in the file.
   - proton/json/ and proton/jsoncpp.cpp: JsonCpp, MIT or public domain, as stated in the files.
-MacVR's changes to the files in proton/ are under the same license as the file they are in.
+VarboR's changes to the files in proton/ are under the same license as the file they are in.
 
 The build compiles against Wine's headers (GNU LGPL 2.1 or later), fetched at build time into build/; none are
 committed here.
 
-Everything else in this directory (src/, Makefile) is MacVR's own code:
+Everything else in this directory (src/, Makefile) is VarboR's own code:
 
 MIT License
 

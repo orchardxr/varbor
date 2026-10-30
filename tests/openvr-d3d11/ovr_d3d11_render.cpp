@@ -283,7 +283,7 @@ int main(int argc, char** argv)
 	vr::VROverlayHandle_t overlay = vr::k_ulOverlayHandleInvalid;
 	const uint32_t ovl_px = 0xFF20C0FFu;
 	ID3D11Texture2D* ovl_tex = make_texture(dev, 256, 128, 1, &ovl_px);
-	vr::EVROverlayError oe = ovl ? ovl->CreateOverlay("macvr.vrclient.test", "vrclient test", &overlay) : vr::VROverlayError_InvalidHandle;
+	vr::EVROverlayError oe = ovl ? ovl->CreateOverlay("varbor.vrclient.test", "vrclient test", &overlay) : vr::VROverlayError_InvalidHandle;
 	if (oe == vr::VROverlayError_None) {
 		ovl->SetOverlayWidthInMeters(overlay, 0.5f);
 		vr::HmdMatrix34_t m = { { { 1, 0, 0, 0 }, { 0, 1, 0, 1.2f }, { 0, 0, 1, -1.5f } } };

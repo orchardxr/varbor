@@ -7,6 +7,8 @@ public struct Context: Sendable {
     public var steamRoot: URL
     public var logDir: URL
     public var runners: URL
+    /// MacVR's support dir (before the rename): moved to `support` at launch, still recognized in prefixes.
+    public var legacySupport: URL?
     /// Run launchctl/Steam/process side effects. Off in tests.
     public var system: Bool
 
@@ -25,21 +27,28 @@ public struct Context: Sendable {
         let appSupport = home.appendingPathComponent("Library/Application Support")
         var ctx = Context(
             home: home,
-            support: appSupport.appendingPathComponent("macvr"),
+            support: appSupport.appendingPathComponent("varbor"),
             steamRoot: appSupport.appendingPathComponent("Steam"),
-            logDir: home.appendingPathComponent("Library/Logs/MacVR"),
+            logDir: home.appendingPathComponent("Library/Logs/VarboR"),
             runners: appSupport.appendingPathComponent("notproton/runners"),
             system: true)
-        if let s = env["MACVR_SUPPORT"] { ctx.support = URL(fileURLWithPath: s) }
-        if let s = env["MACVR_STEAM_ROOT"] { ctx.steamRoot = URL(fileURLWithPath: s) }
-        if let s = env["MACVR_RUNNERS"] { ctx.runners = URL(fileURLWithPath: s) }
-        if let s = env["MACVR_LOG_DIR"] { ctx.logDir = URL(fileURLWithPath: s) }
-        if env["MACVR_NO_SYSTEM"] == "1" { ctx.system = false }
+        ctx.legacySupport = appSupport.appendingPathComponent("macvr")
+        ctx.legacyLogDir = home.appendingPathComponent("Library/Logs/MacVR")
+        if let s = env["VARBOR_SUPPORT"] {
+            ctx.support = URL(fileURLWithPath: s)
+            ctx.legacySupport = nil
+            ctx.legacyLogDir = nil
+        }
+        if let s = env["VARBOR_STEAM_ROOT"] { ctx.steamRoot = URL(fileURLWithPath: s) }
+        if let s = env["VARBOR_RUNNERS"] { ctx.runners = URL(fileURLWithPath: s) }
+        if let s = env["VARBOR_LOG_DIR"] { ctx.logDir = URL(fileURLWithPath: s) }
+        if env["VARBOR_NO_SYSTEM"] == "1" { ctx.system = false }
         return ctx
     }
 
     /// Every support dir prefixes may point into (registry values that name one are ours).
-    public var supportDirs: [URL] { [support] }
+    public var supportDirs: [URL] { [support] + (legacySupport.map { [$0] } ?? []) }
+    public var legacyLogDir: URL?
     public var versions: URL { support.appendingPathComponent("versions") }
     public var current: URL { support.appendingPathComponent("current") }
     public var previous: URL { support.appendingPathComponent("previous") }
@@ -76,9 +85,9 @@ public struct Context: Sendable {
 
     /// CrossOver bottles the user added.
     public var bottles: [URL] { pathList("bottles") }
-    /// Trees MacVR must never modify (e.g. bottles another tool manages).
+    /// Trees VarboR must never modify (e.g. bottles another tool manages).
     public var protectedPaths: [URL] { pathList("protected-paths") }
-    /// Steam game prefixes (compatdata/<appid>) MacVR keeps free of its settings.
+    /// Steam game prefixes (compatdata/<appid>) VarboR keeps free of its settings.
     public var excludedPrefixes: [URL] { pathList("excluded-prefixes") }
     public func isExcluded(_ p: WinePrefix) -> Bool {
         p.kind == .steam && excludedPrefixes.contains { $0.standardizedFileURL.path == p.owner.standardizedFileURL.path }
@@ -112,7 +121,7 @@ enum KeyValueFile {
 }
 
 func writeAtomically(_ data: Data, to url: URL, permissions: Int? = nil) throws {
-    let tmp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).macvr-tmp")
+    let tmp = url.deletingLastPathComponent().appendingPathComponent(".\(url.lastPathComponent).varbor-tmp")
     try? FileManager.default.removeItem(at: tmp)
     try data.write(to: tmp)
     if let p = permissions {
@@ -121,11 +130,11 @@ func writeAtomically(_ data: Data, to url: URL, permissions: Int? = nil) throws 
     if rename(tmp.path, url.path) != 0 {
         let err = errno
         try? FileManager.default.removeItem(at: tmp)
-        throw MacVRError("rename \(url.path): \(String(cString: strerror(err)))")
+        throw VarborError("rename \(url.path): \(String(cString: strerror(err)))")
     }
 }
 
-public struct MacVRError: Error, CustomStringConvertible {
+public struct VarborError: Error, CustomStringConvertible {
     public let description: String
     public init(_ d: String) { description = d }
 }

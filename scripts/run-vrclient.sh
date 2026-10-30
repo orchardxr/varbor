@@ -9,21 +9,21 @@
 #                      ../opencomposite-macos/build/oc-macos/runtime next to this checkout)
 #   MONADO_BUILD=<dir> monado-service and the x86_64/arm64 IPC clients with XR_KHR_metal_enable, as wivrn-macos builds
 #                      them (default ../wivrn-macos/build/bridge)
-#   OUT=<dir>          scratch dir (default $DARWIN_USER_TEMP_DIR/macvr-vrclient): staged root/runtime/client, prefix,
+#   OUT=<dir>          scratch dir (default $DARWIN_USER_TEMP_DIR/varbor-vrclient): staged root/runtime/client, prefix,
 #                      logs and frame dumps. Wine must not touch ~/Documents (TCC prompt), so everything it loads is
 #                      copied there first.
 #   RUNNER=<build>     NotProton runner (default 26.3.0.39832: Rosetta; 27.0.0.41073-fex with FEX=1)
 #   TEMPLATE_RUNNER=<build>  NotProton template to copy the prefix from (default: RUNNER's; a runner clone such as
-#                      27.0.0.41073-fex-macvr (make-macvr-runner.sh) has none: use its base build)
+#                      27.0.0.41073-fex-varbor (make-varbor-runner.sh) has none: use its base build)
 #   FEX=1              arm64 Wine with FEX: a clone of the runner gets vrclient_x64.dll/.so (setup-vrclient-prefix.sh
 #                      --runner) and the arm64 OpenXR client; the PE side stays x86_64
 #   BACKEND=dxmt       CX_GRAPHICS_BACKEND
 #   DUMP_FRAME=N       committed frame the null compositor writes to $OUT/frame-<tag>.png (default 300)
 #   TAG=<name>         log/dump name suffix (default: runner arch)
 #   VRCLIENT_DXMT_SYNC=query   force the event-query sync (DXMT without keyed mutexes)
-#   VRCLIENT_DXMT_DIRECT=0     MacVR DXMT runner: copy the eye textures instead of handing over DXMT's own
+#   VRCLIENT_DXMT_DIRECT=0     VarboR DXMT runner: copy the eye textures instead of handing over DXMT's own
 #   VRCLIENT_DXMT_GPU_SYNC=0   CPU wait before OpenComposite's copy instead of its GPU wait (oc_metal_submit_sync)
-#   VRCLIENT_VK_DIRECT=0       BACKEND=dxvk (Rosetta runners, or FEX with RUNNER=27.0.0.41073-fex-macvr from make-macvr-runner.sh; stock CX 27 FEX falls back to wined3d): copy
+#   VRCLIENT_VK_DIRECT=0       BACKEND=dxvk (Rosetta runners, or FEX with RUNNER=27.0.0.41073-fex-varbor from make-varbor-runner.sh; stock CX 27 FEX falls back to wined3d): copy
 #                              the eye images instead of handing over DXVK's own MTLTexture
 # The service gets its own XDG_RUNTIME_DIR ($OUT/rt). Never touches the runners, NotProton's template or game prefixes.
 set -euo pipefail
@@ -38,7 +38,7 @@ exe="$(cd "$(dirname "$exe")" && pwd)/$(basename "$exe")"
 args=("$@")
 [[ $# -gt 0 ]] || args=("$secs")
 
-OUT="${OUT:-$(getconf DARWIN_USER_TEMP_DIR)macvr-vrclient}"
+OUT="${OUT:-$(getconf DARWIN_USER_TEMP_DIR)varbor-vrclient}"
 fex="${FEX:-0}"
 if [[ $fex == 1 ]]; then runner="${RUNNER:-27.0.0.41073-fex}"; unix_arch=aarch64; xr_arch=arm64
 else runner="${RUNNER:-26.3.0.39832}"; unix_arch=x86_64; xr_arch=x86_64; fi
@@ -97,7 +97,7 @@ export CX_GRAPHICS_BACKEND="${BACKEND:-dxmt}"
 export WINEDEBUG="${WINEDEBUG:--all,err+vrclient}"
 export XDG_RUNTIME_DIR="$OUT/rt"
 export MONADO_SYNC_STATS=1
-export MACVR_VRCLIENT_RUNTIME="$OUT/runtime"
+export VARBOR_VRCLIENT_RUNTIME="$OUT/runtime"
 export XR_RUNTIME_JSON="$OUT/xr-$xr_arch/openxr_monado.json"
 export VRCLIENT_LOG="$vlog" VRCLIENT_STATS="${VRCLIENT_STATS:-1}"
 

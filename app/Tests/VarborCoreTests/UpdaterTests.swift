@@ -1,4 +1,4 @@
-@testable import MacVRCore
+@testable import VarborCore
 import XCTest
 
 final class UpdaterTests: XCTestCase {

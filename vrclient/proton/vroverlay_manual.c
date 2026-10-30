@@ -8,8 +8,8 @@
 #include "d3d11_4.h"
 #include "dxvk-interop.h"
 #include "vrclient_private.h"
-#ifdef MACVR
-#include "macvr_pe.h"
+#ifdef VARBOR
+#include "varbor_pe.h"
 #endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
@@ -23,8 +23,8 @@ struct set_overlay_texture_state
     VkImageSubresourceRange subresources;
     IDXGIVkInteropSurface *dxvk_surface;
     IDXGIVkInteropDevice *dxvk_device;
-#ifdef MACVR
-    struct macvr_submit macvr;
+#ifdef VARBOR
+    struct varbor_submit varbor;
     w_VRTextureWithPose_t metal;
 #endif
 };
@@ -42,16 +42,16 @@ static void load_overlay_texture_dxvk( uint64_t overlay, const w_Texture_t *text
         return;
     }
 
-#ifdef MACVR
-    if (macvr_dxmt_texture( texture_iface ))
+#ifdef VARBOR
+    if (varbor_dxmt_texture( texture_iface ))
     {
         uint32_t flags = 0;
-        state->texture = *(const w_Texture_t *)macvr_load_overlay_dxmt( overlay, texture, &flags, &state->metal, &state->macvr );
+        state->texture = *(const w_Texture_t *)varbor_load_overlay_dxmt( overlay, texture, &flags, &state->metal, &state->varbor );
         return;
     }
     {
         uint32_t flags = 0;
-        state->texture = *(const w_Texture_t *)macvr_load_overlay_vk( overlay, texture, &flags, &state->metal, &state->macvr );
+        state->texture = *(const w_Texture_t *)varbor_load_overlay_vk( overlay, texture, &flags, &state->metal, &state->varbor );
         return;
     }
 #endif
@@ -79,9 +79,9 @@ static void load_overlay_texture_dxvk( uint64_t overlay, const w_Texture_t *text
 
 static void free_unix_overlay_texture_dxvk( struct set_overlay_texture_state *state )
 {
-#ifdef MACVR
-    macvr_free_texture_dxmt( &state->macvr );
-    macvr_free_texture_vk( &state->macvr );
+#ifdef VARBOR
+    varbor_free_texture_dxmt( &state->varbor );
+    varbor_free_texture_vk( &state->varbor );
 #endif
     if (!state->dxvk_device) return;
 

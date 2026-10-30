@@ -236,7 +236,7 @@ static const struct { const char *iface_version; iface_constructor ctor; } const
     {"FnTable:IVRTrackedCamera_005", create_winIVRTrackedCamera_IVRTrackedCamera_005_FnTable},
     {"IVRTrackedCamera_006", create_winIVRTrackedCamera_IVRTrackedCamera_006},
     {"FnTable:IVRTrackedCamera_006", create_winIVRTrackedCamera_IVRTrackedCamera_006_FnTable},
-#ifdef MACVR
+#ifdef VARBOR
     {"IVRInputInternal_002", create_winIVRInputInternal_IVRInputInternal_002},
 #endif
 };
@@ -484,7 +484,7 @@ static const struct { const char *iface_version; iface_destructor dtor; } destru
     {"FnTable:IVRTrackedCamera_005", destroy_winIVRTrackedCamera_IVRTrackedCamera_005_FnTable},
     {"IVRTrackedCamera_006", destroy_winIVRTrackedCamera_IVRTrackedCamera_006},
     {"FnTable:IVRTrackedCamera_006", destroy_winIVRTrackedCamera_IVRTrackedCamera_006_FnTable},
-#ifdef MACVR
+#ifdef VARBOR
     {"IVRInputInternal_002", destroy_winIVRInputInternal_IVRInputInternal_002},
 #endif
 };
@@ -519,7 +519,7 @@ extern void init_winIVRScreenshots_rtti( char * );
 extern void init_winIVRSettings_rtti( char * );
 extern void init_winIVRSystem_rtti( char * );
 extern void init_winIVRTrackedCamera_rtti( char * );
-#ifdef MACVR
+#ifdef VARBOR
 extern void init_winIVRInputInternal_rtti( char * );
 #endif
 
@@ -546,7 +546,7 @@ void init_rtti( char *base )
     init_winIVRSettings_rtti( base );
     init_winIVRSystem_rtti( base );
     init_winIVRTrackedCamera_rtti( base );
-#ifdef MACVR
+#ifdef VARBOR
     init_winIVRInputInternal_rtti( base );
 #endif
 }

@@ -1,18 +1,19 @@
 import Foundation
-import MacVRCore
+import VarborCore
 
 let usage = """
-usage: macvr install [--payload <dir>]   deploy the payload, add the runner files, fix prefixes
-       macvr status
-       macvr rescan                       fix templates and prefixes
-       macvr uninstall                    revert prefixes, templates and runner files
-       macvr bottle add|remove <path> | list   CrossOver bottles MacVR sets up (besides NotProton's prefixes)
-       macvr library add|remove <path> | list  extra Steam library folders
-       macvr protect add|remove <path> | list  trees MacVR never modifies (bottles managed by other tools)
-       macvr exclude add|remove <appid|compatdata dir> | list  Steam game prefixes kept free of MacVR's settings
+usage: varbor install [--payload <dir>]   deploy the payload, add the runner files, fix prefixes
+       varbor status
+       varbor rescan                       fix templates and prefixes
+       varbor uninstall                    revert prefixes, templates and runner files
+       varbor bottle add|remove <path> | list   CrossOver bottles VarboR sets up (besides NotProton's prefixes)
+       varbor library add|remove <path> | list  extra Steam library folders
+       varbor protect add|remove <path> | list  trees VarboR never modifies (bottles managed by other tools)
+       varbor exclude add|remove <appid|compatdata dir> | list  Steam game prefixes kept free of VarboR's settings
 """
 
 let ctx = Context.real()
+Migration.run(ctx)
 Log.shared.open(ctx)
 Log.shared.echo = true
 var args = Array(CommandLine.arguments.dropFirst())
@@ -33,17 +34,17 @@ do {
     switch args.first {
     case "install":
         let payload = option("--payload").map { URL(fileURLWithPath: $0) } ?? Deploy.bundledPayload()
-        guard let payload else { fail("no payload: pass --payload <dir> (build/app/payload) or run from MacVR.app") }
-        let rep = try MacVR.install(ctx, payload: payload)
+        guard let payload else { fail("no payload: pass --payload <dir> (build/app/payload) or run from VarboR.app") }
+        let rep = try Varbor.install(ctx, payload: payload)
         if !rep.busy.isEmpty { print("busy prefixes are fixed on the next rescan") }
         exit(rep.errors.isEmpty ? 0 : 1)
     case "rescan":
-        let rep = MacVR.rescan(ctx)
+        let rep = Varbor.rescan(ctx)
         exit(rep.errors.isEmpty ? 0 : 1)
     case "status":
-        print(MacVR.statusText(ctx))
+        print(Varbor.statusText(ctx))
     case "uninstall":
-        let rep = MacVR.uninstall(ctx)
+        let rep = Varbor.uninstall(ctx)
         if !rep.busy.isEmpty { fail("busy (a game or wineserver runs): \(rep.busy.joined(separator: ", ")); run again later") }
         exit(rep.errors.isEmpty ? 0 : 1)
     case "bottle", "library":
@@ -52,7 +53,7 @@ do {
         case ("list", 2):
             if bottle {
                 for b in ctx.bottles {
-                    let st = MacVR.prefixStates(ctx).first { $0.kind == .bottle && $0.path == b.path }
+                    let st = Varbor.prefixStates(ctx).first { $0.kind == .bottle && $0.path == b.path }
                     print("\(b.path): \(st?.summary ?? "missing")" + (Bottles.backendWarning(b).map { " (\($0))" } ?? ""))
                 }
             } else {
@@ -60,13 +61,13 @@ do {
             }
         case ("add", 3):
             let u = URL(fileURLWithPath: args[2])
-            let rep = try bottle ? MacVR.addBottle(ctx, u) : MacVR.addLibrary(ctx, u)
+            let rep = try bottle ? Varbor.addBottle(ctx, u) : Varbor.addLibrary(ctx, u)
             if bottle, let w = Bottles.backendWarning(u) { print("warning: \(w)") }
             if !rep.busy.isEmpty { print("busy prefixes are fixed on the next rescan") }
             exit(rep.errors.isEmpty ? 0 : 1)
         case ("remove", 3):
             let u = URL(fileURLWithPath: args[2])
-            try bottle ? MacVR.removeBottle(ctx, u) : MacVR.removeLibrary(ctx, u)
+            try bottle ? Varbor.removeBottle(ctx, u) : Varbor.removeLibrary(ctx, u)
         default: fail(usage)
         }
     case "exclude":
@@ -80,7 +81,7 @@ do {
         case ("list", 2):
             for p in ctx.excludedPrefixes { print(p.path) }
         case ("add", 3), ("remove", 3):
-            let rep = try MacVR.setExcluded(ctx, owner(args[2]), args[1] == "add")
+            let rep = try Varbor.setExcluded(ctx, owner(args[2]), args[1] == "add")
             print(rep.summary)
         default: fail(usage)
         }
@@ -100,5 +101,5 @@ do {
         fail(usage)
     }
 } catch {
-    fail("macvr: \(error)")
+    fail("varbor: \(error)")
 }

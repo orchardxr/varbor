@@ -15,7 +15,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
 #ifdef __APPLE__
-extern "C" const char *macvr_find_runtime( const char *given );
+extern "C" const char *varbor_find_runtime( const char *given );
 #endif
 
 static void *(*p_HmdSystemFactory)( const char *name, int *return_code );
@@ -301,10 +301,10 @@ static NTSTATUS vrclient_init( Params *params, bool wow64 )
     }
 
 #ifdef __APPLE__
-    const char *found = macvr_find_runtime( params->runtime_unix_path );
+    const char *found = varbor_find_runtime( params->runtime_unix_path );
     if (!found)
     {
-        ERR( "no native OpenVR runtime: set MACVR_VRCLIENT_RUNTIME or ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath\n" );
+        ERR( "no native OpenVR runtime: set VARBOR_VRCLIENT_RUNTIME or ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath\n" );
         return 0;
     }
     std::string vrclient_path = found;

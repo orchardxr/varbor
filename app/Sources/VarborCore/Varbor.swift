@@ -1,16 +1,16 @@
 import Foundation
 
-public enum MacVR {
+public enum Varbor {
     public static let backendNote = "VR works with the DXMT and DXVK graphics backends (set in the game's NotProton "
         + "compatibility settings); DXMT is preferred. D3DMetal isn't supported."
 
-    /// What the app does each time it opens (and `macvr install`): deploy, runner files, prefixes.
+    /// What the app does each time it opens (and `varbor install`): deploy, runner files, prefixes.
     @discardableResult
     public static func install(_ ctx: Context, payload: URL?) throws -> Rescan.Report {
         if let payload {
             try Deploy.install(ctx, payload: payload)
         } else if Deploy.currentStamp(ctx) == nil {
-            throw MacVRError("no payload found and nothing installed")
+            throw VarborError("no payload found and nothing installed")
         }
         let r = try RunnerInstall.ensure(ctx)
         log("runner: \(r.installed) installed, \(r.current) current" + (r.foreign.isEmpty ? "" : ", \(r.foreign.count) foreign left alone"))
@@ -52,7 +52,7 @@ public enum MacVR {
         for p in ctx.steam.prefixes + Bottles.prefixes(ctx) {
             do {
                 if try revertPrefix(ctx, p) { rep.reverted.append(p.name) }
-            } catch let e as MacVRError where e.description == "busy" {
+            } catch let e as VarborError where e.description == "busy" {
                 rep.busy.append(p.name)
             } catch {
                 rep.errors.append("\(p.name): \(error)")
@@ -69,11 +69,12 @@ public enum MacVR {
     }
 
     static func revertPrefix(_ ctx: Context, _ p: WinePrefix) throws -> Bool {
+        Migration.prefix(p)
         let rec = Record.load(p.record) ?? Record()
         var changed = false
         if p.kind == .bottle, let text = try? String(contentsOf: Bottles.conf(p.pfx), encoding: .utf8),
            let c = Bottles.revertedConf(CXConfigFile(text: text), ctx, rec) {
-            if Wineserver.running(prefix: p.pfx) { throw MacVRError("busy") }
+            if Wineserver.running(prefix: p.pfx) { throw VarborError("busy") }
             try Bottles.writeConf(c, p)
             changed = true
         }
@@ -89,8 +90,8 @@ public enum MacVR {
                 if prev == "-" { reg.deleteValue(key, name) } else { reg.setRaw(key, name, prev) }
             }
             guard reg.lines != orig else { continue }
-            if Wineserver.running(prefix: p.pfx) { throw MacVRError("busy") }
-            guard let lock = PrefixLock(p.lockFile) else { throw MacVRError("busy") }
+            if Wineserver.running(prefix: p.pfx) { throw VarborError("busy") }
+            guard let lock = PrefixLock(p.lockFile) else { throw VarborError("busy") }
             try withExtendedLifetime(lock) {
                 try Rescan.backup(url, p)
                 let perm = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.posixPermissions] as? Int
@@ -151,7 +152,7 @@ public enum MacVR {
         public var warning: String?
         /// From a bottle or Steam library the user added.
         public var userAdded: Bool
-        /// The user excluded it: MacVR keeps its settings out of this prefix.
+        /// The user excluded it: VarboR keeps its settings out of this prefix.
         public var excluded = false
 
         public var state: String {
@@ -200,7 +201,7 @@ public enum MacVR {
         }
     }
 
-    /// Excludes a Steam game prefix (its compatdata/<appid> dir) from MacVR, reverting it, or includes it again.
+    /// Excludes a Steam game prefix (its compatdata/<appid> dir) from VarboR, reverting it, or includes it again.
     @discardableResult
     public static func setExcluded(_ ctx: Context, _ owner: URL, _ excluded: Bool) throws -> Rescan.Report {
         let owner = owner.standardizedFileURL
@@ -231,12 +232,12 @@ public enum MacVR {
 
     /// Reverts a bottle (registry, cxbottle.conf) and forgets it. Throws while its wineserver runs.
     public static func removeBottle(_ ctx: Context, _ url: URL) throws {
-        guard let known = ctx.bottles.first(where: { same($0, url) }) else { throw MacVRError("\(url.path) isn't an added bottle") }
+        guard let known = ctx.bottles.first(where: { same($0, url) }) else { throw VarborError("\(url.path) isn't an added bottle") }
         if Bottles.forbidden(ctx, known) == nil, FileManager.default.fileExists(atPath: known.appendingPathComponent("system.reg").path) {
             do {
                 _ = try revertPrefix(ctx, Bottles.prefix(ctx, known))
-            } catch let e as MacVRError where e.description == "busy" {
-                throw MacVRError("\(known.lastPathComponent) is in use (its wineserver runs): quit its programs and try again")
+            } catch let e as VarborError where e.description == "busy" {
+                throw VarborError("\(known.lastPathComponent) is in use (its wineserver runs): quit its programs and try again")
             }
         }
         try ctx.setPathList("bottles", ctx.bottles.filter { !same($0, known) })
@@ -247,9 +248,9 @@ public enum MacVR {
     @discardableResult
     public static func addLibrary(_ ctx: Context, _ url: URL) throws -> Rescan.Report {
         let root = Steam.libraryRoot(url.standardizedFileURL)
-        if let why = Bottles.forbidden(ctx, root) { throw MacVRError(why) }
+        if let why = Bottles.forbidden(ctx, root) { throw VarborError(why) }
         guard FileManager.default.fileExists(atPath: root.appendingPathComponent("steamapps").path) else {
-            throw MacVRError("\(root.path) isn't a Steam library (no steamapps folder)")
+            throw VarborError("\(root.path) isn't a Steam library (no steamapps folder)")
         }
         var list = ctx.extraLibraries
         if !list.contains(where: { same($0, root) }) {
@@ -263,7 +264,7 @@ public enum MacVR {
     /// Forgets an added library; its prefixes are reverted unless Steam itself lists the library.
     public static func removeLibrary(_ ctx: Context, _ url: URL) throws {
         let root = Steam.libraryRoot(url.standardizedFileURL)
-        guard let known = ctx.extraLibraries.first(where: { same($0, root) }) else { throw MacVRError("\(root.path) isn't an added library") }
+        guard let known = ctx.extraLibraries.first(where: { same($0, root) }) else { throw VarborError("\(root.path) isn't an added library") }
         let steamListed = Steam(root: ctx.steamRoot).steamLibraries.contains { same($0, known) }
         if !steamListed, Bottles.forbidden(ctx, known) == nil {
             let busy = Steam(root: ctx.steamRoot, extraLibraries: [known]).prefixes
@@ -272,7 +273,7 @@ public enum MacVR {
                     do { _ = try revertPrefix(ctx, p); return false } catch { return true }
                 }
             if !busy.isEmpty {
-                throw MacVRError("in use: \(busy.map(\.name).joined(separator: ", ")); quit the game and try again")
+                throw VarborError("in use: \(busy.map(\.name).joined(separator: ", ")); quit the game and try again")
             }
         }
         try ctx.setPathList("steam-libraries", ctx.extraLibraries.filter { !same($0, known) })

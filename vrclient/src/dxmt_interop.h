@@ -1,4 +1,4 @@
-/* MacVR DXMT's Metal interop (patches/dxmt/0001-d3d11-metal-interop.patch, src/d3d11/d3d11_interop.hpp), for C:
+/* VarboR DXMT's Metal interop (orchardxr/varbor-engines: patches/dxmt/0001-d3d11-metal-interop.patch, src/d3d11/d3d11_interop.hpp), for C:
  * the counterpart of Proton's dxvk-interop.h. Handles are unix-side Objective-C pointers, unretained. */
 #pragma once
 #include <windows.h>
@@ -58,6 +58,6 @@ static const GUID IID_IDXMTInteropDevice = {0xee7b5b9d, 0xb703, 0x46a9, {0xac, 0
 static const GUID IID_IDXMTInteropSurface = {0x0cccd1b1, 0x1a29, 0x44b5, {0xa0, 0x30, 0x04, 0xf2, 0x8f, 0xa3, 0xb3, 0x2b}};
 
 /* MTLPixelFormat / MTLTextureType / MTLTextureUsage values the bridge checks */
-#define MACVR_MTL_TEXTURE_TYPE_2D 2
-#define MACVR_MTL_TEXTURE_TYPE_2D_ARRAY 3
-#define MACVR_MTL_TEXTURE_USAGE_SHADER_READ 1
+#define VARBOR_MTL_TEXTURE_TYPE_2D 2
+#define VARBOR_MTL_TEXTURE_TYPE_2D_ARRAY 3
+#define VARBOR_MTL_TEXTURE_USAGE_SHADER_READ 1

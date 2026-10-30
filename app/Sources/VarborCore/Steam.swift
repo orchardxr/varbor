@@ -9,7 +9,7 @@ public struct SteamApp {
 
 public struct Steam {
     public let root: URL
-    /// Libraries the user added in MacVR, besides the ones Steam lists.
+    /// Libraries the user added in VarboR, besides the ones Steam lists.
     public let extraLibraries: [URL]
 
     public init(root: URL, extraLibraries: [URL] = []) {

@@ -180,9 +180,14 @@ public enum Components {
         return nil
     }
 
+    public static let wivrnRegistersOnConnect = "info: WiVRn sets the active runtime when a headset connects"
+
+    /// The server links active_runtime.json to its manifest only while a headset session runs and removes it after
+    /// (server/main.cpp runtime_setter, as on Linux), so a missing file is normal; another runtime's file is not.
     public static func wivrn(_ r: Roots) -> State {
         var s = State(name: "WiVRn", health: .missing, page: wivrnPage)
-        let activeLib = activeRuntime(r).flatMap(manifestLibrary)
+        let active = activeRuntime(r)
+        let activeLib = active.flatMap(manifestLibrary)
         let activeTree = activeLib.flatMap(wivrnTree(containing:))
         guard let tree = activeTree ?? r.wivrnTrees.lazy.compactMap({ wivrnTree($0) }).first else {
             if let activeLib {
@@ -200,9 +205,11 @@ public enum Components {
         if let w = tree.buildInfo["wivrn"] { s.notes.append("WiVRn \(w.split(separator: " ").first ?? "")") }
         versionCheck(&s, tree.version, minimum: minimumWiVRn)
         if !tree.hasIPCStamp { s.notes.append("no ipc-stamp: the bridge can't check the runtime against the server") }
-        if activeTree == nil {
+        if let active, activeTree == nil {
             if s.health == .ok { s.health = .warning }
-            s.notes.append("not the active OpenXR runtime: start its server once from its install")
+            s.notes.append("another OpenXR runtime is active (\((activeLib ?? active).path)): WiVRn replaces it while a headset is connected")
+        } else if active == nil {
+            s.notes.append(wivrnRegistersOnConnect)
         }
         return s
     }

@@ -158,7 +158,7 @@ final class AppModel: ObservableObject {
     func checkEngines() {
         let ctx = ctx
         Task.detached {
-            let e = await Engines.check(ctx, source: GitHubEngineSource())
+            let e = await Engines.check(ctx, source: Engines.defaultSource())
             await MainActor.run { self.engines = e }
         }
     }
@@ -172,7 +172,7 @@ final class AppModel: ObservableObject {
         Task.detached {
             var msg: String?
             do {
-                try await Engines.install(ctx, r, source: GitHubEngineSource())
+                try await Engines.install(ctx, r, source: Engines.defaultSource())
                 Varbor.refreshRunners(ctx)
                 Varbor.rescan(ctx)
             } catch { msg = "\(error)" }

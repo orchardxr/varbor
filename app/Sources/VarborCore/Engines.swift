@@ -3,12 +3,14 @@ import Foundation
 /// The VarboR runner: an APFS clone of a stock NotProton runner with the engines from orchardxr/varbor-engines
 /// (patched DXMT, ARM64EC DXVK) in its `CrossOver/lib`, plus a Steam compat tool per NotProton tool of the stock build.
 ///
-/// A stock runner (CrossOver version from its build name, stock DXMT version read from `lib/dxmt/*/d3d11.dll`) maps
-/// to the release tagged `cx-<CrossOver version>`. Its `engines.json` names the stock DXMT versions it fits, an
-/// archive and the sha256 of the archive and of every file in it. Network calls happen only through an
-/// `EngineSource`, which the app uses at launch (`check`) and when the user installs (`install`).
+/// varbor-engines defines the format (its README, scripts/package.sh). A stock runner (CrossOver version from its
+/// build name, stock DXMT version read from `lib/dxmt/*/d3d11.dll`) maps to the release tagged `cx-<CrossOver
+/// version>`, whose assets are `metadata.json`, `varbor-engines-<tag>.tar.gz` and `SHA256SUMS`. The tarball holds
+/// `varbor-engines-<tag>/{dxmt,dxvk}/<arch>/<file>` (paths relative to the runner's `CrossOver/lib`, each listed with
+/// its sha256 in metadata.json), `licenses/` and `metadata.json`. Network calls happen only through an
+/// `EngineSource`: the app uses it at launch (`check`) and when the user installs (`install`).
 public protocol EngineSource: Sendable {
-    /// The release's `engines.json`, or nil when there is no such release.
+    /// The release's `metadata.json`, or nil when there is no such release.
     func metadata(tag: String) async throws -> Data?
     /// Downloads the release asset `name` to `to`.
     func download(tag: String, asset name: String, to: URL) async throws
@@ -56,11 +58,47 @@ public struct GitHubEngineSource: EngineSource {
     }
 }
 
+/// Release assets in a local directory (varbor-engines' `dist/`), for development and testing: either flat
+/// (`<dir>/metadata.json` + tarball + SHA256SUMS) or one subdir per release (`<dir>/<tag>/` or `<dir>/<id>/`).
+/// `VARBOR_ENGINES_DIR` or `varbor engines --from <dir>`.
+public struct LocalEngineSource: EngineSource {
+    public let dir: URL
+    public init(_ dir: URL) { self.dir = dir }
+
+    func releaseDir(_ tag: String) -> URL? {
+        let id = tag.hasPrefix("cx-") ? String(tag.dropFirst(3)) : tag
+        return [dir.appendingPathComponent(tag), dir.appendingPathComponent(id), dir].first { d in
+            guard let data = try? Data(contentsOf: d.appendingPathComponent(Engines.metadataAsset)),
+                  let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+            return j["tag"] as? String == tag
+        }
+    }
+
+    public func metadata(tag: String) async throws -> Data? {
+        try releaseDir(tag).map { try Data(contentsOf: $0.appendingPathComponent(Engines.metadataAsset)) }
+    }
+
+    public func download(tag: String, asset name: String, to: URL) async throws {
+        guard let d = releaseDir(tag) else { throw VarborError("engines: no \(tag) in \(dir.path)") }
+        try? FileManager.default.removeItem(at: to)
+        try FileManager.default.copyItem(at: d.appendingPathComponent(name), to: to)
+    }
+}
+
 public enum Engines {
     public static let repo = "orchardxr/varbor-engines"
-    public static let metadataAsset = "engines.json"
+    public static let metadataAsset = "metadata.json"
+    public static let checksumsAsset = "SHA256SUMS"
     public static let suffix = "-varbor"
     static let marker = ".varbor"
+
+    /// GitHub, or the local dir in `VARBOR_ENGINES_DIR`.
+    public static func defaultSource() -> EngineSource {
+        if let d = ProcessInfo.processInfo.environment["VARBOR_ENGINES_DIR"], !d.isEmpty {
+            return LocalEngineSource(URL(fileURLWithPath: d))
+        }
+        return GitHubEngineSource()
+    }
 
     // MARK: runners
 
@@ -85,13 +123,13 @@ public enum Engines {
         return String(build[r])
     }
 
-    /// The git-describe version DXMT's build stamps into its DLLs.
+    /// The version DXMT's build stamps into its DLLs (varbor-engines' `detect.dxmt_regex`).
     public static func dxmtVersion(_ crossover: URL) -> String? {
         for arch in ["x86_64-windows", "aarch64-windows", "i386-windows"] {
             let dll = crossover.appendingPathComponent("lib/dxmt/\(arch)/d3d11.dll")
             guard let d = try? Data(contentsOf: dll, options: .mappedIfSafe) else { continue }
             let text = String(decoding: d.map { $0 >= 0x20 && $0 < 0x7f ? $0 : 0x0a }, as: UTF8.self)
-            for pattern in [#"(?m)^v\d+\.\d+-\d+-g[0-9a-f]{7,}$"#, #"(?m)^v\d+\.\d+(\.\d+)?$"#] {
+            for pattern in [#"(?m)^v\d+\.\d+-\d+-g[0-9a-f]{7,}(-varbor\.\d+)?$"#, #"(?m)^v\d+\.\d+(-varbor\.\d+)?$"#] {
                 if let r = text.range(of: pattern, options: .regularExpression) { return String(text[r]) }
             }
         }
@@ -121,42 +159,54 @@ public enum Engines {
 
     // MARK: metadata
 
-    /// `engines.json` (format 1):
-    /// `{"format": 1, "crossover": "27.0.0.41073", "stock_dxmt": ["v0.80-279-g8f06be3"],
-    ///   "engines": {"dxmt": "...", "dxvk": "..."},
-    ///   "archive": {"name": "varbor-engines-cx-27.0.0.41073.tar.xz", "sha256": "..."},
-    ///   "files": {"lib/dxmt/aarch64-windows/d3d11.dll": "<sha256>", ...}}`
-    /// Paths are relative to the runner's `CrossOver` dir.
+    /// varbor-engines' metadata.json (schema 1); only the fields VarboR uses.
     public struct Metadata: Decodable, Equatable, Sendable {
-        public struct Archive: Decodable, Equatable, Sendable {
-            public var name: String
-            public var sha256: String
+        public struct Crossover: Decodable, Equatable, Sendable { public var version: String }
+        public struct Engine: Decodable, Equatable, Sendable {
+            public var version: String?
+            public var stock_version: String?
+            public var files: [String: String]?
         }
-        public var format: Int
-        public var crossover: String
-        public var stock_dxmt: [String]
-        public var engines: [String: String]?
-        public var archive: Archive
-        public var files: [String: String]
+        public var schema: Int
+        public var tag: String
+        public var revision: Int
+        public var crossover: Crossover
+        public var dxmt: Engine
+        public var dxvk: Engine?
+
+        /// Path relative to `CrossOver/lib` -> sha256.
+        public var files: [String: String] { (dxmt.files ?? [:]).merging(dxvk?.files ?? [:]) { a, _ in a } }
+        public var archive: String { "varbor-engines-\(tag).tar.gz" }
     }
 
     public static func parse(_ data: Data) throws -> Metadata {
         let m = try JSONDecoder().decode(Metadata.self, from: data)
-        guard m.format == 1 else { throw VarborError("engines.json format \(m.format) not supported: update VarboR") }
-        for p in m.files.keys where !safePath(p) { throw VarborError("engines.json: bad path \(p)") }
+        guard m.schema == 1 else { throw VarborError("varbor-engines metadata schema \(m.schema) not supported: update VarboR") }
+        guard !m.files.isEmpty else { throw VarborError("varbor-engines \(m.tag) lists no files") }
+        for p in m.files.keys where !safePath(p) { throw VarborError("varbor-engines metadata: bad path \(p)") }
         return m
     }
 
-    /// Relative, under lib/, no `..`.
+    /// `dxmt/…` or `dxvk/…`, no `..`.
     static func safePath(_ p: String) -> Bool {
-        p.hasPrefix("lib/") && !p.split(separator: "/").contains("..") && !p.contains("//")
+        (p.hasPrefix("dxmt/") || p.hasPrefix("dxvk/")) && !p.split(separator: "/").contains("..") && !p.contains("//")
     }
 
     /// Why a release doesn't fit the runner, or nil.
     public static func mismatch(_ m: Metadata, _ r: StockRunner) -> String? {
-        if m.crossover != r.crossover { return "release is for CrossOver \(m.crossover), runner has \(r.crossover)" }
+        if m.tag != r.tag { return "release \(m.tag) isn't \(r.tag)" }
+        if m.crossover.version != r.crossover { return "release is for CrossOver \(m.crossover.version), runner has \(r.crossover)" }
         guard let d = r.dxmt else { return "can't read the runner's DXMT version" }
-        if !m.stock_dxmt.contains(d) { return "release fits DXMT \(m.stock_dxmt.joined(separator: ", ")), runner has \(d)" }
+        if let s = m.dxmt.stock_version, s != d { return "release fits stock DXMT \(s), runner has \(d)" }
+        return nil
+    }
+
+    /// `SHA256SUMS`: `<sha>  <name>` lines.
+    static func checksum(_ text: String, _ name: String) -> String? {
+        for l in text.split(separator: "\n") {
+            let f = l.split(separator: " ", omittingEmptySubsequences: true)
+            if f.count == 2, f[1].trimmingCharacters(in: CharacterSet(charactersIn: "*")) == name { return f[0].lowercased() }
+        }
         return nil
     }
 
@@ -169,16 +219,19 @@ public enum Engines {
 
     public struct RunnerState: Equatable, Sendable {
         public var runner: StockRunner
-        /// The clone's marker: tag and archive sha it was built from.
+        /// From the clone's marker: what it was built from.
         public var installedTag: String?
-        public var installedArchive: String?
+        public var installedRevision: Int?
+        public var installedDXMT: String?
         public var tools: [String]
         public var unregistered: [String]
         public var available: Availability?
 
         public var installed: Bool { installedTag != nil }
         public var updateAvailable: Bool {
-            if case .available(let m)? = available { return m.archive.sha256 != installedArchive }
+            if case .available(let m)? = available {
+                return m.revision != installedRevision || m.dxmt.version != installedDXMT
+            }
             return false
         }
     }
@@ -188,7 +241,7 @@ public enum Engines {
         var out: [String: String] = [:]
         for l in t.split(separator: "\n") {
             let p = l.split(separator: " ", maxSplits: 1).map(String.init)
-            if p.count == 2, !p[0].hasPrefix("file") { out[p[0]] = p[1] }
+            if p.count == 2, p[0] != "file" { out[p[0]] = p[1] }
         }
         return out
     }
@@ -201,12 +254,13 @@ public enum Engines {
             let tools = plannedTools(ctx, r).map(\.id).filter {
                 FileManager.default.fileExists(atPath: toolsDir(ctx).appendingPathComponent("\($0)/\(marker)").path)
             }
-            return RunnerState(runner: r, installedTag: m["tag"], installedArchive: m["archive"], tools: tools,
+            return RunnerState(runner: r, installedTag: m["tag"], installedRevision: m["revision"].flatMap { Int($0) },
+                               installedDXMT: m["dxmt"], tools: tools,
                                unregistered: tools.filter { id in !registry.contains { $0.id == id } }, available: nil)
         }
     }
 
-    /// Network: asks for each runner's release once per tag and fills `available`.
+    /// Network (or the local dir): asks for each runner's release once per tag and fills `available`.
     public static func check(_ ctx: Context, source: EngineSource) async -> [RunnerState] {
         var states = status(ctx)
         var cache: [String: Result<Metadata?, Error>] = [:]
@@ -226,7 +280,7 @@ public enum Engines {
 
     // MARK: install
 
-    /// Downloads and verifies the release's archive, then builds (or rebuilds) the runner clone and its compat tools.
+    /// Downloads and verifies the release's tarball, then builds (or rebuilds) the runner clone and its compat tools.
     @discardableResult
     public static func install(_ ctx: Context, _ r: StockRunner, source: EngineSource) async throws -> URL {
         guard let data = try await source.metadata(tag: r.tag) else { throw VarborError("no VarboR engines release \(r.tag)") }
@@ -236,39 +290,49 @@ public enum Engines {
         let work = ctx.stateDir.appendingPathComponent("engines/\(r.tag)-\(UUID().uuidString.prefix(8))")
         try fm.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: work) }
-        let archive = work.appendingPathComponent(URL(fileURLWithPath: m.archive.name).lastPathComponent)
-        try await source.download(tag: r.tag, asset: m.archive.name, to: archive)
-        guard Deploy.sha256(archive) == m.archive.sha256.lowercased() else { throw VarborError("engines: \(m.archive.name) sha256 mismatch") }
-        let files = work.appendingPathComponent("files")
-        try fm.createDirectory(at: files, withIntermediateDirectories: true)
-        let x = run("/usr/bin/tar", ["-xf", archive.path, "-C", files.path])
+        let sums = work.appendingPathComponent(checksumsAsset)
+        try await source.download(tag: r.tag, asset: checksumsAsset, to: sums)
+        guard let want = checksum(try String(contentsOf: sums, encoding: .utf8), m.archive) else {
+            throw VarborError("engines: \(checksumsAsset) has no \(m.archive)")
+        }
+        let archive = work.appendingPathComponent(m.archive)
+        try await source.download(tag: r.tag, asset: m.archive, to: archive)
+        guard Deploy.sha256(archive) == want else { throw VarborError("engines: \(m.archive) sha256 mismatch") }
+        let unpacked = work.appendingPathComponent("unpacked")
+        try fm.createDirectory(at: unpacked, withIntermediateDirectories: true)
+        let x = run("/usr/bin/tar", ["-xzf", archive.path, "-C", unpacked.path])
         guard x.status == 0 else { throw VarborError("engines: unpack failed: \(x.err)") }
-        try verify(files, m)
-        let dir = try buildClone(ctx, r, files: files, metadata: m)
+        let top = unpacked.appendingPathComponent("varbor-engines-\(m.tag)")
+        guard fm.fileExists(atPath: top.appendingPathComponent("dxmt").path) else {
+            throw VarborError("engines: \(m.archive) has no varbor-engines-\(m.tag)/dxmt")
+        }
+        try verify(top, m)
+        let dir = try buildClone(ctx, r, files: top, metadata: m, tarball: want)
         try writeTools(ctx, r)
-        log("engines: \(r.name) -> \(dir.lastPathComponent) (\(r.tag))")
+        log("engines: \(r.name) -> \(dir.lastPathComponent) (\(r.tag) revision \(m.revision))")
         return dir
     }
 
-    /// Every unpacked file is listed with its sha, every listed file is there, nothing else (no links).
+    /// No links anywhere; every file under dxmt/ and dxvk/ is listed with its sha and every listed file is there.
     static func verify(_ dir: URL, _ m: Metadata) throws {
         var seen = Set<String>()
-        let root = dir.resolvingSymlinksInPath().path
-        let e = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey])
-        while let u = e?.nextObject() as? URL {
+        let want = m.files
+        let e = FileManager.default.enumerator(atPath: dir.path)
+        while let rel = e?.nextObject() as? String {
+            let u = dir.appendingPathComponent(rel)
             let v = try u.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey])
+            if v.isSymbolicLink == true { throw VarborError("engines: \(rel) is a link") }
             if v.isDirectory == true { continue }
-            let rel = String(u.resolvingSymlinksInPath().path.dropFirst(root.count + 1))
-            guard v.isSymbolicLink != true, v.isRegularFile == true else { throw VarborError("engines: \(rel) isn't a plain file") }
-            guard let want = m.files[rel] else { throw VarborError("engines: \(rel) isn't in engines.json") }
-            guard Deploy.sha256(u) == want.lowercased() else { throw VarborError("engines: \(rel) sha256 mismatch") }
+            guard rel.hasPrefix("dxmt/") || rel.hasPrefix("dxvk/") else { continue }
+            guard v.isRegularFile == true, let sha = want[rel] else { throw VarborError("engines: \(rel) isn't in metadata.json") }
+            guard Deploy.sha256(u) == sha.lowercased() else { throw VarborError("engines: \(rel) sha256 mismatch") }
             seen.insert(rel)
         }
-        if let gone = m.files.keys.sorted().first(where: { !seen.contains($0) }) { throw VarborError("engines: archive lacks \(gone)") }
+        if let gone = want.keys.sorted().first(where: { !seen.contains($0) }) { throw VarborError("engines: archive lacks \(gone)") }
     }
 
     /// A fresh APFS clone of the stock runner with the files on top, swapped in for an earlier clone.
-    static func buildClone(_ ctx: Context, _ r: StockRunner, files: URL, metadata m: Metadata) throws -> URL {
+    static func buildClone(_ ctx: Context, _ r: StockRunner, files: URL, metadata m: Metadata, tarball: String) throws -> URL {
         let fm = FileManager.default
         let dst = cloneDir(ctx, r)
         if fm.fileExists(atPath: dst.path) && !fm.fileExists(atPath: dst.appendingPathComponent(marker).path) {
@@ -280,12 +344,18 @@ public enum Engines {
         guard c.status == 0 else { throw VarborError("engines: clone of \(r.name) failed: \(c.err)") }
         do {
             for rel in m.files.keys.sorted() {
-                let to = tmp.appendingPathComponent("CrossOver").appendingPathComponent(rel)
+                let to = tmp.appendingPathComponent("CrossOver/lib").appendingPathComponent(rel)
                 try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? fm.removeItem(at: to)
                 try fm.copyItem(at: files.appendingPathComponent(rel), to: to)
             }
-            var text = "tag \(r.tag)\nbase \(r.build)\narchive \(m.archive.sha256.lowercased())\n"
+            let lic = files.appendingPathComponent("licenses")
+            if fm.fileExists(atPath: lic.path) {
+                try fm.copyItem(at: lic, to: tmp.appendingPathComponent("varbor-engines-licenses"))
+            }
+            var text = "tag \(m.tag)\nrevision \(m.revision)\nbase \(r.build)\ntarball \(tarball)\n"
+            if let v = m.dxmt.version { text += "dxmt \(v)\n" }
+            if let v = m.dxvk?.version, m.dxvk?.files != nil { text += "dxvk \(v)\n" }
             if let d = r.dxmt { text += "stock-dxmt \(d)\n" }
             for (rel, sha) in m.files.sorted(by: { $0.key < $1.key }) { text += "file \(rel) \(sha)\n" }
             try text.write(to: tmp.appendingPathComponent(marker), atomically: true, encoding: .utf8)

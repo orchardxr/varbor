@@ -6,8 +6,9 @@ usage: varbor install [--payload <dir>]   deploy the payload, add the runner fil
        varbor status
        varbor rescan                       fix templates and prefixes
        varbor uninstall                    revert prefixes, templates and runner files
-       varbor engines [status|check]       the VarboR runner per stock runner (check asks GitHub)
-       varbor engines install|register <runner>   build the VarboR runner from the engines release; add its
+       varbor engines [status|check] [--from <dir>]   the VarboR runner per stock runner (check asks GitHub,
+                                          or the release assets in <dir>, also VARBOR_ENGINES_DIR)
+       varbor engines install <runner> [--from <dir>] | register <runner>   build the VarboR runner from the engines release; add its
                                           compat tools to NotProton's tool list (Steam lists them after a restart)
        varbor bottle add|remove <path> | list   CrossOver bottles VarboR sets up (besides NotProton's prefixes)
        varbor library add|remove <path> | list  extra Steam library folders
@@ -50,6 +51,7 @@ do {
         if !rep.busy.isEmpty { fail("busy (a game or wineserver runs): \(rep.busy.joined(separator: ", ")); run again later") }
         exit(rep.errors.isEmpty ? 0 : 1)
     case "engines":
+        let source: EngineSource = option("--from").map { LocalEngineSource(URL(fileURLWithPath: $0)) } ?? Engines.defaultSource()
         func runner(_ name: String) -> Engines.StockRunner {
             guard let r = Engines.stockRunners(ctx).first(where: { $0.name == name || $0.build == name }) else {
                 fail("no stock runner \(name): \(Engines.stockRunners(ctx).map(\.name).joined(separator: ", "))")
@@ -60,7 +62,7 @@ do {
             for st in states {
                 let r = st.runner
                 print("\(r.name): CrossOver \(r.crossover), DXMT \(r.dxmt ?? "?"), release \(r.tag)")
-                print("  VarboR runner: " + (st.installed ? "\(Engines.cloneDir(ctx, r).lastPathComponent) (\(st.installedTag!))" : "not installed"))
+                print("  VarboR runner: " + (st.installed ? "\(Engines.cloneDir(ctx, r).lastPathComponent) (\(st.installedTag!) revision \(st.installedRevision ?? 0), DXMT \(st.installedDXMT ?? "?"))" : "not installed"))
                 if !st.tools.isEmpty { print("  tools: \(st.tools.joined(separator: ", "))" + (st.unregistered.isEmpty ? "" : ", not registered: \(st.unregistered.joined(separator: ", "))")) }
                 switch st.available {
                 case .available?: print(st.updateAvailable ? "  engines available: install with `varbor engines install \(r.name)`" : "  up to date")
@@ -76,12 +78,12 @@ do {
         }
         switch (args.dropFirst().first, args.count) {
         case (nil, 1), ("status", 2): show(Engines.status(ctx))
-        case ("check", 2): wait { show(await Engines.check(ctx, source: GitHubEngineSource())) }
+        case ("check", 2): wait { show(await Engines.check(ctx, source: source)) }
         case ("install", 3):
             let r = runner(args[2])
             wait {
                 do {
-                    print("built \(try await Engines.install(ctx, r, source: GitHubEngineSource()).path)")
+                    print("built \(try await Engines.install(ctx, r, source: source).path)")
                     Varbor.refreshRunners(ctx)
                 } catch { fail("varbor: \(error)") }
             }

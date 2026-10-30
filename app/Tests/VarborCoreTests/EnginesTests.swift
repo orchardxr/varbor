@@ -2,23 +2,10 @@ import Foundation
 @testable import VarborCore
 import XCTest
 
-/// A release server in a directory: `<tag>/engines.json` and `<tag>/<asset>`.
-struct FakeEngineSource: EngineSource {
-    let dir: URL
-
-    func metadata(tag: String) async throws -> Data? {
-        try? Data(contentsOf: dir.appendingPathComponent("\(tag)/\(Engines.metadataAsset)"))
-    }
-
-    func download(tag: String, asset name: String, to: URL) async throws {
-        try FileManager.default.copyItem(at: dir.appendingPathComponent("\(tag)/\(name)"), to: to)
-    }
-}
-
 final class EnginesTests: XCTestCase {
     var root: URL!
     var ctx: Context!
-    var source: FakeEngineSource!
+    var source: LocalEngineSource!
     let fm = FileManager.default
     let stockDXMT = "v0.80-279-g8f06be3"
     let tag = "cx-27.0.0.41073"
@@ -28,7 +15,7 @@ final class EnginesTests: XCTestCase {
         let np = root.appendingPathComponent("notproton")
         ctx = Context(home: root, support: root.appendingPathComponent("varbor"), steamRoot: root.appendingPathComponent("Steam"),
                       logDir: root.appendingPathComponent("logs"), runners: np.appendingPathComponent("runners"), system: false)
-        source = FakeEngineSource(dir: root.appendingPathComponent("releases"))
+        source = LocalEngineSource(root.appendingPathComponent("releases"))
         let cx = ctx.runners.appendingPathComponent("crossover-27.0.0.41073-fex/CrossOver")
         try write("\0\0MZ\0v4.0\0\(stockDXMT)\0\0", cx.appendingPathComponent("lib/dxmt/aarch64-windows/d3d11.dll"))
         try write("stock dxgi", cx.appendingPathComponent("lib/dxmt/aarch64-windows/dxgi.dll"))
@@ -56,28 +43,53 @@ final class EnginesTests: XCTestCase {
         try Data(text.utf8).write(to: url)
     }
 
-    /// Publishes a release: files under lib/, tarred; `tamper` changes the json after hashing.
-    func publish(files: [String: String], stock: [String]? = nil, crossover: String = "27.0.0.41073",
+    /// Publishes a release the way varbor-engines' scripts/package.sh does, into releases/<tag>/ (or `into`):
+    /// metadata.json, varbor-engines-<tag>.tar.gz (varbor-engines-<tag>/{dxmt,dxvk,licenses}, metadata.json), SHA256SUMS.
+    /// `files` are paths under CrossOver/lib; `tamper` edits the metadata after hashing; `sums` overrides the tarball sha.
+    func publish(files: [String: String], stock: String? = nil, crossover: String = "27.0.0.41073", revision: Int = 1,
+                 into: URL? = nil, sums: String? = nil, extra: [String: String] = [:],
                  tamper: ((inout [String: Any]) -> Void)? = nil) throws {
+        let name = "varbor-engines-\(tag)"
         let staging = root.appendingPathComponent("staging-\(UUID().uuidString)")
-        var shas: [String: String] = [:]
+        let top = staging.appendingPathComponent(name)
+        var dxmt: [String: String] = [:], dxvk: [String: String] = [:]
         for (rel, text) in files {
-            try write(text, staging.appendingPathComponent(rel))
-            shas[rel] = Deploy.sha256(staging.appendingPathComponent(rel))!
+            try write(text, top.appendingPathComponent(rel))
+            let sha = Deploy.sha256(top.appendingPathComponent(rel))!
+            if rel.hasPrefix("dxmt/") { dxmt[rel] = sha } else { dxvk[rel] = sha }
         }
-        let rel = source.dir.appendingPathComponent(tag)
-        try fm.createDirectory(at: rel, withIntermediateDirectories: true)
-        let archive = rel.appendingPathComponent("engines.tar.gz")
-        try? fm.removeItem(at: archive)
-        XCTAssertEqual(VarborCore.run("/usr/bin/tar", ["-czf", archive.path, "-C", staging.path, "lib"]).status, 0)
-        var j: [String: Any] = ["format": 1, "crossover": crossover, "stock_dxmt": stock ?? [stockDXMT],
-                                "engines": ["dxmt": "v0.80-varbor", "dxvk": "v1.10.3-arm64ec"],
-                                "archive": ["name": "engines.tar.gz", "sha256": Deploy.sha256(archive)!], "files": shas]
+        for (rel, text) in extra { try write(text, top.appendingPathComponent(rel)) }
+        try write("LGPL", top.appendingPathComponent("licenses/DXMT-LICENSE"))
+        let dxmtEntry: [String: Any] = ["version": "v0.80-247-gfb451568-varbor.\(revision)", "stock_version": stock ?? stockDXMT,
+                                        "files": dxmt]
+        let dxvkEntry: [String: Any] = dxvk.isEmpty
+            ? ["stock_version": "cxaddon-1.10.3-1-25-g737aacd", "note": "not built"]
+            : ["version": "cxaddon-1.10.3-1-25-g737aacd-varbor.1", "stock_version": "cxaddon-1.10.3-1-25-g737aacd", "files": dxvk]
+        let cx: [String: Any] = ["version": crossover, "public_version": "20261015"]
+        var j: [String: Any] = [:]
+        j["schema"] = 1
+        j["id"] = crossover
+        j["tag"] = tag
+        j["revision"] = revision
+        j["crossover"] = cx
+        j["dxmt"] = dxmtEntry
+        j["dxvk"] = dxvkEntry
+        j["source"] = "\(name)-src.tar.gz"
         tamper?(&j)
-        try JSONSerialization.data(withJSONObject: j).write(to: rel.appendingPathComponent(Engines.metadataAsset))
+        let meta = try JSONSerialization.data(withJSONObject: j, options: [.prettyPrinted, .sortedKeys])
+        try meta.write(to: top.appendingPathComponent("metadata.json"))
+        let rel = into ?? source.dir.appendingPathComponent(tag)
+        try fm.createDirectory(at: rel, withIntermediateDirectories: true)
+        let archive = rel.appendingPathComponent("\(name).tar.gz")
+        try? fm.removeItem(at: archive)
+        XCTAssertEqual(VarborCore.run("/usr/bin/tar", ["-czf", archive.path, "-C", staging.path, name]).status, 0)
+        try meta.write(to: rel.appendingPathComponent(Engines.metadataAsset))
+        try write("\(sums ?? Deploy.sha256(archive)!)  \(name).tar.gz\n0000  \(name)-src.tar.gz\n",
+                  rel.appendingPathComponent(Engines.checksumsAsset))
     }
 
-    let releaseFiles = ["lib/dxmt/aarch64-windows/d3d11.dll": "patched d3d11", "lib/dxvk/aarch64-windows/d3d11.dll": "arm64ec dxvk"]
+    let releaseFiles = ["dxmt/aarch64-windows/d3d11.dll": "patched d3d11", "dxmt/aarch64-unix/winemetal.so": "patched winemetal",
+                        "dxvk/aarch64-windows/d3d11.dll": "arm64ec dxvk"]
 
     func testStockRunnerDetection() throws {
         let rs = Engines.stockRunners(ctx)
@@ -93,14 +105,14 @@ final class EnginesTests: XCTestCase {
         var st = await Engines.check(ctx, source: source)
         guard case .none(let why)? = st[0].available else { return XCTFail("\(st)") }
         XCTAssertTrue(why.contains("no VarboR engines"))
-        try publish(files: releaseFiles, stock: ["v0.80-1-g0000000"])
+        try publish(files: releaseFiles, stock: "v0.80-1-g0000000")
         st = await Engines.check(ctx, source: source)
         guard case .none(let why2)? = st[0].available else { return XCTFail("\(st)") }
         XCTAssertTrue(why2.contains("runner has \(stockDXMT)"))
         try publish(files: releaseFiles)
         st = await Engines.check(ctx, source: source)
         guard case .available(let m)? = st[0].available else { return XCTFail("\(st)") }
-        XCTAssertEqual(m.files.count, 2)
+        XCTAssertEqual(m.files.count, 3)
         XCTAssertTrue(st[0].updateAvailable)
         XCTAssertFalse(st[0].installed)
     }
@@ -114,7 +126,9 @@ final class EnginesTests: XCTestCase {
         let cx = dir.appendingPathComponent("CrossOver")
         XCTAssertEqual(try String(contentsOf: cx.appendingPathComponent("lib/dxmt/aarch64-windows/d3d11.dll"), encoding: .utf8), "patched d3d11")
         XCTAssertEqual(try String(contentsOf: cx.appendingPathComponent("lib/dxvk/aarch64-windows/d3d11.dll"), encoding: .utf8), "arm64ec dxvk")
+        XCTAssertEqual(try String(contentsOf: cx.appendingPathComponent("lib/dxmt/aarch64-unix/winemetal.so"), encoding: .utf8), "patched winemetal")
         XCTAssertEqual(try String(contentsOf: cx.appendingPathComponent("lib/dxmt/aarch64-windows/dxgi.dll"), encoding: .utf8), "stock dxgi")
+        XCTAssertTrue(fm.fileExists(atPath: dir.appendingPathComponent("varbor-engines-licenses/DXMT-LICENSE").path))
         XCTAssertTrue(try String(contentsOf: r.dir.appendingPathComponent("CrossOver/lib/dxmt/aarch64-windows/d3d11.dll"), encoding: .utf8).contains(stockDXMT))
         XCTAssertEqual(VarborCore.run("/usr/bin/find", [r.dir.path, "-type", "f"]).out, stockBefore)
         XCTAssertEqual(Engines.stockRunners(ctx).map(\.name), [r.name])
@@ -130,6 +144,8 @@ final class EnginesTests: XCTestCase {
 
         var st = Engines.status(ctx)[0]
         XCTAssertEqual(st.installedTag, tag)
+        XCTAssertEqual(st.installedRevision, 1)
+        XCTAssertEqual(st.installedDXMT, "v0.80-247-gfb451568-varbor.1")
         XCTAssertEqual(st.unregistered, ["notproton-fex-varbor-41073", "notproton-fex-rosetta-varbor-41073"])
         let registryBefore = try Data(contentsOf: root.appendingPathComponent("notproton/tools"))
         XCTAssertEqual(try Engines.register(ctx, r).count, 2)
@@ -141,7 +157,7 @@ final class EnginesTests: XCTestCase {
             .contains("notproton-fex-varbor-41073\t27.0.0.41073-fex-varbor\tfex\tCrossOver - FEX - VarboR\n"))
 
         // a new release rebuilds the clone from the stock runner
-        try publish(files: ["lib/dxmt/aarch64-windows/d3d11.dll": "patched d3d11 v2"])
+        try publish(files: ["dxmt/aarch64-windows/d3d11.dll": "patched d3d11 v2"], revision: 2)
         st = await Engines.check(ctx, source: source)[0]
         XCTAssertTrue(st.updateAvailable)
         try await Engines.install(ctx, r, source: source)
@@ -149,6 +165,19 @@ final class EnginesTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath: cx.appendingPathComponent("lib/dxvk/aarch64-windows/d3d11.dll").path))
         st = await Engines.check(ctx, source: source)[0]
         XCTAssertFalse(st.updateAvailable)
+    }
+
+    func testFlatDistDirectory() async throws {
+        // varbor-engines' dist/ for one build: the assets side by side
+        let dist = root.appendingPathComponent("dist")
+        try publish(files: releaseFiles, into: dist)
+        let local = LocalEngineSource(dist)
+        let found = try await local.metadata(tag: tag)
+        let other = try await local.metadata(tag: "cx-26.3.0.39832")
+        XCTAssertNotNil(found)
+        XCTAssertNil(other)
+        let dir = try await Engines.install(ctx, Engines.stockRunners(ctx)[0], source: local)
+        XCTAssertEqual(try String(contentsOf: dir.appendingPathComponent("CrossOver/lib/dxvk/aarch64-windows/d3d11.dll"), encoding: .utf8), "arm64ec dxvk")
     }
 
     func testBadReleasesRefused() async throws {
@@ -160,26 +189,28 @@ final class EnginesTests: XCTestCase {
             } catch {}
             XCTAssertFalse(fm.fileExists(atPath: Engines.cloneDir(ctx, r).path), what)
         }
-        try publish(files: releaseFiles) { $0["archive"] = ["name": "engines.tar.gz", "sha256": String(repeating: "0", count: 64)] }
-        await refused("archive sha")
+        try publish(files: releaseFiles, sums: String(repeating: "0", count: 64))
+        await refused("tarball sha")
         try publish(files: releaseFiles) { j in
-            var f = j["files"] as! [String: String]
-            f["lib/dxmt/aarch64-windows/d3d11.dll"] = String(repeating: "1", count: 64)
-            j["files"] = f
+            var d = j["dxmt"] as! [String: Any]
+            var f = d["files"] as! [String: String]
+            f["dxmt/aarch64-windows/d3d11.dll"] = String(repeating: "1", count: 64)
+            d["files"] = f
+            j["dxmt"] = d
         }
         await refused("file sha")
-        try publish(files: releaseFiles) { j in
-            var f = j["files"] as! [String: String]
-            f.removeValue(forKey: "lib/dxvk/aarch64-windows/d3d11.dll")
-            j["files"] = f
-        }
+        try publish(files: releaseFiles, extra: ["dxmt/aarch64-windows/extra.dll": "x"])
         await refused("unlisted file")
         try publish(files: releaseFiles) { j in
-            var f = j["files"] as! [String: String]
-            f["lib/../../escape"] = String(repeating: "1", count: 64)
-            j["files"] = f
+            var d = j["dxmt"] as! [String: Any]
+            var f = d["files"] as! [String: String]
+            f["dxmt/../../escape"] = String(repeating: "1", count: 64)
+            d["files"] = f
+            j["dxmt"] = d
         }
-        await refused("path outside lib")
+        await refused("path outside dxmt/dxvk")
+        try publish(files: releaseFiles, stock: "v0.80-1-g0000000")
+        await refused("other stock DXMT")
         try publish(files: releaseFiles, crossover: "26.3.0.39832")
         await refused("other CrossOver")
         // a dir of that name VarboR didn't make

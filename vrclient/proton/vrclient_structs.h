@@ -155,6 +155,7 @@ enum ETextureType
     TextureType_IOSurface = 3,
     TextureType_DirectX12 = 4,
     TextureType_DXGISharedHandle = 5,
+    TextureType_Metal = 6,
 };
 
 struct u_iface

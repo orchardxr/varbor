@@ -17,7 +17,7 @@
 #include "unix_private.h"
 
 #include <stdlib.h>
-#include <linux/limits.h>
+#include <limits.h>
 
 #if 0
 #pragma makedep unix

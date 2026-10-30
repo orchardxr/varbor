@@ -143,6 +143,10 @@ static NTSTATUS IVRApplications_RegisterSubprocess( Iface *iface, Params *params
     int pid;
 
     params->_ret = 102; /* VRApplicationError_NoApplication */
+#ifdef __APPLE__
+    /* ProcessWineUnixPid is Proton Wine's; CrossOver has no way to map a Windows pid to its unix one. */
+    FIXME( "pid %04x: unsupported.\n", params->nPid );
+#else
     id.UniqueProcess = ULongToHandle(params->nPid);
     id.UniqueThread  = 0;
     if (NtOpenProcess( &handle, PROCESS_QUERY_INFORMATION, NULL, &id ))
@@ -159,6 +163,7 @@ static NTSTATUS IVRApplications_RegisterSubprocess( Iface *iface, Params *params
     NtClose( handle );
     params->_ret = iface->RegisterSubprocess( pid );
     TRACE( "pid %04x, _ret %d.\n", params->nPid, params->_ret );
+#endif
     return 0;
 }
 

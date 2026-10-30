@@ -4119,6 +4119,10 @@ extern "C" const unixlib_entry_t __wine_unix_call_funcs[] =
     IVRTrackedCamera_IVRTrackedCamera_006_ReleaseVideoStreamTextureGL,
     IVRTrackedCamera_IVRTrackedCamera_006_SetCameraTrackingSpace,
     IVRTrackedCamera_IVRTrackedCamera_006_GetCameraTrackingSpace,
+    macvr_dxmt_import,
+    macvr_dxmt_wait,
+    macvr_dxmt_destroy,
+    macvr_runtime_info,
 };
 
 #if defined(__x86_64__) || defined(__aarch64__)

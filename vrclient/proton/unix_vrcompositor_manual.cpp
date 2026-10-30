@@ -349,6 +349,11 @@ static NTSTATUS IVRCompositor_Submit( Iface *iface, Params *params, bool wow64 )
     u_VRVulkanTextureArrayData_t u_vkdata;
     u_Texture_t *submit = unwrap_submit_texture_data( params->pTexture, params->nSubmitFlags,
                                                       &u_texture, &u_vkdata, &u_depth_vkdata, &u_motion_vkdata );
+    if (submit->eType == TextureType_Metal && !submit->handle)
+    {
+        params->_ret = 107; /* VRCompositorError_InvalidTexture: the PE side's DXMT import failed */
+        return 0;
+    }
     params->_ret = (uint32_t)iface->Submit( params->eEye, submit, params->pBounds, params->nSubmitFlags );
     return 0;
 }
@@ -361,6 +366,11 @@ static NTSTATUS IVRCompositor_SubmitWithArrayIndex( Iface *iface, Params *params
     u_VRVulkanTextureArrayData_t u_vkdata;
     u_Texture_t *submit = unwrap_submit_texture_data( params->pTexture, params->nSubmitFlags,
                                                       &u_texture, &u_vkdata, &u_depth_vkdata, &u_motion_vkdata );
+    if (submit->eType == TextureType_Metal && !submit->handle)
+    {
+        params->_ret = 107; /* VRCompositorError_InvalidTexture */
+        return 0;
+    }
     params->_ret = (uint32_t)iface->SubmitWithArrayIndex( params->eEye, submit, params->unTextureArrayIndex, params->pBounds, params->nSubmitFlags );
     return 0;
 }

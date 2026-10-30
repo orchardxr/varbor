@@ -1,0 +1,5 @@
+LIBRARY vrclient_x64.dll
+EXPORTS
+    HmdSystemFactory @1
+    VRClientCoreFactory @2
+    vrclient_init_registry PRIVATE

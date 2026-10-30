@@ -21,6 +21,9 @@
 #include "flatapi.h"
 
 #include "wine/unixlib.h"
+#ifdef MACVR
+#include "macvr_pe.h"
+#endif
 
 #define PATH_MAX 4096
 
@@ -202,6 +205,12 @@ static int load_vrclient( BOOL initializing_registry )
 
     if (vrclient_loaded) return 1;
 
+#ifdef MACVR
+    /* No steam.exe helper prepares Software\Wine\VR: the unix side finds the native runtime itself and the Vulkan
+     * instance extensions stay unset (D3D11 games don't need them). PROTON_VR_RUNTIME still overrides. */
+    if (!GetEnvironmentVariableW( L"PROTON_VR_RUNTIME", pathW, ARRAY_SIZE(pathW) )) pathW[0] = 0;
+    if (0)
+#else
     if (!(initializing_registry || get_vulkan_extensions_from_registry()))
     {
         TRACE( "Error getting extensions from registry.\n" );
@@ -210,6 +219,7 @@ static int load_vrclient( BOOL initializing_registry )
 
     /* PROTON_VR_RUNTIME is provided by the proton setup script */
     if(!GetEnvironmentVariableW(L"PROTON_VR_RUNTIME", pathW, ARRAY_SIZE(pathW)))
+#endif
     {
         DWORD type, size;
         LSTATUS status;
@@ -258,6 +268,9 @@ static int load_vrclient( BOOL initializing_registry )
 
     VRCLIENT_CALL( vrclient_init, &params );
     if (params._ret) vrclient_loaded = TRUE;
+#ifdef MACVR
+    macvr_log_runtime( params._ret );
+#endif
 
     HeapFree( GetProcessHeap(), 0, params.runtime_unix_path );
     return vrclient_loaded;
@@ -425,6 +438,10 @@ static int8_t is_hmd_present_reg(void)
     HANDLE event;
     HKEY vr_key;
 
+#ifdef MACVR
+    /* No steam.exe helper: ask the runtime itself. */
+    return FALSE;
+#endif
     if ((status = RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Wine\\VR", 0, KEY_READ, &vr_key)))
     {
         WINE_ERR("Could not create key, status %#lx.\n", status);

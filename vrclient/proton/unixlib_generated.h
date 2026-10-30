@@ -69093,6 +69093,10 @@ enum unix_funcs
     unix_IVRTrackedCamera_IVRTrackedCamera_006_ReleaseVideoStreamTextureGL,
     unix_IVRTrackedCamera_IVRTrackedCamera_006_SetCameraTrackingSpace,
     unix_IVRTrackedCamera_IVRTrackedCamera_006_GetCameraTrackingSpace,
+    unix_macvr_dxmt_import,
+    unix_macvr_dxmt_wait,
+    unix_macvr_dxmt_destroy,
+    unix_macvr_runtime_info,
 };
 
 #ifdef __cplusplus

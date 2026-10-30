@@ -10,6 +10,7 @@
 #include <winternl.h>
 
 #include "vrclient_structs.h"
+#include "macvr_unixlib.h"
 
 #ifdef __cplusplus
 extern "C"

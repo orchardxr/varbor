@@ -9,6 +9,9 @@
 # monado-arm64    the same for arm64 (FEX runners): build/bridge/monado-arm64 (WiVRn one: --client-arm64)
 # bridge          wineopenxr.dll (llvm-mingw) + wineopenxr.so (x86_64-unix and aarch64-unix, each with its WiVRn
 #                 client and ipc-stamp) in build/bridge/root, tests in build/bridge/tests
+# vrclient        Proton's vrclient (vrclient/): vrclient_x64.dll (llvm-mingw) + universal vrclient_x64.so in
+#                 build/vrclient/root, and the D3D11 OpenVR test (tests/openvr-d3d11) in build/vrclient/tests. Fetches
+#                 Wine's headers (WINE_TAG, default wine-11.0, sparse) into build/vrclient/wine on first use.
 # openxr-sdk-win  Windows hello_xr.exe with a static OpenXR loader (llvm-mingw) in build/bridge/openxr-sdk-win
 #                 (needs the third_party/directxmath submodule)
 set -euo pipefail
@@ -74,6 +77,20 @@ for t in "${targets[@]}"; do
 			echo "==> build bridge"
 			make -C "$ROOT/bridge" B="$OUT" LLVM_MINGW="$LLVM_MINGW" > "$LOGS/bridge-make.log" 2>&1 \
 				|| { grep -E "error|Error" "$LOGS/bridge-make.log" | head -30; exit 1; } ;;
+		vrclient)
+			wine_src="$OUT/../vrclient/wine"
+			wine_tag="${WINE_TAG:-wine-11.0}"
+			if [[ ! -f "$wine_src/include/wine/unixlib.h" || "$(cat "$wine_src/.macvr-tag" 2>/dev/null)" != "$wine_tag" ]]; then
+				echo "==> fetch Wine headers ($wine_tag)"
+				rm -rf "$wine_src"
+				git clone -q --depth 1 --branch "$wine_tag" --filter=blob:none --sparse \
+					https://gitlab.winehq.org/wine/wine.git "$wine_src"
+				git -C "$wine_src" sparse-checkout set include dlls/winecrt0
+				echo "$wine_tag" > "$wine_src/.macvr-tag"
+			fi
+			echo "==> build vrclient"
+			make -C "$ROOT/vrclient" -j"$(sysctl -n hw.ncpu)" LLVM_MINGW="$LLVM_MINGW" > "$LOGS/vrclient-make.log" 2>&1 \
+				|| { grep -E "error|Error" "$LOGS/vrclient-make.log" | head -30; exit 1; } ;;
 		*) echo "unknown target $t" >&2; exit 2 ;;
 	esac
 done

@@ -9,6 +9,9 @@
 #include "dxvk-interop.h"
 #include "vkd3d-proton-interop.h"
 #include "vrclient_private.h"
+#ifdef MACVR
+#include "macvr_pe.h"
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
@@ -30,6 +33,9 @@ struct submit_state
     ID3D12DXVKInteropDevice *d3d12_device;
     ID3D12DXVKInteropDevice2 *d3d12_device2;
     ID3D12CommandQueue *d3d12_queue;
+#ifdef MACVR
+    struct macvr_submit macvr;
+#endif
 };
 
 static void dxvk_transition_image_layout( IDXGIVkInteropDevice *dxvk_device, IDXGIVkInteropSurface *dxvk_surface,
@@ -442,6 +448,10 @@ static const w_Texture_t *load_compositor_texture( uint32_t eye, const w_Texture
     switch (texture->eType)
     {
     case TextureType_DirectX:
+#ifdef MACVR
+        if (macvr_dxmt_texture( texture->handle ))
+            return macvr_load_texture_dxmt( eye, texture, flags, &state->texture, &state->macvr, array_index );
+#endif
         return load_compositor_texture_dxvk( eye, texture, flags, state, array_index );
     case TextureType_DirectX12:
         return load_compositor_texture_d3d12( eye, texture, flags, state, array_index );
@@ -451,6 +461,9 @@ static const w_Texture_t *load_compositor_texture( uint32_t eye, const w_Texture
 
 static void free_compositor_texture( uint32_t type, struct submit_state *state )
 {
+#ifdef MACVR
+    macvr_free_texture_dxmt( &state->macvr );
+#endif
     if (type == TextureType_DirectX) free_compositor_texture_dxvk( state );
     else if (type == TextureType_DirectX12) free_compositor_texture_d3d12( state );
 }
@@ -2345,7 +2358,7 @@ uint32_t __thiscall winIVRCompositor_IVRCompositor_028_SubmitWithArrayIndex( str
             .nSubmitFlags = nSubmitFlags,
         };
 
-        params.pTexture = load_compositor_texture_dxvk( eEye, pTexture, &params.nSubmitFlags, &state, unTextureArrayIndex );
+        params.pTexture = load_compositor_texture( eEye, pTexture, &params.nSubmitFlags, &state, unTextureArrayIndex );
         VRCLIENT_CALL( IVRCompositor_IVRCompositor_028_Submit, &params );
         ret = params._ret;
     }
@@ -2530,7 +2543,7 @@ uint32_t __thiscall winIVRCompositor_IVRCompositor_029_SubmitWithArrayIndex( str
             .nSubmitFlags = nSubmitFlags,
         };
 
-        params.pTexture = load_compositor_texture_dxvk( eEye, pTexture, &params.nSubmitFlags, &state, unTextureArrayIndex );
+        params.pTexture = load_compositor_texture( eEye, pTexture, &params.nSubmitFlags, &state, unTextureArrayIndex );
         VRCLIENT_CALL( IVRCompositor_IVRCompositor_029_Submit, &params );
         ret = params._ret;
     }

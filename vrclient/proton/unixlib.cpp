@@ -14,6 +14,10 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
+#ifdef __APPLE__
+extern "C" const char *macvr_find_runtime( const char *given );
+#endif
+
 static void *(*p_HmdSystemFactory)( const char *name, int *return_code );
 static void *(*p_VRClientCoreFactory)( const char *name, int *return_code );
 
@@ -26,8 +30,13 @@ static void *vulkan;
 BOOL load_vulkan(void)
 {
     if (vulkan) return TRUE;
+#ifdef __APPLE__
+    if (!(vulkan = dlopen( "libvulkan.1.dylib", RTLD_NOW )) &&
+        !(vulkan = dlopen( "libMoltenVK.dylib", RTLD_NOW )))
+#else
     if (!(vulkan = dlopen( "libvulkan.so.1", RTLD_NOW )) &&
         !(vulkan = dlopen( "libvulkan.so", RTLD_NOW )))
+#endif
     {
         ERR( "Unable to open libvulkan.so.1\n" );
         return FALSE;
@@ -291,6 +300,15 @@ static NTSTATUS vrclient_init( Params *params, bool wow64 )
         return 0;
     }
 
+#ifdef __APPLE__
+    const char *found = macvr_find_runtime( params->runtime_unix_path );
+    if (!found)
+    {
+        ERR( "no native OpenVR runtime: set MACVR_VRCLIENT_RUNTIME or ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath\n" );
+        return 0;
+    }
+    std::string vrclient_path = found;
+#else
 #if defined(__x86_64__)
     static const char arch_dir[] = "/linux64";
 #elif defined(__aarch64__)
@@ -300,9 +318,10 @@ static NTSTATUS vrclient_init( Params *params, bool wow64 )
 #endif
 
     std::string vrclient_path = std::string( params->runtime_unix_path ) + "/bin" + arch_dir + "/vrclient.so";
+#endif
     if (!(vrclient = dlopen( vrclient_path.c_str(), RTLD_NOW )))
     {
-        TRACE( "unable to load %s\n", vrclient_path.c_str() );
+        ERR( "unable to load %s: %s\n", vrclient_path.c_str(), dlerror() );
         return 0;
     }
 

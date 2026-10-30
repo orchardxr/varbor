@@ -109,7 +109,7 @@ final class ComponentsTests: XCTestCase {
         var s = Components.wivrn(roots)
         XCTAssertEqual(s.health, .outdated)
         XCTAssertTrue(s.notes.contains("needs \(Components.minimumWiVRn) or newer"))
-        XCTAssertTrue(s.notes.contains { $0.contains("not the active OpenXR runtime") })
+        XCTAssertTrue(s.notes.contains(Components.wivrnRegistersOnConnect))
         XCTAssertTrue(s.notes.contains { $0.contains("ipc-stamp") })
 
         try fm.removeItem(at: roots.wivrnTrees[0])
@@ -118,6 +118,35 @@ final class ComponentsTests: XCTestCase {
         s = Components.wivrn(roots)
         XCTAssertEqual(s.health, .warning)
         XCTAssertEqual(s.location, "/x/libopenxr_monado.dylib")
+    }
+
+    func testWiVRnNoActiveRuntimeUntilHeadsetConnects() throws {
+        try makeWiVRn(roots.wivrnTrees[0], version: "v0.3.0")
+        let s = Components.wivrn(roots)
+        XCTAssertEqual(s.health, .ok, "\(s.notes)")
+        XCTAssertEqual(s.notes, ["WiVRn v26.9", Components.wivrnRegistersOnConnect])
+    }
+
+    func testWiVRnInstalledButAnotherRuntimeActive() throws {
+        try makeWiVRn(roots.wivrnTrees[0], version: "v0.3.0")
+        let active = roots.home.appendingPathComponent(".config/openxr/1/active_runtime.json")
+        try write("{\"runtime\":{\"library_path\":\"/x/libopenxr_monado.dylib\"}}", active)
+        var s = Components.wivrn(roots)
+        XCTAssertEqual(s.health, .warning)
+        XCTAssertEqual(s.location, roots.wivrnTrees[0].standardizedFileURL.path)
+        XCTAssertTrue(s.notes.contains { $0.hasPrefix("another OpenXR runtime is active (/x/libopenxr_monado.dylib)") }, "\(s.notes)")
+        XCTAssertFalse(s.notes.contains(Components.wivrnRegistersOnConnect))
+
+        try write("not json", active)
+        s = Components.wivrn(roots)
+        XCTAssertEqual(s.health, .warning)
+        XCTAssertTrue(s.notes.contains { $0.hasPrefix("another OpenXR runtime is active (\(active.path))") }, "\(s.notes)")
+
+        try fm.removeItem(at: active)
+        try fm.createSymbolicLink(at: active, withDestinationURL: roots.wivrnTrees[0].appendingPathComponent("share/openxr/1/openxr_wivrn.json"))
+        s = Components.wivrn(roots)
+        XCTAssertEqual(s.health, .ok, "\(s.notes)")
+        XCTAssertEqual(s.notes, ["WiVRn v26.9"])
     }
 
     func makeOC(_ rt: URL, version: String, sync: Bool) throws {

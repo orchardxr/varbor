@@ -93,6 +93,11 @@ static NTSTATUS IVROverlay_SetOverlayTexture( Iface *iface, Params *params, bool
     u_VRVulkanTextureData_t u_vkdata;
     u_Texture_t host_texture = unwrap_texture_data( params->pTexture, &u_vkdata );
 
+    if (host_texture.eType == TextureType_Metal && !host_texture.handle)
+    {
+        params->_ret = 24; /* VROverlayError_InvalidTexture: the PE side's DXMT copy failed, OpenComposite would abort */
+        return 0;
+    }
     params->_ret = (uint32_t)iface->SetOverlayTexture( params->ulOverlayHandle, &host_texture );
     return 0;
 }

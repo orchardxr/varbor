@@ -525,7 +525,9 @@ static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id,
         /* DXMT signals the event at the release's fence value once the copy is done. */
         if (FAILED(IDXGIKeyedMutex_ReleaseSync( slot->keyed, 1 )) || kmt.AcquireKeyedMutex( &acq ))
         {
+            /* the mutex is left mid hand-over: a new slot instead of AcquireSync(0) timeouts on every reuse */
             macvr_log( "keyed mutex hand-over failed" );
+            destroy_slot( slot );
             return FALSE;
         }
         state->fence = acq.FenceValue;

@@ -302,7 +302,10 @@ static NTSTATUS IVRCompositor_SetSkyboxOverride( Iface *iface, Params *params, b
     uint32_t i;
 
     for (i = 0; i < params->unTextureCount; i++) unwrap_texture( textures + i, params->pTextures + i, 0, &vkdata[i] );
-    params->_ret = (uint32_t)iface->SetSkyboxOverride( textures, params->unTextureCount );
+    if (params->unTextureCount && textures[0].eType == TextureType_Metal && !textures[0].handle)
+        params->_ret = 102; /* VRCompositorError_InvalidTexture: OpenComposite aborts on a nil MTLTexture */
+    else
+        params->_ret = (uint32_t)iface->SetSkyboxOverride( textures, params->unTextureCount );
 
     delete[] textures;
     delete[] vkdata;
@@ -321,6 +324,11 @@ static NTSTATUS IVRCompositor_Submit( struct u_IVRCompositor_IVRCompositor_008 *
     };
     u_Texture_t *submit = unwrap_submit_texture_data( &texture, params->nSubmitFlags,
                                                       &u_texture, &u_vkdata, &u_depth_vkdata, &u_motion_vkdata );
+    if (submit->eType == TextureType_Metal && !submit->handle)
+    {
+        params->_ret = 102; /* VRCompositorError_InvalidTexture */
+        return 0;
+    }
     params->_ret = (uint32_t)iface->Submit( params->eEye, submit->eType, submit->handle, params->pBounds, params->nSubmitFlags );
     return 0;
 }
@@ -337,6 +345,11 @@ static NTSTATUS IVRCompositor_Submit( struct u_IVRCompositor_IVRCompositor_008 *
     };
     u_Texture_t *submit = unwrap_submit_texture_data( &texture, params->nSubmitFlags,
                                                       &u_texture, &u_vkdata, &u_depth_vkdata, &u_motion_vkdata );
+    if (submit->eType == TextureType_Metal && !submit->handle)
+    {
+        params->_ret = 102; /* VRCompositorError_InvalidTexture */
+        return 0;
+    }
     params->_ret = (uint32_t)iface->Submit( params->eEye, submit->eType, submit->handle, params->pBounds, params->nSubmitFlags );
     return 0;
 }
@@ -351,7 +364,7 @@ static NTSTATUS IVRCompositor_Submit( Iface *iface, Params *params, bool wow64 )
                                                       &u_texture, &u_vkdata, &u_depth_vkdata, &u_motion_vkdata );
     if (submit->eType == TextureType_Metal && !submit->handle)
     {
-        params->_ret = 107; /* VRCompositorError_InvalidTexture: the PE side's DXMT import failed */
+        params->_ret = 102; /* VRCompositorError_InvalidTexture: the PE side's DXMT import failed */
         return 0;
     }
     params->_ret = (uint32_t)iface->Submit( params->eEye, submit, params->pBounds, params->nSubmitFlags );
@@ -368,7 +381,7 @@ static NTSTATUS IVRCompositor_SubmitWithArrayIndex( Iface *iface, Params *params
                                                       &u_texture, &u_vkdata, &u_depth_vkdata, &u_motion_vkdata );
     if (submit->eType == TextureType_Metal && !submit->handle)
     {
-        params->_ret = 107; /* VRCompositorError_InvalidTexture */
+        params->_ret = 102; /* VRCompositorError_InvalidTexture */
         return 0;
     }
     params->_ret = (uint32_t)iface->SubmitWithArrayIndex( params->eEye, submit, params->unTextureArrayIndex, params->pBounds, params->nSubmitFlags );

@@ -80,7 +80,8 @@ on)
 		;;
 	*) echo "usage: $0 on [monado|wivrn]" >&2; exit 2 ;;
 	esac
-	[[ ! -e "$BK/done" ]] || { echo "already on (backup in $BK); run off first" >&2; exit 1; }
+	# saved: the backup is complete and the prefix may have changed since; an interrupted `on` must not overwrite it
+	[[ ! -e "$BK/saved" ]] || { echo "already on, or an interrupted on (backup in $BK); run off first" >&2; exit 1; }
 	pgrep -qf 'MacVR.app' && { echo "MacVR.app is running; it may rewrite the prefix" >&2; exit 1; }
 	prefix_idle
 	runner="$NP_RUNNERS/crossover-$(sed -n 1p "$CD/notproton-build")/CrossOver"
@@ -99,6 +100,8 @@ on)
 		done
 	} > "$BK/added"
 	echo "$runner" > "$BK/runner"
+	launchctl getenv XR_RUNTIME_JSON > "$BK/launchd-XR_RUNTIME_JSON" || true
+	touch "$BK/saved"
 
 	rsync -a --delete "$ROOT/build/oc-macos/runtime/" "$OUT/runtime/"
 	rsync -a --delete "$ROOT/build/vrclient/root/" "$OUT/root/"
@@ -111,7 +114,6 @@ on)
 	"$ROOT/scripts/setup-vrclient-prefix.sh" --root "$OUT/root" --runner "$runner" --macos-vrpath "$OUT/runtime" "$PFX"
 	# NotProton's steam.exe deletes a writable prefix vrpath
 	chmod a-w "$PFX/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath"
-	launchctl getenv XR_RUNTIME_JSON > "$BK/launchd-XR_RUNTIME_JSON" || true
 	launchctl setenv XR_RUNTIME_JSON "$OUT/xr/openxr_$xr.json"
 	python3 -I - "$PFX/system.reg" "$OUT/logs/vrclient.log" <<'EOF'
 import sys
@@ -146,7 +148,7 @@ wivrn)
 	exec "$ROOT/scripts/run-wivrn.sh" "${@:2}"
 	;;
 off)
-	[[ -e "$BK/done" ]] || { echo "no backup in $BK" >&2; exit 1; }
+	[[ -e "$BK/saved" ]] || { echo "no backup in $BK" >&2; exit 1; }
 	prefix_idle
 	bad=0
 	cp -p "$BK/system.reg" "$BK/user.reg" "$BK/userdef.reg" "$PFX/"

@@ -1,9 +1,9 @@
 // D3D11 OpenVR scene app for the vrclient bridge (vrclient/): renders each eye on the GPU every frame and submits it
 // through Valve's openvr_api.dll with the interface versions Half-Life: Alyx uses (IVRSystem_026, IVRCompositor_029,
 // IVRInput_011). Also loads an IVRInput action manifest and reads its actions every frame.
-//   ovr_d3d11_render.exe [seconds] [msaa]
+//   ovr_d3d11_render.exe [seconds] [plain|msaa] [WxH]
 // Left eye: red, green square top-left. Right eye: blue, yellow square top-right. Both: a white bar that moves down
-// one row per frame. msaa: 4x eye render targets, resolved by the bridge.
+// one row per frame. msaa: 4x eye render targets, resolved by the bridge. WxH: eye size instead of the recommended one.
 #include <d3d11.h>
 #include <openvr.h>
 #include <windows.h>
@@ -107,6 +107,8 @@ int main(int argc, char** argv)
 	}
 	uint32_t w = 0, h = 0;
 	sys->GetRecommendedRenderTargetSize(&w, &h);
+	if (argc > 3)
+		sscanf(argv[3], "%ux%u", &w, &h);
 	char model[256] = {};
 	sys->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_ModelNumber_String, model, sizeof(model));
 	LOG("VR_Init %.0f ms: %s, %s, render target %ux%u, HMD '%s', %.0f Hz", now_ms() - t0, vr::IVRSystem_Version,

@@ -182,7 +182,6 @@ struct StatusPage: View {
         if let w = model.working { return (.blue, "Working", w) }
         if s == "ready" { return (.green, "Ready", "VR setup is complete.") }
         if s.hasPrefix("setting up") { return (.blue, "Setting Up", "Configuring prefixes and runners…") }
-        if s == Migration.macVRRunningNotice { return (.orange, "MacVR Is Running", s) }
         let text = "\(s.prefix(1).uppercased())\(s.dropFirst())."
         return s.contains("in use") ? (.orange, "Waiting", text) : (.red, "Needs Attention", text)
     }

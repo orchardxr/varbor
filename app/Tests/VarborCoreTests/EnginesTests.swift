@@ -33,8 +33,9 @@ final class EnginesTests: XCTestCase {
         try write("\0\0MZ\0v4.0\0\(stockDXMT)\0\0", cx.appendingPathComponent("lib/dxmt/aarch64-windows/d3d11.dll"))
         try write("stock dxgi", cx.appendingPathComponent("lib/dxmt/aarch64-windows/dxgi.dll"))
         try write("ntdll", cx.appendingPathComponent("lib/wine/x86_64-windows/ntdll.dll"))
-        // an older MacVR clone and a runner without DXMT are not stock runners for this
-        try write("x", ctx.runners.appendingPathComponent("crossover-27.0.0.41073-fex-macvr/CrossOver/lib/dxmt/x"))
+        // a marked clone of ours and a runner without DXMT are not stock runners
+        try write("x", ctx.runners.appendingPathComponent("crossover-27.0.0.41073-fex-copy/CrossOver/lib/dxmt/x"))
+        try write("tag cx-27.0.0.41073\n", ctx.runners.appendingPathComponent("crossover-27.0.0.41073-fex-copy/.varbor"))
         try fm.createDirectory(at: ctx.runners.appendingPathComponent("crossover-25.0/CrossOver/lib"), withIntermediateDirectories: true)
         try write("notproton-fex-41073\t27.0.0.41073-fex\tfex\tCrossOver - FEX\nnotproton-fex-rosetta-41073\t27.0.0.41073-fex\trosetta\tCrossOver - Rosetta\n",
                   np.appendingPathComponent("tools"))

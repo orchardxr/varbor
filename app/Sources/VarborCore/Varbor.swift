@@ -43,7 +43,7 @@ public enum Varbor {
     static let managedValues: [(String, String, String)] =
         [("system.reg", Rescan.openxrKey, "ActiveRuntime"),
          ("user.reg", Rescan.wineVRKey, "openvr_vulkan_instance_extensions"),
-         ("user.reg", Rescan.wineVRKey, "state")] + Rescan.obsolete.map { ($0.file, $0.key, $0.name) }
+         ("user.reg", Rescan.wineVRKey, "state")]
 
     /// Reverts every prefix and template (values that are ours: restored from the record, else removed) and the
     /// runner files.
@@ -69,7 +69,6 @@ public enum Varbor {
     }
 
     static func revertPrefix(_ ctx: Context, _ p: WinePrefix) throws -> Bool {
-        Migration.prefix(p)
         let rec = Record.load(p.record) ?? Record()
         var changed = false
         if p.kind == .bottle, let text = try? String(contentsOf: Bottles.conf(p.pfx), encoding: .utf8),

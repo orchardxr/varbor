@@ -5,8 +5,7 @@ public enum Updater {
     public static let repo = "orchardxr/varbor"
     public static let bundleID = "org.orchardxr.varbor"
 
-    /// The release asset with VarboR.app: `VarboR-<version>.zip`. A release may also carry a MacVR-*.zip for MacVR
-    /// installs that still update themselves (docs/varbor-app.md, "From MacVR").
+    /// The release asset with VarboR.app: `VarboR-<version>.zip`.
     public static func appAsset(_ names: [String]) -> String? {
         names.first { $0.hasPrefix("VarboR-") && $0.hasSuffix(".zip") }
     }

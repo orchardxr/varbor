@@ -127,7 +127,7 @@ for u in "${users[@]}"; do vrpath "$prefix/drive_c/users/$u/AppData/Local/openvr
 vr_key "$prefix/user.reg" set
 echo "prefix $prefix: C:\\vrclient\\bin\\vrclient_x64.dll, openvrpaths.vrpath for ${users[*]}"
 
-# openvr_api.dll prefers VR_OVERRIDE (VarboR's Windows OpenComposite install sets it machine-wide) over
+# openvr_api.dll prefers VR_OVERRIDE (a machine-wide one, e.g. from a Windows OpenComposite setup) over
 # openvrpaths.vrpath; Proton drops it too. Edits system.reg directly: the prefix's wineserver must not be running.
 if grep -q '^"VR_OVERRIDE"=' "$prefix/system.reg" 2>/dev/null; then
 	sed -i '' '/^"VR_OVERRIDE"=/d' "$prefix/system.reg"

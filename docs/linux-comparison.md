@@ -200,7 +200,7 @@ The estimator (0009) is the one Mac-side lever that works: low-latency settings 
   (slices/tiles, lower peak) to cut the decode tail; to measure next (same scripts).
 - **Stale-pose spikes:** log tracking packet arrival on the server next to the trace to tell uplink stalls from the
   history lookup; if it is the lookup, enlarge `history` beyond 10 samples (WiVRn patch).
-- Kept as is: app margin 4 ms (A/B above), the low-latency estimator stays MacVR.app's default.
+- Kept as is: app margin 4 ms (A/B above), the low-latency estimator stays VarboR.app's default.
 
 ### Linux HEVC: is the decode tail the codec or VideoToolbox's bitstream? (2026-10-28)
 `lin-hevc1`: same Linux build, `config.json` `{"bit-depth":10,"encoder":{"encoder":"nvenc","codec":"h265"}}` (server

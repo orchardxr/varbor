@@ -16,11 +16,6 @@ usage: varbor install [--payload <dir>]   deploy the payload, add the runner fil
 """
 
 let ctx = Context.real()
-if Migration.macVRRunning(ctx) {
-    FileHandle.standardError.write(Data("varbor: \(Migration.macVRRunningNotice)\n".utf8))
-    exit(1)
-}
-Migration.run(ctx)
 Log.shared.open(ctx)
 Log.shared.echo = true
 var args = Array(CommandLine.arguments.dropFirst())

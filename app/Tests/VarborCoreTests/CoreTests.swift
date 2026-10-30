@@ -166,19 +166,6 @@ final class ScratchTreeTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: rec), recData)
     }
 
-    func testOldOpenCompositeValuesRemovedWithoutRecord() throws {
-        // a game prefix cloned from an earlier version's template: VR_OVERRIDE into our dir, no record
-        let sys = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/system.reg")
-        var reg = try WineRegistry(text: regText)
-        reg.setString(Rescan.hklmEnvKey, "VR_OVERRIDE", dosPath(ctx.support.appendingPathComponent("current/opencomposite")))
-        reg.setString(Rescan.hklmEnvKey, "VR_LOG_PATH", "C:\\theirs")
-        try reg.text.write(to: sys, atomically: true, encoding: .utf8)
-        try Varbor.install(ctx, payload: root.appendingPathComponent("payload"))
-        let after = try WineRegistry(text: String(contentsOf: sys, encoding: .utf8))
-        XCTAssertNil(after.string(Rescan.hklmEnvKey, "VR_OVERRIDE"))
-        XCTAssertEqual(after.string(Rescan.hklmEnvKey, "VR_LOG_PATH"), "C:\\theirs")
-    }
-
     func testForeignVRPathBackedUpAndRestored() throws {
         let f = ctx.steamRoot.appendingPathComponent("steamapps/compatdata/100/pfx/drive_c/users/steamuser/AppData/Local/openvr/openvrpaths.vrpath")
         try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)

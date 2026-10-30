@@ -246,7 +246,7 @@ public enum Bottles {
         value.split(separator: ":").contains { $0 == ctx.bottleLib.path }
     }
 
-    /// Our bottle-lib in any of our support dirs (MacVR's included).
+    /// Our bottle-lib in any of our support dirs.
     static func isOurLib(_ entry: Substring, _ ctx: Context) -> Bool {
         ctx.supportDirs.contains { entry == $0.appendingPathComponent("bottle-lib").path }
     }

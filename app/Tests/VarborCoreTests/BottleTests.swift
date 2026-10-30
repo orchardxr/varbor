@@ -131,14 +131,11 @@ final class BottleTreeTests: XCTestCase {
     }
 
     func testUnlinkedCurrentControlSet() throws {
-        var r = try WineRegistry(text: regText.replacingOccurrences(of: "ControlSet001", with: "CurrentControlSet"))
-        r.setString(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE", dosPath(ctx.support.appendingPathComponent("current/opencomposite")))
-        try r.text.write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
         let unlinked = regText.replacingOccurrences(of: "ControlSet001", with: "CurrentControlSet")
+        try unlinked.write(to: bottle.appendingPathComponent("system.reg"), atomically: true, encoding: .utf8)
         try Varbor.addBottle(ctx, bottle)
         let text = try String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8)
         XCTAssertFalse(text.contains("ControlSet001"))
-        XCTAssertNil(try WineRegistry(text: text).string(Rescan.hklmEnvKeyUnlinked, "VR_OVERRIDE"))
         XCTAssertEqual(Varbor.prefixStates(ctx).first?.missing, [])
         _ = Varbor.uninstall(ctx)
         XCTAssertEqual(try String(contentsOf: bottle.appendingPathComponent("system.reg"), encoding: .utf8), unlinked)

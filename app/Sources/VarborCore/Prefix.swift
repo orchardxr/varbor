@@ -83,9 +83,6 @@ public struct WinePrefix {
     public var systemReg: URL { pfx.appendingPathComponent("system.reg") }
     public var record: URL { owner.appendingPathComponent("varbor-vr") }
     public var backupDir: URL { owner.appendingPathComponent("varbor-backup") }
-    /// MacVR's names for the two, taken over by `Migration.prefix`.
-    var legacyRecord: URL { owner.appendingPathComponent("macvr-vr") }
-    var legacyBackupDir: URL { owner.appendingPathComponent("macvr-backup") }
     public var lockFile: URL? {
         switch kind {
         case .template: owner.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent(".notproton-template.lock")

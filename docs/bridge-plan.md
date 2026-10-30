@@ -23,7 +23,7 @@ H=build/bridge/openxr-sdk-win/src/tests/hello_xr/hello_xr.exe
 scripts/run-bridge.sh 10 $H -g D3D11     # also -g Vulkan2, -g Vulkan
 scripts/run-bridge.sh 20 build/bridge/tests/xr_time_test.exe 300
 DUMP_FRAME=100 scripts/run-bridge.sh 10 build/bridge/tests/xr_array_test.exe 200
-# step 1 probe (spike): cd spikes/bridge && make && MACVR_OPENXR_RUNTIME=<x86_64 libopenxr_monado.dylib> \
+# step 1 probe (spike): cd spikes/bridge && make && VARBOR_OPENXR_RUNTIME=<x86_64 libopenxr_monado.dylib> \
 #   CX_GRAPHICS_BACKEND=dxvk EXTRA_DLLPATH=$PWD/build/root ./run-wine.sh build/xr_probe_test.exe   (service running)
 ```
 
@@ -73,14 +73,14 @@ M3 preparation (OpenComposite on top of the bridge, OpenVR D3D11/Vulkan test app
   `XR_KHR_vulkan_enable` for D3D11 and enable2 apps and `XR_KHR_convert_timespec_time` for the time extension.
 - The unix side finds the loaded MoltenVK with `_dyld`, sets `XRT_VK_GIPA_LIBRARY` and
   `OXR_DEBUG_FORCE_TIMELINE_SEMAPHORES=1`, dlopens `libopenxr_monado.dylib` from its own directory
-  (`MACVR_OPENXR_RUNTIME` overrides) and negotiates with it. No loader on either side.
+  (`VARBOR_OPENXR_RUNTIME` overrides) and negotiates with it. No loader on either side.
 - The client the bridge ships (`build/bridge/root/x86_64-unix/libopenxr_monado.dylib`) is, since 2026-10-26, WiVRn's
   own `libopenxr_wivrn` built for x86_64 from the server's WiVRn tree and `build/monado-snapshot`
   (`scripts/build-wivrn.sh --client-x86_64` → `build/wivrn-client-x86_64/client/`): same git tag (v26.9), same
   `XRT_*` feature set and socket `wivrn/comp_ipc` as the server, so neither `IPC_IGNORE_VERSION` nor a socket symlink
   is needed. It links with `-dead_strip_dylibs`, so it has no `libvulkan` dependency at all. The standalone client
-  (`build/bridge/monado-x86_64`, tag v25.1.0-macvr-standalone, socket `monado_comp_ipc`) is only for the
-  `monado-service` test rig; `scripts/run-bridge.sh` selects it with `MACVR_OPENXR_RUNTIME` unless `WIVRN=1`.
+  (`build/bridge/monado-x86_64`, tag v25.1.0-varbor-standalone, socket `monado_comp_ipc`) is only for the
+  `monado-service` test rig; `scripts/run-bridge.sh` selects it with `VARBOR_OPENXR_RUNTIME` unless `WIVRN=1`.
 - IPC stamp (`scripts/ipc-stamp.sh`): the build writes `monado-tree=<git tree of the Monado source>`, `socket=` and
   `git-tag=` to `<server build>/server/ipc-stamp` and next to the client. Server start scripts publish the server's
   copy to `$(getconf DARWIN_USER_TEMP_DIR)wivrn/ipc-stamp`. At load, `wineopenxr.so` compares it with its client's
@@ -203,7 +203,7 @@ Install:
 ### Loading by full path, without WINEDLLPATH (tested 2026-10-26)
 
 Can a runtime JSON name the bridge by full `Z:\` path so WINEDLLPATH isn't needed? **No.** Runner 27.0.0.41073, scratch
-prefix `~/Library/Application Support/macvr-test/pathtest` (no system32 placeholder, no ActiveRuntime), test
+prefix `~/Library/Application Support/varbor-test/pathtest` (no system32 placeholder, no ActiveRuntime), test
 `xr_path_test.exe` (static Khronos loader: enumerate extensions, `xrCreateInstance`; or `direct <dll>`), `WINEDEBUG=+loaddll,+module`.
 
 | Setup | Result |
@@ -221,11 +221,11 @@ Why: ntdll records a builtin's unixlib path only in `find_builtin_dll` (unix `lo
 the file is mapped directly: it's flagged builtin but has no `.so`, so `MemoryWineLoadUnixLib` fails. A hit in the dll
 path wins over the named file. ntdll.so has no other dll-path knob (only `WINEDLLPATH`).
 
-So the unixlib needs a WINEDLLPATH entry (or files in the runner). The MacVR app now adds `wineopenxr.dll`/`.so` to the runners ([macvr-app.md](macvr-app.md)), and the `.so` loads the client from `~/Library/Application Support/macvr/current/bridge/x86_64-unix/` when there is none beside it. The registry key, not an env var, picks the runtime.
-Recommended layout, `~/Library/Application Support/macvr/bridge/`: `x86_64-windows/wineopenxr.dll`,
+So the unixlib needs a WINEDLLPATH entry (or files in the runner). The VarboR app now adds `wineopenxr.dll`/`.so` to the runners ([varbor-app.md](varbor-app.md)), and the `.so` loads the client from `~/Library/Application Support/varbor/current/bridge/x86_64-unix/` when there is none beside it. The registry key, not an env var, picks the runtime.
+Recommended layout, `~/Library/Application Support/varbor/bridge/`: `x86_64-windows/wineopenxr.dll`,
 `x86_64-unix/{wineopenxr.so,libopenxr_monado.dylib,ipc-stamp}`, `wineopenxr.json` with
 `"library_path": "x86_64-windows\\wineopenxr.dll"`. Per prefix: `HKLM\SOFTWARE\Khronos\OpenXR\1\ActiveRuntime =
-Z:\Users\<user>\Library\Application Support\macvr\bridge\wineopenxr.json`, and that directory in WINEDLLPATH (NotProton's
+Z:\Users\<user>\Library\Application Support\varbor\bridge\wineopenxr.json`, and that directory in WINEDLLPATH (NotProton's
 `run` appends env WINEDLLPATH after its own dirs). No system32 copy is needed.
 
 Bridge bug found here (fixed 2026-10-26): without a unixlib, `wine_xrGetInstanceProcAddr` returned
@@ -350,7 +350,7 @@ release: vkCmdCopyImage (wait V, signal V+1) → Monado's IOSurface image → ho
   plus a worker line (`work`, `lag`). Frames over 6 ms are logged one by one. `=2` adds one line per frame
   (`F interval wait bridge`, `W work lag`) for `tools/mql-ab/bridgestats.py`.
 - **Settings under NotProton:** its launcher forwards only some env prefixes, so the bridge also reads `WINEOPENXR_*`
-  lines from `C:\macvr\wineopenxr.env` (the environment wins). `WINEOPENXR_LOG=<file>` sends messages to a file.
+  lines from `C:\varbor\wineopenxr.env` (the environment wins). `WINEOPENXR_LOG=<file>` sends messages to a file.
 - **Cost** (M4 Max, hello_xr, 2 swapchains, `WINEOPENXR_STATS=1`): release avg 0.38–0.44 ms (keyed-mutex handoff 0.18,
   copy submit + host release 0.14, D3DKMT release the rest); CPU-wait mode 1.1 ms. Plus one GPU copy per image.
   In Alyx (72 Hz, 2 eye swapchains, sync mode): the bridge's frame-thread total is 0.7 ms mean, ~2 ms p99, 5–9 ms
@@ -455,14 +455,14 @@ write the same ipc-stamp; `-dead_strip_dylibs`, no `libvulkan`), then `scripts/b
 `wineopenxr.so` with `-arch x86_64 -arch arm64`, the client is `lipo -create` of the two (`build/bridge/root/x86_64-unix/`),
 and the make refuses if the two clients' stamps differ. The stamp is a text file next to the client, so the check is the
 same for either slice. Source changes: the `.so` loads CrossOver's MoltenVK from `lib/<x86_64|aarch64>` per slice and
-the IPC client always from `macvr/current/bridge/x86_64-unix/`. `scripts/build-bridge.sh monado-arm64` builds the
+the IPC client always from `varbor/current/bridge/x86_64-unix/`. `scripts/build-bridge.sh monado-arm64` builds the
 standalone arm64 client for the `monado-service` rig.
 
-Run: `FEX=1 RUNNER_MODE=1 RUNNER_DIR=<runner copy with MacVR's runner files> BRIDGE_ROOT=<macvr/current/bridge>
+Run: `FEX=1 RUNNER_MODE=1 RUNNER_DIR=<runner copy with VarboR's runner files> BRIDGE_ROOT=<varbor/current/bridge>
 scripts/run-bridge.sh ...` (arm64 `wine.app` + `wineserver-arm64`, the `aarch64-unix` template, `FEX_X87REDUCEDPRECISION=1`
-as NotProton sets it). `RUNNER_MODE=1` reproduces MacVR's install (no system32 copy, ActiveRuntime by `Z:` path, only the
+as NotProton sets it). `RUNNER_MODE=1` reproduces VarboR's install (no system32 copy, ActiveRuntime by `Z:` path, only the
 runner dirs on WINEDLLPATH); FEX needs it, see §3. Wine prefixes, roots and runner copies under
-`~/Library/Application Support/macvr-test/` (never `~/Documents`).
+`~/Library/Application Support/varbor-test/` (never `~/Documents`).
 
 Results (runner clones, `build/logs/bridge-*-fex*`, `bridge-hello_xr-universal-*.log`):
 - FEX, monado-service rig: hello_xr `-g D3D11` on DXMT (cubes, `bridge-hello_xr-d3d11-dxmt-fex.png`), `-g Vulkan2` and
@@ -503,8 +503,8 @@ Alyx's current build 26227071 (1-2 fps on Rosetta, [linux-comparison.md](linux-c
 
 Switching a game between tools: NotProton refuses an x86_64 prefix on FEX (and the reverse) and offers a prefix
 rebuild. For these tests the Rosetta prefix was moved aside (`compatdata/546560.rosetta-20261028`) and NotProton made a
-fresh prefix from the matching template; `macvr rescan` then wrote the VR values (a rebuilt template loses them until
-the next rescan or app open). A real switch is NotProton's "Rebuild Prefix" plus a MacVR rescan.
+fresh prefix from the matching template; `varbor rescan` then wrote the VR values (a rebuilt template loses them until
+the next rescan or app open). A real switch is NotProton's "Rebuild Prefix" plus a VarboR rescan.
 
 ## 8. Risks
 

@@ -53,18 +53,6 @@ public enum Rescan {
          .dword(file: "user.reg", key: wineVRKey, name: "state", 1)]
     }
 
-    /// Values earlier versions set (Windows OpenComposite through VR_OVERRIDE): removed wherever they still point into
-    /// a support dir of ours, record or not (game prefixes cloned from a template have none).
-    static let obsolete: [(file: String, key: String, name: String)] = {
-        var v: [(String, String, String)] = []
-        for n in ["VR_OVERRIDE", "VR_CONFIG_PATH", "VR_LOG_PATH"] {
-            v.append(("system.reg", hklmEnvKey, n))
-            v.append(("system.reg", hklmEnvKeyUnlinked, n))
-            v.append(("user.reg", hkcuEnvKey, n))
-        }
-        return v
-    }()
-
     public struct Report {
         public var changed: [String] = []
         public var unchanged: [String] = []
@@ -119,7 +107,6 @@ public enum Rescan {
     static func busy(_ p: WinePrefix) -> Bool { Wineserver.running(prefix: p.pfx) }
 
     static func fix(_ ctx: Context, _ p: WinePrefix, want: [RegValue]) throws -> Outcome {
-        Migration.prefix(p)
         var rec = Record.load(p.record) ?? Record()
         let before = rec.values
         var changed = false
@@ -151,7 +138,10 @@ public enum Rescan {
         // registry: wanted values set, values we set earlier but no longer want reverted
         var byFile: [String: [RegValue]] = [:]
         for v in want { byFile[v.file, default: []].append(v) }
-        for o in obsolete { byFile[o.file, default: []] += [] }
+        for k in rec.values.keys where k.hasPrefix("reg|") {
+            let parts = k.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 4 { byFile[parts[1], default: []] += [] }
+        }
         for (file, values) in byFile.sorted(by: { $0.key < $1.key }) {
             let url = p.pfx.appendingPathComponent(file)
             // a prefix Wine hasn't run yet may lack user.reg; it gets the values once it has one
@@ -170,10 +160,6 @@ public enum Rescan {
             }
             for k in rec.values.keys.sorted() where k.hasPrefix("reg|\(file)|") && !values.contains(where: { $0.recordKey == k }) {
                 revert(&reg, &rec, k, ctx: ctx)
-            }
-            for o in obsolete where o.file == file {
-                guard let cur = reg.rawValueLine(o.key, o.name), isOurs(cur, ctx) else { continue }
-                reg.deleteValue(o.key, o.name)
             }
             if reg.lines != orig {
                 if busy(p) { return .busy }
@@ -289,11 +275,9 @@ public enum Rescan {
         user.appendingPathComponent("AppData/Local/openvr/openvrpaths.vrpath")
     }
 
-    /// Written by us before (an earlier version's, naming a support dir of ours) or by the old hand install: replaced
-    /// without a backup.
+    /// Ours from an earlier payload (naming a support dir of ours): replaced without a backup.
     static func isReplaceableVRPath(_ text: String, _ ctx: Context) -> Bool {
-        text.contains("C:\\\\OpenComposite")
-            || ctx.supportDirs.contains { text.contains(dosPath($0).replacingOccurrences(of: "\\", with: "\\\\")) }
+        ctx.supportDirs.contains { text.contains(dosPath($0).replacingOccurrences(of: "\\", with: "\\\\")) }
     }
 
     static func removeFile(_ u: URL) throws {

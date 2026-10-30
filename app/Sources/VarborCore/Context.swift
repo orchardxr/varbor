@@ -7,8 +7,6 @@ public struct Context: Sendable {
     public var steamRoot: URL
     public var logDir: URL
     public var runners: URL
-    /// MacVR's support dir (before the rename): moved to `support` at launch, still recognized in prefixes.
-    public var legacySupport: URL?
     /// Run launchctl/Steam/process side effects. Off in tests.
     public var system: Bool
 
@@ -32,13 +30,7 @@ public struct Context: Sendable {
             logDir: home.appendingPathComponent("Library/Logs/VarboR"),
             runners: appSupport.appendingPathComponent("notproton/runners"),
             system: true)
-        ctx.legacySupport = appSupport.appendingPathComponent("macvr")
-        ctx.legacyLogDir = home.appendingPathComponent("Library/Logs/MacVR")
-        if let s = env["VARBOR_SUPPORT"] {
-            ctx.support = URL(fileURLWithPath: s)
-            ctx.legacySupport = nil
-            ctx.legacyLogDir = nil
-        }
+        if let s = env["VARBOR_SUPPORT"] { ctx.support = URL(fileURLWithPath: s) }
         if let s = env["VARBOR_STEAM_ROOT"] { ctx.steamRoot = URL(fileURLWithPath: s) }
         if let s = env["VARBOR_RUNNERS"] { ctx.runners = URL(fileURLWithPath: s) }
         if let s = env["VARBOR_LOG_DIR"] { ctx.logDir = URL(fileURLWithPath: s) }
@@ -47,8 +39,7 @@ public struct Context: Sendable {
     }
 
     /// Every support dir prefixes may point into (registry values that name one are ours).
-    public var supportDirs: [URL] { [support] + (legacySupport.map { [$0] } ?? []) }
-    public var legacyLogDir: URL?
+    public var supportDirs: [URL] { [support] }
     public var versions: URL { support.appendingPathComponent("versions") }
     public var current: URL { support.appendingPathComponent("current") }
     public var previous: URL { support.appendingPathComponent("previous") }

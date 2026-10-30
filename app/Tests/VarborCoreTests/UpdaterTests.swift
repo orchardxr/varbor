@@ -11,4 +11,9 @@ final class UpdaterTests: XCTestCase {
         XCTAssertFalse(Updater.isNewer("0.0.1", than: "0.0.1.0"))
         XCTAssertFalse(Updater.isNewer("0.0.1", than: "0.0.2"))
     }
+
+    func testUpdateAssetIsVarboRZip() {
+        XCTAssertEqual(Updater.appAsset(["Other-0.1.0.zip", "VarboR-0.1.0.zip"]), "VarboR-0.1.0.zip")
+        XCTAssertNil(Updater.appAsset(["Other-0.0.5.zip"]))
+    }
 }

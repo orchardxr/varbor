@@ -25,7 +25,7 @@ release pages). The minimum versions VarboR needs are constants there.
 | `third_party/` | OpenXR-SDK-Source 1.1.65, OpenVR SDK 2.15.6, DirectXMath (headers, the Windows loader, test programs) |
 | `scripts/` | build, prefix setup and test scripts |
 | `tests/`, `spikes/`, `tools/` | the D3D11 OpenVR test program, bridge feasibility spikes, the Alyx VConsole helper |
-| `docs/` | design notes and measurements; `TODO.md` is the running log (from the MacVR days, so under that name) |
+| `docs/` | design notes and measurements; `TODO.md` is the running log |
 
 ## Toolchain
 
@@ -59,11 +59,10 @@ into `patches/<project>/`.
 ## Testing
 
 - Unit tests: `cd app && swift test` (or `scripts/build-app.sh --test`). They run on scratch trees under the temp
-  dir: prefixes, runners, bottles, MacVR's old layout, fake WiVRn/OpenComposite/NotProton installs and a fake engines
+  dir: prefixes, runners, bottles, fake WiVRn/OpenComposite/NotProton installs and a fake engines
   release.
 - Never run the CLI or the app from a build against your real setup by accident: set `VARBOR_SUPPORT`,
-  `VARBOR_STEAM_ROOT`, `VARBOR_RUNNERS`, `VARBOR_LOG_DIR` and `VARBOR_NO_SYSTEM=1` (a custom `VARBOR_SUPPORT` also turns
-  off the MacVR migration). `app/Tests/scratch.sh` builds a scratch tree from real prefixes.
+  `VARBOR_STEAM_ROOT`, `VARBOR_RUNNERS`, `VARBOR_LOG_DIR` and `VARBOR_NO_SYSTEM=1`. `app/Tests/scratch.sh` builds a scratch tree from real prefixes.
 - Bridge rigs: `scripts/run-vrclient.sh` (an OpenVR program through vrclient and OpenComposite against monado-service's
   null compositor) and `scripts/run-bridge.sh` (an OpenXR program through wineopenxr). They take monado-service and
   OpenComposite from wivrn-macos and opencomposite-macos builds next to this checkout (`MONADO_BUILD`, `OC_RUNTIME`).
@@ -79,10 +78,10 @@ runner (llvm-mingw, Homebrew's Vulkan headers, ccache), runs the unit tests and 
 Bump `CFBundleShortVersionString` (and `CFBundleVersion`) in `app/Resources/Info.plist`, add notes as
 `docs/releases/v<version>.md` (optional), commit, then push a tag `v<version>`. The CI build of the tag publishes the
 release with `VarboR-<version>.zip`; installed apps pick it up through self-update (they take the `VarboR-*.zip`
-asset). For the step from MacVR see [varbor-app.md](varbor-app.md#from-macvr).
+asset).
 
 ## Measurements and history
 
 [ab-alyx.md](ab-alyx.md), [linux-comparison.md](linux-comparison.md), [bridge-plan.md](bridge-plan.md),
 [m4-notproton.md](m4-notproton.md), [porting-plan.md](porting-plan.md) and [TODO.md](../TODO.md) are kept as written,
-from before the split: they cover the whole stack (WiVRn server and encoder included) and use the old name MacVR.
+from before the split: they cover the whole stack (WiVRn server and encoder included).

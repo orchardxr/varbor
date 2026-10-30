@@ -99,10 +99,10 @@ public enum Engines {
     }
 
     static func isClone(_ dir: URL, _ name: String) -> Bool {
-        name.hasSuffix(suffix) || name.contains("-macvr") || FileManager.default.fileExists(atPath: dir.appendingPathComponent(marker).path)
+        name.hasSuffix(suffix) || FileManager.default.fileExists(atPath: dir.appendingPathComponent(marker).path)
     }
 
-    /// NotProton's own runners (not ours, not MacVR's earlier clones) with a CrossOver lib/dxmt.
+    /// NotProton's own runners (not our clones) with a CrossOver lib/dxmt.
     public static func stockRunners(_ ctx: Context) -> [StockRunner] {
         let fm = FileManager.default
         return ((try? fm.contentsOfDirectory(atPath: ctx.runners.path)) ?? []).sorted().compactMap { n in

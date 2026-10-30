@@ -31,15 +31,7 @@ final class AppModel: ObservableObject {
     private var timer: Timer?
 
     private init() {
-        if Migration.macVRRunning(ctx) {
-            // MacVR would rescan the same prefixes and keeps its support dir in use: do nothing until it's quit
-            setup = Migration.macVRRunningNotice
-            message = Migration.macVRRunningNotice
-            return
-        }
-        Migration.run(ctx)
         Log.shared.open(ctx, fresh: true)
-        if !Migration.macVRApps(home: ctx.home).isEmpty { message = Migration.macVRInstalledNotice }
         Task.detached { [ctx] in
             let result: String
             var retry = false

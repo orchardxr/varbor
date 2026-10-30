@@ -29,12 +29,10 @@ scripts/build-app.sh [--test]        # build/app/VarboR.app, CLI at VarboR.app/C
 ## What the app does
 
 No login item, no LaunchAgent, no global environment. On open:
-1. If MacVR is running: nothing else, only the notice "Quit MacVR, then reopen VarboR". Otherwise migrate MacVR's
-   state (below), once.
-2. Deploy the payload into `versions/<stamp>` and switch `current` (atomic rename), unless it's current.
-3. Runner files: add the bridge to every NotProton runner (VarboR runners included).
-4. Rescan: the prefix templates first, then game prefixes and added bottles.
-5. Check for a VarboR update and for engines releases (the only network calls besides an install).
+1. Deploy the payload into `versions/<stamp>` and switch `current` (atomic rename), unless it's current.
+2. Runner files: add the bridge to every NotProton runner (VarboR runners included).
+3. Rescan: the prefix templates first, then game prefixes and added bottles.
+4. Check for a VarboR update and for engines releases (the only network calls besides an install).
 
 While open, every 5 s: whether a NotProton game runs, new runners (then runner files + rescan), and a retry of the
 rescan every 60 s while a prefix was busy and no game runs.
@@ -55,8 +53,8 @@ neither, the bridge's unix side asks with a native alert: Quit Game, or Run Anyw
 `x86_64-windows/{wineopenxr.dll, vrclient_x64.dll, varborreg.dll}`, and each `.so` in both `x86_64-unix/` (Rosetta
 pairs it with the PE) and `x86_64-windows/` (FEX finds the PE through NotProton's flat WINEDLLPATH entry and takes
 the unixlib beside it). dyld picks the slice. Add only: a file whose sha isn't in our record (`state/runner-files`)
-is left alone. Our outdated copies are replaced; files an earlier version installed that this one doesn't (MacVR's
-`macvrreg.dll`, for example) are removed if their sha is still ours. NotProton's template identity doesn't see the
+is left alone. Our outdated copies are replaced; files an earlier version installed that this one doesn't are
+removed if their sha is still ours. NotProton's template identity doesn't see the
 added files.
 
 `varborreg.dll` is a registration-only builtin: wineboot applies its `WINE_REGISTRY` script (our registry values,
@@ -73,9 +71,6 @@ generated per user into `state/`) whenever it creates or updates a prefix, so No
 | `drive_c/vrclient/bin/vrclient_x64.dll` | placeholder openvr_api.dll loads; Wine runs the runner's builtin. `config/`, `logs/` beside it |
 | `drive_c/users/<user>/AppData/Local/openvr/openvrpaths.vrpath` | runtime `C:\vrclient`, read-only (NotProton's steam.exe deletes a writable one) |
 
-- Values MacVR set for its Windows OpenComposite path (`VR_OVERRIDE`, `VR_CONFIG_PATH`, `VR_LOG_PATH` in the HKLM or
-  HKCU environment) are removed wherever they point into one of our support dirs, with or without a record (game
-  prefixes cloned from an old template have none); openvr_api.dll would prefer them over openvrpaths.vrpath.
 - Skipped while the prefix's wineserver runs (its lock in `/tmp/.wine-<uid>/server-<dev>-<inode>/`); NotProton's
   `flock` on `.notproton-prefix.lock` / `.notproton-template.lock` is held while writing.
 - Minimal edits: only our lines change; a missing key block is inserted in Wine's tree order. A prefix that's already
@@ -118,7 +113,6 @@ and release pages:
 - NotProton deletes or hides compat tool dirs it didn't create unless its tool registry lists them, so "Add to
   NotProton…" (`varbor engines register`) appends our lines to `notproton/tools` after asking, keeping a backup in
   `state/backup/notproton-tools.orig`. Steam lists the tools after a restart.
-- MacVR's earlier clones (`-macvr`, `-macvrdxmt`, `-macvrdxvk`) are not stock runners; VarboR leaves them alone.
 
 ## Layout
 
@@ -133,31 +127,6 @@ and release pages:
 ```
 
 Nothing a game or Wine touches is under `~/Documents` (TCC prompts).
-
-## From MacVR
-
-MacVR 0.0.1-0.0.5 (`org.macvr.MacVR`, latest release v0.0.5 with `MacVR-0.0.5.zip`) bundled the WiVRn server and
-the Windows OpenComposite. VarboR never quits or removes MacVR; the user uninstalls it. While MacVR runs, VarboR
-(app and CLI) changes nothing and asks to quit MacVR and reopen VarboR. A MacVR.app still installed gets a notice
-(opened again, it would undo VarboR's setup). At its first launch without MacVR running, VarboR:
-1. renames `~/Library/Application Support/macvr` to `varbor`, leaving a `macvr` symlink for prefixes still pointing
-   there, and `~/Library/Logs/MacVR` to `VarboR`;
-2. on each prefix's next rescan: renames `macvr-vr`/`macvr-backup`, replaces values and vrpath files naming the old dir
-   (they count as ours, so their recorded originals still restore), removes MacVR's VR_OVERRIDE & co., replaces
-   `C:\OpenComposite` vrpath files, moves a bottle's LibPath entry, and drops MacVR's runner files (`macvrreg.dll`).
-
-Self-update: MacVR's updater checks `somsarashvili/macvr` (GitHub redirects to orchardxr/varbor), takes the first
-`.zip` asset and requires `MacVR.app` with id `org.macvr.MacVR` and the release's version, so it can't install a
-VarboR release by itself. The transition:
-1. Release **MacVR 0.0.6** (tag `v0.0.6`, `MacVR-0.0.6.zip`) from the MacVR code (a branch from `11aa529`), changed
-   only in its updater: it also accepts a zip holding `VarboR.app` with id `org.orchardxr.varbor` (prefer the
-   `VarboR-*.zip` asset), puts it next to itself as `VarboR.app` instead of over `MacVR.app`, quits itself and opens
-   VarboR, which then migrates as above. Its release notes ask the user to delete MacVR.app. Keep v0.0.6 the latest release until MacVR users had a chance to update.
-2. Release **VarboR 0.1.0** (`v0.1.0`, `VarboR-0.1.0.zip`). VarboR's updater takes only `VarboR-*.zip` and requires
-   `org.orchardxr.varbor`.
-3. Users still on 0.0.5 at that point get "the release zip has no matching MacVR.app" and download VarboR by hand
-   (the release notes say so). Optionally, a VarboR release can carry, uploaded first, a `MacVR-<version>.zip` with
-   the 0.0.6 updater stamped as that version: 0.0.5 installs it and it moves on to VarboR. v0.0.4's tag stays unused.
 
 ## CLI
 
@@ -174,7 +143,7 @@ varbor protect add|remove <path> | list
 varbor exclude add|remove <appid|dir> | list
 ```
 
-Environment for tests: `VARBOR_SUPPORT` (also turns off the MacVR migration), `VARBOR_STEAM_ROOT`, `VARBOR_RUNNERS`,
+Environment for tests: `VARBOR_SUPPORT`, `VARBOR_STEAM_ROOT`, `VARBOR_RUNNERS`,
 `VARBOR_LOG_DIR`, `VARBOR_PAYLOAD`, `VARBOR_NO_SYSTEM=1`, `VARBOR_WIVRN_PREFIX`.
 
 ## Updates

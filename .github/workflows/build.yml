@@ -1,4 +1,4 @@
-name: Build MacVR.app
+name: Build VarboR.app
 
 on:
   push:
@@ -15,26 +15,22 @@ concurrency:
 env:
   LLVM_MINGW_VERSION: "20260922"
   LLVM_MINGW_SHA256: 52e5f5a7b131021d0c39a37a38fa380a1da7885cd04bd61afd0cd4ecfb8bc1f3
-  VULKAN_SDK_VERSION: 1.4.304.0
-  VULKAN_SDK_SHA256: d8909362c8cd6a61a33f8ab21240c6d3f38c3818f443f52939a9ac198ad0e539
   HOMEBREW_NO_AUTO_UPDATE: "1"
   HOMEBREW_NO_INSTALL_CLEANUP: "1"
-  # Every CMake build (native and llvm-mingw) compiles through ccache. It keys on contents, so the fresh mtimes of
-  # a checkout and patches.sh apply still hit.
   CMAKE_C_COMPILER_LAUNCHER: ccache
   CMAKE_CXX_COMPILER_LAUNCHER: ccache
-  CMAKE_OBJC_COMPILER_LAUNCHER: ccache
-  CMAKE_OBJCXX_COMPILER_LAUNCHER: ccache
   CCACHE_DIR: /Users/runner/.ccache
   CCACHE_BASEDIR: ${{ github.workspace }}
   CCACHE_COMPILERCHECK: content
   CCACHE_SLOPPINESS: include_file_mtime,include_file_ctime,time_macros,pch_defines
-  CCACHE_MAXSIZE: 2G
+  CCACHE_MAXSIZE: 1G
 
+# Only the bridge (wineopenxr, vrclient) and the app. The WiVRn server, OpenComposite and the engines build in their
+# own repos (README "Repositories").
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -62,27 +58,7 @@ jobs:
           brew bundle --file=Brewfile --no-upgrade
           brew install ccache
 
-      # Installs the universal loader, headers and glslc into /usr/local (the x86_64 IPC client links the x86_64
-      # slice). The installer's component names are LunarG's; not exercised outside CI.
-      - name: Cache Vulkan SDK download
-        uses: actions/cache@v4
-        with:
-          path: ~/vulkansdk-dl
-          key: vulkansdk-${{ env.VULKAN_SDK_VERSION }}
-      - name: Vulkan SDK
-        run: |
-          mkdir -p ~/vulkansdk-dl && cd ~/vulkansdk-dl
-          zip="vulkansdk-macos-$VULKAN_SDK_VERSION.zip"
-          [[ -f "$zip" ]] || curl -fsSLo "$zip" "https://sdk.lunarg.com/sdk/download/$VULKAN_SDK_VERSION/mac/$zip"
-          echo "$VULKAN_SDK_SHA256  $zip" | shasum -a 256 -c -
-          rm -rf InstallVulkan.app && unzip -q "$zip"
-          sudo ./InstallVulkan.app/Contents/MacOS/InstallVulkan --root "$HOME/VulkanSDK/$VULKAN_SDK_VERSION" \
-            --accept-licenses --default-answer --confirm-command install com.lunarg.vulkan.core com.lunarg.vulkan.usr
-          lipo -archs /usr/local/lib/libvulkan.dylib
-          ls /usr/local/include/vulkan/vulkan_core.h /usr/local/bin/glslc
-
       - name: Cache llvm-mingw
-        id: llvm-mingw-cache
         uses: actions/cache@v4
         with:
           path: ~/toolchains/llvm-mingw-${{ env.LLVM_MINGW_VERSION }}-ucrt-macos-universal
@@ -104,46 +80,24 @@ jobs:
           scripts/patches.sh apply
           scripts/patches.sh status
 
-      # A new entry every run, restored from the newest one.
       - name: Cache ccache
         uses: actions/cache@v4
         with:
           path: /Users/runner/.ccache
           key: ccache-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: ccache-${{ runner.arch }}-
-      - name: ccache stats reset
-        run: ccache --zero-stats
-
-      # Only the loader and the generated headers: the app's web helper and the server's test programs use them.
-      - name: OpenXR SDK (native loader for the server's test programs)
-        run: NINJA_TARGET=openxr_loader scripts/build.sh openxr-sdk
 
       - name: OpenXR SDK for Windows (loader, generated headers, Vulkan import library)
         run: scripts/build-bridge.sh openxr-sdk-win
 
-      - name: OpenComposite
-        run: scripts/build-opencomposite.sh
-
-      - name: WiVRn server
-        run: WIVRN_BUILD_DIR="$PWD/build/wivrn-next" scripts/build-wivrn.sh --snapshot
-
-      # x86_64 slice: Monado's client only needs the universal Vulkan SDK in /usr/local and Eigen's headers, so no
-      # x86_64 Homebrew is needed.
-      - name: WiVRn IPC client (x86_64, Rosetta runners)
-        run: scripts/build-wivrn.sh --client-x86_64
-
-      - name: WiVRn IPC client (arm64, FEX runners)
-        run: scripts/build-wivrn.sh --client-arm64
-
-      - name: Bridge
+      - name: wineopenxr bridge
         run: scripts/build-bridge.sh bridge
 
-      - name: MacVR.app
-        run: WIVRN_BUILD_DIR="$PWD/build/wivrn-next" scripts/build-app.sh --test
+      - name: vrclient bridge
+        run: scripts/build-bridge.sh vrclient
 
-      - name: ccache stats
-        if: always()
-        run: ccache --show-stats
+      - name: VarboR.app
+        run: scripts/build-app.sh --test
 
       - name: Build logs
         if: failure()
@@ -152,13 +106,13 @@ jobs:
           name: build-logs
           path: build/logs
 
-      - name: Zip MacVR.app
-        run: ditto -c -k --keepParent build/app/MacVR.app build/MacVR.app.zip
+      - name: Zip VarboR.app
+        run: ditto -c -k --keepParent build/app/VarboR.app build/VarboR.app.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MacVR.app
-          path: build/MacVR.app.zip
+          name: VarboR.app
+          path: build/VarboR.app.zip
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -166,10 +120,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          version="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/app/MacVR.app/Contents/Info.plist)"
+          version="$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" build/app/VarboR.app/Contents/Info.plist)"
           [[ "v$version" == "$TAG" ]] || { echo "tag $TAG does not match app version $version" >&2; exit 1; }
-          zip="build/MacVR-$version.zip"
-          cp build/MacVR.app.zip "$zip"
+          zip="build/VarboR-$version.zip"
+          cp build/VarboR.app.zip "$zip"
           notes="docs/releases/$TAG.md"
           if [[ -f "$notes" ]]; then args=(--notes-file "$notes"); else args=(--generate-notes); fi
-          gh release create "$TAG" "$zip" --verify-tag --title "MacVR $version" "${args[@]}"
+          gh release create "$TAG" "$zip" --verify-tag --title "VarboR $version" "${args[@]}"

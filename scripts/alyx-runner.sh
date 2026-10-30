@@ -2,7 +2,7 @@
 # alyx-runner.sh <fex|rosetta|release> : move Half-Life: Alyx between notproton-fex (main), the global
 # notproton-fex-rosetta and notproton-26.3 (CrossOver release). Quits Steam once (steam://exit), sets the per-game
 # CompatToolMapping, swaps compatdata/546560 with the parked 546560.<flavor> prefix (release: NotProton builds a new
-# one if none is parked), restarts Steam and runs `macvr rescan`.
+# one if none is parked), restarts Steam and runs `varbor rescan`.
 set -u
 WANT=${1:?fex|rosetta|release}
 typeset -A TOOL=(fex notproton-fex-41073 rosetta '' release notproton-26.3)
@@ -35,7 +35,7 @@ if pgrep -xq steam_osx; then
 	pgrep -xq steam_osx && { echo "Steam did not quit; quit it by hand and rerun" >&2; exit 1; }
 fi
 
-cp "$S/config/config.vdf" "$HOME/Library/Application Support/macvr/state/backup/config-$(date +%s).vdf"
+cp "$S/config/config.vdf" "$HOME/Library/Application Support/varbor/state/backup/config-$(date +%s).vdf"
 python3 - "$S/config/config.vdf" $APP "${TOOL[$WANT]}" <<'EOF' || exit 1
 import re, sys
 p, app, tool = sys.argv[1:]
@@ -62,5 +62,5 @@ if [[ $CUR != $WANT ]]; then
 fi
 open -a Steam
 for i in {1..60}; do pgrep -xq steam_osx && break; sleep 1; done
-/Applications/MacVR.app/Contents/Helpers/macvr rescan
+/Applications/VarboR.app/Contents/Helpers/varbor rescan
 [[ -d "$C/$APP" ]] && echo "$APP: $(flavor "$C/$APP") prefix, mapping $WANT" || echo "$APP: mapping $WANT, NotProton builds the prefix on first launch"

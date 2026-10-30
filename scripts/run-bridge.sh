@@ -6,8 +6,8 @@
 #
 # Environment:
 #   RUNNER=27.0.0.41073-fex   NotProton runner build
-#   RUNNER_DIR=<dir>          runner copy to use instead (e.g. app/Tests/scratch.sh's clone with MacVR's runner files)
-#   RUNNER_MODE=1             MacVR's runner mode: no BRIDGE_ROOT in WINEDLLPATH and no system32 copy; the runner (see
+#   RUNNER_DIR=<dir>          runner copy to use instead (e.g. app/Tests/scratch.sh's clone with VarboR's runner files)
+#   RUNNER_MODE=1             VarboR's runner mode: no BRIDGE_ROOT in WINEDLLPATH and no system32 copy; the runner (see
 #                             RUNNER_DIR) must have the dll/.so and BRIDGE_ROOT holds wineopenxr.json + x86_64-windows/
 #   FEX=1                     arm64 Wine with FEX (notproton-fex): aarch64-unix wineopenxr.so + arm64 client, the
 #                             runner's aarch64-unix template; the PE side stays x86_64
@@ -16,15 +16,18 @@
 #   SYNC=cpu                  MONADO_MACOS_SYNC=cpu on both sides
 #   PREFIX=<dir>              Wine prefix (default build/bridge/pfx, an APFS clone of NotProton's template)
 #   COPY_DLLS=1               also copy the *.dll next to <exe> (e.g. openvr_api.dll) into C:\
-#   WIVRN=1                   no service: connect to a running WiVRn server (scripts/run-wivrn.sh) with the bridge's
-#                             own client (build/bridge/root, from scripts/build-wivrn.sh --client-x86_64), with
+#   WIVRN=1                   no service: connect to a running WiVRn server (the wivrn-macos install) through the
+#                             runtime the bridge finds itself (XR_RUNTIME_JSON or active_runtime.json), with
 #                             XDG_RUNTIME_DIR unset (as a game under NotProton). Otherwise the client is the
-#                             standalone build/bridge/monado-{x86_64,arm64} one (MACVR_OPENXR_RUNTIME), matching
+#                             standalone $MONADO_BUILD/monado-{x86_64,arm64} one (VARBOR_OPENXR_RUNTIME), matching
 #                             monado-service.
 #   SERVICE=monado            monado: our monado-service (default); none: nothing on the socket (no server);
 #                             listen: a socket that listens but never accepts and no Mach service (WiVRn without a
 #                             headset: its Monado IPC server only runs during a headset session)
 #   KILL_SERVICE=N            SIGKILL the service N seconds after the client starts (lost runtime mid-session)
+#   MONADO_BUILD=<dir>        monado-service (arm64) and the standalone x86_64/arm64 IPC clients, as wivrn-macos builds
+#                             them: <dir>/monado, <dir>/monado-x86_64, <dir>/monado-arm64 (default
+#                             ../wivrn-macos/build/bridge next to this checkout)
 #   RT_DIR=<dir>              XDG_RUNTIME_DIR for the service and client (default build/bridge/rt)
 #   BRIDGE_ROOT=<dir>         wineopenxr.dll/.so (+ client dylib) dir (default build/bridge/root). Wine must not
 #                             touch ~/Documents (TCC prompt): stage the root, prefix and runtime dir elsewhere
@@ -41,6 +44,7 @@ exe="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 shift
 
 B="$ROOT/build/bridge"
+MB="${MONADO_BUILD:-$ROOT/../wivrn-macos/build/bridge}"
 LOGS="$ROOT/build/logs"
 mkdir -p "$LOGS"
 slog="$LOGS/bridge-service.log"
@@ -89,7 +93,7 @@ export MONADO_SYNC_STATS=1
 [[ "${SYNC:-auto}" == cpu ]] && export MONADO_MACOS_SYNC=cpu
 
 # Install: placeholder in system32 (Wine then loads the builtin from WINEDLLPATH), runtime json, ActiveRuntime.
-# RUNNER_MODE=1 as MacVR installs it: the runner has the dll/.so, ActiveRuntime names <root>/wineopenxr.json by Z: path.
+# RUNNER_MODE=1 as VarboR installs it: the runner has the dll/.so, ActiveRuntime names <root>/wineopenxr.json by Z: path.
 sys32="$prefix/drive_c/windows/system32"
 if [[ "${RUNNER_MODE:-0}" == 1 ]]; then
 	rm -f "$sys32/wineopenxr.dll" "$sys32/wineopenxr.json"
@@ -106,7 +110,7 @@ if [[ "${WIVRN:-0}" == 1 ]]; then
 	[[ -S "$(getconf DARWIN_USER_TEMP_DIR)wivrn/comp_ipc" ]] || { echo "WiVRn server not running" >&2; exit 1; }
 	spid=""
 else
-export MACVR_OPENXR_RUNTIME="${MACVR_OPENXR_RUNTIME:-$B/$client_dir/src/xrt/targets/openxr/libopenxr_monado.dylib}"
+export VARBOR_OPENXR_RUNTIME="${VARBOR_OPENXR_RUNTIME:-$MB/$client_dir/src/xrt/targets/openxr/libopenxr_monado.dylib}"
 mkdir -p "$XDG_RUNTIME_DIR"
 sock="$XDG_RUNTIME_DIR/monado_comp_ipc"
 rm -f "$sock"
@@ -120,7 +124,7 @@ elif [[ "$service" == monado ]]; then
 (
 	export XRT_NO_STDIN=1 XRT_COMPOSITOR_NULL=1 SIMULATED_ENABLE=1
 	export XRT_COMPOSITOR_NULL_DUMP="$png" XRT_COMPOSITOR_NULL_DUMP_FRAME="${DUMP_FRAME:-60}"
-	exec perl -e 'alarm shift; exec @ARGV' $((secs + 90)) "$B/monado/src/xrt/targets/service/monado-service"
+	exec perl -e 'alarm shift; exec @ARGV' $((secs + 90)) "$MB/monado/src/xrt/targets/service/monado-service"
 ) > "$slog" 2>&1 &
 spid=$!
 else

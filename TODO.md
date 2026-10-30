@@ -1,4 +1,8 @@
-# macvr TODO
+# varbor TODO
+
+> Running log from before the four-repo split. VarboR is the Wine bridges only now; the WiVRn server, encoder and
+> Monado work moved to orchardxr/wivrn-macos, OpenComposite to orchardxr/opencomposite-macos, DXMT/DXVK to
+> orchardxr/varbor-engines. Paths and scripts named below may live there now.
 
 Plan: [docs/porting-plan.md](docs/porting-plan.md)
 
@@ -22,10 +26,10 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
 - [x] M3 prep (2026-10-24): OpenComposite (`openxr` cff07db + patches/opencomposite 0001-0004, llvm-mingw) on the bridge; OpenVR 2.15.6 D3D11 + Vulkan test apps render through it in the scratch prefix, Alyx's action manifest loads ([docs/m3-opencomposite.md](docs/m3-opencomposite.md))
 - [x] M2 step 6 (FEX flavor, 2026-10-28, [docs/bridge-plan.md](docs/bridge-plan.md) §7a): universal (x86_64+arm64)
   `wineopenxr.so` + WiVRn client (`build-wivrn.sh --client-arm64`, lipo), x86_64 PE; on FEX Wine pairs the PE with
-  `lib/wine/x86_64-windows/wineopenxr.so`, so MacVR installs the `.so` there and in `x86_64-unix`. hello_xr/array/time
+  `lib/wine/x86_64-windows/wineopenxr.so`, so VarboR installs the `.so` there and in `x86_64-unix`. hello_xr/array/time
   tests pass on FEX (DXMT; no arm64 DXVK), Alyx runs on all three tools. Alyx FEX vs Rosetta: 89.4 vs 87.1 fps, app CPU
   2.8 vs 4.5 ms p50, hlvr 394 vs 453 %, M2P 66.5 vs 75.5 (safe varies). Alyx 26227071 runs at 89 fps on FEX.
-  Step 7 and M4 done (M3 Alyx, MacVR app below)
+  Step 7 and M4 done (M3 Alyx, VarboR app below)
   - [x] Alyx moved to `notproton-fex` (2026-10-28): per-game CompatToolMapping, FEX prefix active, Rosetta prefix
     parked as `compatdata/546560.rosetta` (preview one as `546560.preview-20261028`). `scripts/alyx-runner.sh fex|rosetta`
     switches (one steam://exit, mapping, prefix swap, rescan). Check after the switch: FEX `fex-main1` 88.6 fps, M2P
@@ -37,25 +41,25 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
     the fence before the copy; `WINEOPENXR_DXMT_SYNC=fence` forces it, `cpu` is the old event-query spin). Alyx 90 Hz:
     26.3 fence `rel-fence1` 83.1 fps, M2P 69.9, actual p50 62.7, app CPU 16.2 (waits for the previous GPU frame at
     xrBeginFrame); 27 Rosetta forced cpu `ros27-cpusync1` 36 fps, forced fence `ros27-fence1` 77.2; keyed mutex (27)
-    unchanged: FEX `fex-main2` 89.4 / M2P 66.2, Rosetta `ros-main2` 89.5 / 63.4. MacVR 7e9b30b9180c deployed (includes
+    unchanged: FEX `fex-main2` 89.4 / M2P 66.2, Rosetta `ros-main2` 89.5 / 63.4. VarboR 7e9b30b9180c deployed (includes
     the system32 legacy-detection fix). `scripts/alyx-runner.sh release`; prefix parked as `546560.release`.
-  - [x] First launch on a new runner has no VR (2026-10-29): `macvrreg.dll`, a builtin MacVR generates per user
-    (`RunnerRegistration.swift`, placeholder from `bridge/src/macvrreg.*`) with our values as a `WINE_REGISTRY` script;
+  - [x] First launch on a new runner has no VR (2026-10-29): `varborreg.dll`, a builtin VarboR generates per user
+    (`RunnerRegistration.swift`, placeholder from `bridge/src/varborreg.*`) with our values as a `WINE_REGISTRY` script;
     wineboot applies it to every prefix it creates or updates (setupapi `register_fake_dll`), NotProton's templates
     included. Scratch: fresh `wineboot --init` prefixes on 26.3 Rosetta, 27 Rosetta and 27 FEX get all 4 values; rescan
     sees them as ok; mode switch regenerates; uninstall removes it. Real: 26.3 template + Alyx prefix removed, first
     launch built both and reached FOCUSED in VR (36 fps first run in the new prefix, 77 on the second). The app also
     installs runner files from its 5 s tick when a runner lacks them. Deployed in e1617c354bd0.
   - [ ] System-audio permission prompt breaks the first launch (2026-10-29): after deploying a new build and opening
-    MacVR.app, macOS asked '"MacVR" would like access to record your system audio'. While it was pending the headset
+    VarboR.app, macOS asked '"VarboR" would like access to record your system audio'. While it was pending the headset
     session didn't come up and Alyx, launched from Steam, failed with `VRInitError_Init_HmdNotFound (108)`. The app is
     ad-hoc signed, so every new build may count as a new app for TCC and ask again. To do: a stable signing identity;
     ask for the permission at app start (before the server/headset session) with a clear status; never let a pending or
     denied audio permission block the headset session (stream without audio instead).
-  - [ ] MacVR's recommendation for new users (FEX vs Rosetta) in the app/docs; Alyx 26227071 still needs Rosetta's fix
+  - [ ] VarboR's recommendation for new users (FEX vs Rosetta) in the app/docs; Alyx 26227071 still needs Rosetta's fix
     (1-2 fps there), so Alyx stays on 25487405 while Rosetta must keep working.
   - [x] Deploy the system32 legacy-detection fix (deployed 2026-10-29 with 7e9b30b9180c).
-- [x] ~~M4 design (2026-10-24, [docs/m4-notproton.md](docs/m4-notproton.md))~~ superseded by the MacVR app: hook.sh sourced by a 5-hunk patch to NotProton's `run` (patches/notproton on a local snapshot repo), per-prefix install + `macvr-vr` record, WiVRn as LaunchAgent `org.macvr.wivrn`, 250820 guard; next: build helpers/hook, tests T0–T4 on scratch clones
+- [x] ~~M4 design (2026-10-24, [docs/m4-notproton.md](docs/m4-notproton.md))~~ superseded by the VarboR app: hook.sh sourced by a 5-hunk patch to NotProton's `run` (patches/notproton on a local snapshot repo), per-prefix install + `varbor-vr` record, WiVRn as LaunchAgent `org.varbor.wivrn`, 250820 guard; next: build helpers/hook, tests T0–T4 on scratch clones
 - [x] M3: Half-Life: Alyx (2026-10-24/25, real prefix 546560): D3D11 on stock DXMT through OpenComposite → bridge → WiVRn
   → Quest; menu and game play, checked in the headset: "looks good" (2026-10-25). Fixes: OpenComposite 0005 (MinGW/MSVC struct-return
   ABI), WiVRn 0006 (recenter) / 0007 + Monado 0015 (pacing). `-vulkan` blocked: MoltenVK lacks `multiviewGeometryShader`
@@ -68,8 +72,8 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
 - [ ] **Web overlays: SteamVR's vrwebhelper pipeline** (2026-10-26, [docs/web-overlays.md](docs/web-overlays.md)): Alyx's own
   interstitials page (`game/hlvr/webui`) rendered as on SteamVR. OpenComposite 0008-web-overlay-mailbox (replaces the
   text-only 0008, backup in build/backup): real `IVRMailbox` + `RegisterExternalWebRoot` over SteamVR's mailbox protocol;
-  `macvr-broker` (ws://127.0.0.1:27062, started by the app with the server); `macvr-webhelper` (offscreen WKWebView,
-  `window.VRHTML`, `vrwebui://` scheme handler, scene graph → quads); `CMacVRXR` (XR_EXTX_overlay session on WiVRn,
+  `varbor-broker` (ws://127.0.0.1:27062, started by the app with the server); `varbor-webhelper` (offscreen WKWebView,
+  `window.VRHTML`, `vrwebui://` scheme handler, scene graph → quads); `CVarboRXR` (XR_EXTX_overlay session on WiVRn,
   one 2048² sRGB swapchain = the page texture, a quad per panel via `imageRect`). Verified headless: the page's real
   `ready`, Alyx's message sequence through OpenComposite in Wine, panel dumps (spinner arcs, ellipsis, "Press Trigger To
   Start"), overlay session + images against monado-service. Cost (loading screen, screen sharing off): helper ~3 %,
@@ -77,7 +81,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
   - [x] Headset check (2026-10-26): Alyx end to end through WiVRn; "Press Trigger To Start" size/position OK, LOADING
     with spinning arcs and dots good. Details and cost in the doc's Status.
   - [x] Fonts: Raju is Valve-encrypted (vrserver's `get_font` decrypts it); the page uses its Arial fallback. Decision
-    (2026-10-26): leave it. A plain `raju-*.otf` in `~/Library/Application Support/macvr/fonts/` would be used.
+    (2026-10-26): leave it. A plain `raju-*.otf` in `~/Library/Application Support/varbor/fonts/` would be used.
   - [ ] Re-check the App Nap fix in a game (capture fell to ~2/s after minutes before it).
   - [ ] Render models (holograms, `play_space_center_feet` on every loading screen, the city map in a2+): parsed, not
     drawn. SteamVR's shaders are in `SteamVR/resources/shaders/vulkan` (SPIR-V); the uniform mapping is unknown.
@@ -171,43 +175,43 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
   `xrGetInstanceProcAddr` refused everything and the static Khronos loader called NULL (crash dialog). Now
   `xrEnumerateInstanceExtensionProperties`, `xrEnumerateApiLayerProperties` and `xrCreateInstance` are always returned and
   report `XR_ERROR_RUNTIME_UNAVAILABLE`. Tested in the pathtest scratch prefix (no unixlib: −51, no crash; normal: 49
-  extensions, ipc-stamp match). Deployed to Alyx (C:\macvr + system32). docs/bridge-plan.md §3.
+  extensions, ipc-stamp match). Deployed to Alyx (C:\varbor + system32). docs/bridge-plan.md §3.
 - [x] OpenVR without a vrpath (2026-10-26): `VR_OVERRIDE` + `VR_CONFIG_PATH` + `VR_LOG_PATH` (all three needed, Windows
   `Z:\` paths, not unix) pointing at an OpenComposite copy outside the prefix,
-  `~/Library/Application Support/macvr/opencomposite/`. steam.exe doesn't strip them (its conversion fails under NotProton).
+  `~/Library/Application Support/varbor/opencomposite/`. steam.exe doesn't strip them (its conversion fails under NotProton).
   Works from `launchctl setenv` (global, lost on reboot), from the prefix's `HKCU\Environment` and from
   `HKLM\...\Session Manager\Environment`. **Alyx now uses the HKLM values, no vrpath, no launchctl variables.**
   M4 can write these three values per prefix instead of the read-only file. docs/m4-notproton.md §0 "VR_OVERRIDE route".
   - Follow-up: `install-vr-546560.sh`/`uninstall-vr-546560.sh` still install the read-only vrpath and in-prefix
     `C:\OpenComposite`; switch them to the outside copy + registry values.
 
-- [x] **M4: MacVR app** (2026-10-26, [docs/macvr-app.md](docs/macvr-app.md)): `app/` Swift package (core + `macvr`
-  CLI + menu-bar app), `scripts/build-app.sh`, installed as /Applications/MacVR.app. No login item, no launchctl env,
+- [x] **M4: VarboR app** (2026-10-26, [docs/varbor-app.md](docs/varbor-app.md)): `app/` Swift package (core + `varbor`
+  CLI + menu-bar app), `scripts/build-app.sh`, installed as /Applications/VarboR.app. No login item, no launchctl env,
   no Steam restart, no backend forcing, no change to NotProton's `run`. On open: deploy the payload to
-  `~/Library/Application Support/macvr/versions/<stamp>` (`current` symlink), add `wineopenxr.dll`/`.so` to every
+  `~/Library/Application Support/varbor/versions/<stamp>` (`current` symlink), add `wineopenxr.dll`/`.so` to every
   NotProton runner's `lib/wine/x86_64-*` (add-only, sha record), write `ActiveRuntime` + `VR_OVERRIDE`/`VR_CONFIG_PATH`/
   `VR_LOG_PATH` (HKLM Session Manager\Environment) into the prefix templates, then into game prefixes that miss them
   (skipped while a wineserver runs), start wivrn-server as the app's child. Bridge `.so` falls back to the client in
-  `macvr/current/bridge/x86_64-unix`. Tested: 17 unit tests and scratch clones (idempotence, `wine reg query`, busy
+  `varbor/current/bridge/x86_64-unix`. Tested: 17 unit tests and scratch clones (idempotence, `wine reg query`, busy
   skip, runner-mode `xrCreateInstance` = 0, uninstall round trip). **Real install verified** (checked in the headset): Alyx
   started normally from Steam loads the runner's `wineopenxr.so`, the client and `vrclient_x64.dll` from
-  `macvr/versions/…`, `ipc-stamp match`, 90 fps, audio tapped from hlvr.exe, OpenComposite shows the text-only "Press
+  `varbor/versions/…`, `ipc-stamp match`, 90 fps, audio tapped from hlvr.exe, OpenComposite shows the text-only "Press
   Trigger To Start" interstitial. Left:
-  - [x] Legacy cleanup of 546560 (2026-10-28: files moved to macvr-backup, launch-option token removed): runs at the first rescan with Alyx quit (the running app retries
+  - [x] Legacy cleanup of 546560 (2026-10-28: files moved to varbor-backup, launch-option token removed): runs at the first rescan with Alyx quit (the running app retries
     every 60 s); the old `WINEDLLPATH` launch-option token goes once Steam is quit. That also ends the
-    `C:\macvr\wineopenxr.env` logging.
-  - [x] Deleted `~/Library/Application Support/macvr/opencomposite` (moved to Trash 2026-10-28; nothing referenced it).
+    `C:\varbor\wineopenxr.env` logging.
+  - [x] Deleted `~/Library/Application Support/varbor/opencomposite` (moved to Trash 2026-10-28; nothing referenced it).
   - [x] FEX flavor (2026-10-28): universal `.so` in `x86_64-unix` and `x86_64-windows` of every runner.
   - [x] VR game detection via appinfo + headset app list (2026-10-29): WiVRn patch 0010 lists installed Steam VR
     games (appinfo.vdf VR flags, type game/demo; SteamVR is a Tool) with cover-art icons and starts a pick with
-    `/usr/bin/open steam://rungameid/<id>`; `macvr status` uses the same rule (`AppInfo.swift`, DLL heuristic only
+    `/usr/bin/open steam://rungameid/<id>`; `varbor status` uses the same rule (`AppInfo.swift`, DLL heuristic only
     for apps missing from appinfo). Verified on this Mac with `list-apps` (only Alyx) and a scratch Steam tree; 4 unit
     tests. See [docs/wivrn.md](docs/wivrn.md) 0010. Left: check the list, icon and launch in the headset after
     deploying a server built with 0010 (build/wivrn-apps).
   - [ ] Quest client doesn't reconnect by itself after a server restart (WiVRn client).
   - [x] Main window + menu bar, user-added CrossOver bottles and Steam libraries (2026-10-29,
-    [docs/macvr-app.md](docs/macvr-app.md#crossover-bottles-and-extra-steam-libraries-added-by-the-user)): bottles get the
-    registry values plus `[Wine] "LibPath"` += `macvr/bottle-lib` (CrossOver overwrites WINEDLLPATH from
+    [docs/varbor-app.md](docs/varbor-app.md#crossover-bottles-and-extra-steam-libraries-added-by-the-user)): bottles get the
+    registry values plus `[Wine] "LibPath"` += `varbor/bottle-lib` (CrossOver overwrites WINEDLLPATH from
     `[EnvironmentVariables]`); CrossOver 26 bottles have an unlinked CurrentControlSet. hello_xr D3D11 (DXMT, DXVK) in a
     scratch bottle reached a running session. Not deployed yet.
   - [ ] Bridge: find CrossOver.app's MoltenVK (`lib64/libMoltenVK.dylib`; `moltenvk_path` only tries `lib/<arch>`), so
@@ -224,7 +228,7 @@ Plan: [docs/porting-plan.md](docs/porting-plan.md)
 - Decision (2026-10-29): main window + menu bar; users can add CrossOver bottles and extra Steam libraries.
 - Decision (2026-10-28): main work and measurements on FEX (`notproton-fex`); finish each piece of work with a Rosetta
   check; both runners stay supported.
-- Decision (2026-10-26): MacVR app: install-and-run, no edits by the user. Don't modify NotProton/CrossOver files, except
+- Decision (2026-10-26): VarboR app: install-and-run, no edits by the user. Don't modify NotProton/CrossOver files, except
   adding our 2 bridge files to the runners (add-only). No login item or LaunchAgent, no global (launchctl) variables.
   Registry values go into the prefix template first, game prefixes only as a fallback. Don't set
   `CX_GRAPHICS_BACKEND`; document DXMT (preferred) / DXVK, D3DMetal unsupported. Quit stops the server.
@@ -468,7 +472,7 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
 - 2026-10-25, headset check: Alyx (DXMT bridge + pacing fix 0007/0015, 90 Hz) "looks good".
 - **Alyx A/B after pacing fix (2026-10-25, [docs/ab-alyx.md](docs/ab-alyx.md#ab-after-pacing-fix-2026-10-25)):** Metal HUD log for both, 30 s after 20 s settle + gpustress. 72 Hz: A 67.3/69.7 fps (lowest 1-s 57.8/66.1), B 72.0/72.0 (71.1/70.1); HUD GPU 8.55-8.69 vs 8.45-8.49 ms, P15 52-94 vs 87-88 %. 90 Hz: A 45.0/39.6 (half rate, GPU 8.3-8.7 ms), B 89.4/89.8. Runtime CPU A 72-78 % vs B 44-48 %; hlvr 294-304 vs 340-359 %. Quest had lost positional tracking (Guardian paused for A), so the head pose differed.
 - **Alyx A/B vs the SteamVR/Steam Link reference stack (2026-10-24, [docs/ab-alyx.md](docs/ab-alyx.md)):** balcony save, 72 Hz, ~4.56 MP/eye base, fidelity 3, 30 s each: game 69.6 (A) vs 66.5 fps (B); HUD GPU 8.45 vs 13.95 ms; hlvr 303 vs 310 %, wineserver 47 vs 35 %, runtime 71 vs 47 % CPU; encode 7.6 ms vs 2.8/3.3 ms p50/p95; 52 vs 2×72 Mbit/s.
-- **Alyx GPU bottleneck (2026-10-25, [docs/ab-alyx.md](docs/ab-alyx.md#gpu-bottleneck-2026-10-25)):** B's 13.95 ms HUD GPU time came from the GPU running at P1/P2 (338-618 MHz). At P15 the same work takes 8.2-8.7 ms (A: 8.45). Bridge copy 0.44 ms and WiVRn 0.15 ms per frame; the GPU is busy with the game. Keyed-mutex mode gives 69 fps at P2/P3 and 56-62 at P15. CPU-wait sync gives 72 at P15 but collapses to 37 at P1. Kept: OpenComposite 0006 (bounded copy, real refresh rate), bridge deferred imageRect copy, `C:\macvr\wineopenxr.env`, `WINEOPENXR_LOG`.
+- **Alyx GPU bottleneck (2026-10-25, [docs/ab-alyx.md](docs/ab-alyx.md#gpu-bottleneck-2026-10-25)):** B's 13.95 ms HUD GPU time came from the GPU running at P1/P2 (338-618 MHz). At P15 the same work takes 8.2-8.7 ms (A: 8.45). Bridge copy 0.44 ms and WiVRn 0.15 ms per frame; the GPU is busy with the game. Keyed-mutex mode gives 69 fps at P2/P3 and 56-62 at P15. CPU-wait sync gives 72 at P15 but collapses to 37 at P1. Kept: OpenComposite 0006 (bounded copy, real refresh rate), bridge deferred imageRect copy, `C:\varbor\wineopenxr.env`, `WINEOPENXR_LOG`.
   - [ ] Bridge release spikes: copy submit + host xrReleaseSwapchainImage 1.5-2.6 ms on average, max 11-16 ms, on the game's render thread (move the host release off the game thread?).
   - [ ] msync "node memory pool exhausted" flood (~3.9 MB/s into notproton-run.log, +60 % hlvr / +80 % wineserver CPU vs WINEMSYNC=0). Not fps-limiting in the tests; report to NotProton.
   - [ ] GPU DVFS bistability: measure A's P-states (`build/ab/gpufreq`) to see whether A runs at low clocks too.
@@ -612,7 +616,7 @@ Details, design and the table in [docs/wivrn.md](docs/wivrn.md) ("Zero-copy enco
     and working calibrated GPU timestamps. Never mix with `mach_absolute_time` / `CLOCK_UPTIME_RAW`.
 - Real-content measurements are still missing: hello_xr streams only 0.2 Mbit/s. Repeat the soak with a game at M3.
   (Alyx 2026-10-24 only reached its black startup screen, also 0.2 Mbit/s.)
-- (fixed 2026-10-26, see Status) Alyx: the bridge's x86_64 client had git tag `v25.1.0-macvr-standalone` vs WiVRn's
+- (fixed 2026-10-26, see Status) Alyx: the bridge's x86_64 client had git tag `v25.1.0-varbor-standalone` vs WiVRn's
   `v26.9` and needed `IPC_IGNORE_VERSION=1` + the `monado_comp_ipc` symlink.
 - (patch 0008, 2026-10-26; needs an Alyx check in the headset) Alyx: OpenComposite only logged SteamVR's interstitials (`hlvr/interstitials`
   mailbox, "Press Trigger To Start", loading screens), so those screens were black in the headset. 0008 draws them
@@ -711,7 +715,7 @@ Decisions:
 
 Needed for M3 (OpenComposite + Half-Life: Alyx):
 - A bridge client for WiVRn: an x86_64 `libopenxr` from the WiVRn tree (same patch series, socket `wivrn/comp_ipc`)
-  dropped next to `wineopenxr.so` (or `MACVR_OPENXR_RUNTIME`). The null-compositor service is only the test rig.
+  dropped next to `wineopenxr.so` (or `VARBOR_OPENXR_RUNTIME`). The null-compositor service is only the test rig.
 - (done 2026-10-24, [docs/m3-opencomposite.md](docs/m3-opencomposite.md)) OpenComposite built for Win64 with
   llvm-mingw. The release DLL is not usable: it lacks the OpenVR 2.15.6 interfaces current Alyx asks for
   (`IVRSystem_026`, `IVRCompositor_029`, `IVRInput_011`, `IVROverlay_028`); patch 0004 adds them.
@@ -722,3 +726,261 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   but D3D11 service-commit → GPU-done is already 0.5 ms at 320×240, so measure DXVK's queue depth at Alyx's load.
 - A real game prefix install (copy placeholder + json + registry key, `CX_GRAPHICS_BACKEND=dxvk %command%`)
   (step 7). The FEX flavor (step 6): done 2026-10-28.
+
+## XR_KHR_metal_enable notes (2026-10-30, vrclient-native step 1)
+- Monado patch 0017-khr-metal-enable: `XRT_HAVE_METAL` (default ON on Apple), a Metal client compositor
+  (`compositor/client/comp_metal_client.m`: each native swapchain IOSurface wrapped with
+  `newTextureWithDescriptor:iosurface:plane:`, commit signals the IPC timeline semaphore's MTLSharedEvent on the app's
+  queue, CPU wait if the service has no shared semaphore), and the oxr side (`xrGetMetalGraphicsRequirementsKHR` returns
+  the system default MTLDevice, `XrGraphicsBindingMetalKHR` queue must be on it, `XrSwapchainImageMetalKHR`). Formats
+  are MTLPixelFormat values mapped from the native VkFormats: RGBA8/BGRA8 (+sRGB), RGB10A2, RGBA16Unorm/Float. No
+  depth, MSAA, arrays or mips (IOSurface limits from 0007/0011/0012). Spec version 3, as in openxr-sdk 1.1.65. No WiVRn
+  change needed: the WiVRn server and the x86_64/arm64 clients build with it.
+- Test app `tests/metal-xr/xr_metal.m` (built by `scripts/build-wivrn.sh` as `build/tests/xr_metal [s]`): native arm64,
+  side-by-side stereo swapchain, per-eye colour cycle + moving bar, one projection layer per frame.
+- Verified against the standalone monado-service (null compositor, simulated HMD): 604 frames in 30 s (20 fps = the
+  null compositor's rate), 0 errors, server commit->client GPU done (MTLSharedEvent) median 0.8 ms; the frame dump shows
+  both eyes' content. `MONADO_MACOS_SYNC=cpu` falls back to the CPU wait, also 0 errors. hello_xr Vulkan unchanged.
+- Not verified in the headset yet: the Quest sat on `com.oculus.os.vrlockscreen/.SensorLockActivity` after wake
+  ("Launch is blocked because: a Reprojected OS dialog is currently showing"), so the WiVRn client never started, and the
+  WiVRn server has no IPC service (Mach bootstrap name) without a connected headset. Retry with the headset unlocked:
+  `adb reverse tcp:9757 tcp:9757` then `am start -a android.intent.action.VIEW -d wivrn+tcp://127.0.0.1:9757 -n
+  org.meumeu.wivrn/.MainActivity`, then `XR_RUNTIME_JSON=build/wivrn/openxr_wivrn-dev.json build/tests/xr_metal 30`.
+
+## Native macOS OpenComposite + Metal compositor (2026-10-30, vrclient-native step 2)
+- `scripts/build-opencomposite.sh --macos` (after `patches.sh apply opencomposite` and `git submodule update --init
+  --recursive third_party/opencomposite`): universal `build/oc-macos/vrclient.dylib` + universal
+  `libopenxr_loader.dylib` (openxr-sdk 1.1.65, `@loader_path`), copied into `build/oc-macos/runtime/bin/osx64`.
+  Links only system frameworks (no Vulkan loader; `-DOC_MACOS_VULKAN=ON` brings Vulkan textures back). The Windows
+  DLL build is unchanged.
+- Patches: 0009-macos-native-build (CMake APPLE branch, Mach-O resources, `_NSGetExecutablePath`, settings under
+  `~/Library/Application Support/OpenVR`, MoltenVK portability in TemporaryVk), 0010-metal-compositor
+  (`MetalCompositor` for `TextureType_Metal`, `TemporaryMetal` pre-submit session, `XR_KHR_metal_enable` binding =
+  one MTLCommandQueue per device shared by session and compositors, `GetOutputDevice` returns the runtime's MTLDevice).
+  Copies are blits (sRGB/linear twins through a `MUTABLE_FORMAT` view, `copyBoundsOnly` sub-rect, array slice = eye);
+  a render pass handles shader bounds, MSAA resolve and formats the runtime lacks. Cubemaps not done.
+- Test: `tests/openvr-metal/ovr_metal.mm` (dlopen + `VRClientCoreFactory`, scene app, WaitGetPoses/Submit) via
+  `scripts/run-ovr-metal.sh [secs] [separate|sbs|array|msaa]` against monado-service (null compositor). Each mode:
+  ~595 frames in 30 s (19.8 fps, the null compositor's rate), 0 errors with `MTL_DEBUG_LAYER=1`, frame dumps show
+  both eyes.
+- Open for the Wine vrclient bridge:
+  - OpenComposite copies on its own queue, not the game's (`Texture_t` has no queue). Fine for the native test
+    (committed before Submit, tracked textures), but DXMT must have committed the eye's command buffer before the
+    bridge calls Submit, and untracked DXMT resources need an explicit MTLSharedEvent wait.
+  - The x86_64 slice loads under Rosetta; it needs an x86_64 OpenXR client with 0017 (`build.sh x86_64` / the WiVRn
+    x86_64 client). Keep `libopenxr_loader.dylib` next to `vrclient.dylib`.
+  - OpenComposite logs to stdout and reads `opencomposite.ini` from the working directory on macOS.
+
+## Wine vrclient bridge, Proton's vrclient on CrossOver (2026-10-30, vrclient-native step 3)
+- `vrclient/`: Proton's vrclient_x64 (experimental_11.0, 7a94df4) in `vrclient/proton/` (import commit unmodified, our
+  changes under `VARBOR`), our code in `vrclient/src/` (MIT; `vrclient/LICENSE`). `scripts/build-bridge.sh vrclient`:
+  vrclient_x64.dll (llvm-mingw, mingw headers + Wine's own headers and winecrt0 debug/unixlib from a sparse wine-11.0
+  checkout in build/vrclient/wine) and a universal vrclient_x64.so (Wine headers, `-undefined dynamic_lookup` for
+  ntdll.so), plus `tests/openvr-d3d11/ovr_d3d11_render.exe`.
+- Path: openvr_api.dll -> C:\vrclient\bin\vrclient_x64.dll (builtin) -> vrclient_x64.so -> OpenComposite's
+  vrclient.dylib (`VARBOR_VRCLIENT_RUNTIME`, `PROTON_VR_RUNTIME`, or the runtime in
+  ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath). No steam.exe registry handshake.
+- D3D11 (DXMT): each eye is copied into a ring of 3 DXMT keyed-mutex shared textures, the unix side waits for the
+  MTLSharedEvent on the CPU, OpenComposite gets the imported id<MTLTexture> as TextureType_Metal. CX 26.3's DXMT has
+  no keyed mutexes: event query wait instead. Overlays the same, a ring per handle. DXVK textures keep Proton's
+  IDXGIVkInteropSurface path, which the Metal-only OpenComposite can't take (needs `-DOC_MACOS_VULKAN=ON` and
+  winevulkan handle unwrapping checked against CrossOver).
+- `scripts/setup-vrclient-prefix.sh` (Proton's setup_openvr_paths; drops VR_OVERRIDE), `scripts/run-vrclient.sh`
+  (staged outside ~/Documents, monado-service null compositor, `FEX=1` on a runner clone).
+- Verified: 30 s, 601 frames at 20 fps (the null compositor's rate), 0 submit errors, both eyes in the frame dump, on
+  CX 26.3 Rosetta (query sync), CX 27 Rosetta and CX 27 FEX (keyed mutex). Bridge per eye submit at 1832x1920,
+  median/p99: 0.75/1.0 ms (26.3), 0.80/1.2 ms (27 Rosetta), 0.76/1.16 ms (27 FEX); almost all of it is the CPU wait
+  for DXMT's GPU work (copy + the frame's rendering), the OpenComposite Submit is ~0.07 ms. Alyx's interfaces
+  resolve, its actions.json loads (`ovr_d3d11_test.exe 200 C:\hlvr\cfg\actions.json`), a D3D11 overlay is accepted.
+- Left before Alyx on this path:
+  - A patched DXMT with native interop would drop the copy: `dxmt_native_interop()` in vrclient/src/dxmt_pe.c is the
+    hook (probes a placeholder IID).
+  - The x86_64 OpenXR client for WiVRn (Rosetta) and its arm64 one (FEX) next to OpenComposite, and VarboR.app
+    adopting setup-vrclient-prefix.sh (runner install of vrclient_x64.dll/.so, macOS openvrpaths.vrpath).
+  - Not checked: 32-bit vrclient.dll, Vulkan/D3D12 games, SetSkyboxOverride, IVRApplications launch helpers,
+    RegisterSubprocess (stubbed: no ProcessWineUnixPid in CrossOver), overlay content (the null compositor's dump
+    only shows the projection layer), the headset.
+- GPU sync (step 3b): OpenComposite patch 0011 exports `oc_metal_submit_sync_begin/end` (thread-local, taken by the next
+  `CopyToSwapchain`: `encodeWaitForEvent` before its blit, `encodeSignalEvent` after). Keyed mutex mode: the copy
+  waits for DXMT's V and signals V + 1, the bridge releases key 0 at V + 1, so the game's next AcquireSync on the slot
+  waits for OpenComposite's read (the ring fence). No CPU wait left on CX 27. Query mode (CX 26.3): the query wait
+  stays; the blit signals a per-slot event that the slot's next copy waits for. No export, or
+  `VRCLIENT_DXMT_GPU_SYNC=0`: the old CPU wait. Per-eye bridge cost median/p99 (ms, 1832x1920, 30 s, before -> after):
+  27 Rosetta 1.14/2.5 -> 0.47/1.1, 27 FEX 1.10/2.3 -> 0.41/0.8; with `ovr_d3d11_render.exe 30 stress64` (~4 ms GPU per
+  eye) 4.3/6.2 -> 0.48/1.1 and 4.3/5.7 -> 0.42/0.8; 26.3 unchanged (1.0/2.4 plain, 4.3/6.0 stress).
+- Alyx on the bridge (2026-10-30, step 4, FEX, CX 27): `scripts/alyx-vrclient.sh on|service|off` (prefix + runner + macOS
+  vrpath + `launchctl setenv XR_RUNTIME_JSON`, all backed up and restored; launch options untouched). Reaches the main
+  menu in VR, 2 × 4 min stable at 20 fps (null compositor), 0 service errors, frame dumps show the menu in both eyes.
+  Bridge per eye at 906x339: total median 0.30 ms, p99 1.6-5 ms (copy and OpenComposite Submit spikes).
+  Fixed: vrclient_x64.dll's CodeView path pointed into ~/Documents, so Alyx's crash handler hit a TCC prompt and hung
+  (now `/pdbaltpath:%_PDB%`); SetSkyboxOverride with DXMT textures (OpenComposite aborted on the D3D11 texture).
+  Open: IVRInputInternal_002 has no Proton wrapper (Alyx gets NULL, the old path gets OpenComposite's); the 26283546
+  Steam update had replaced only rendersystemdx11/renderingpipelines on top of the 25487405 rollback (VR_001 vtable
+  mismatch: GetOutputDevice landed in an IVRInput wrapper, crash on every path); those two are back at 25487405,
+  the 26283546 copies are kept outside the game dir. Not checked: Rosetta (needs a Steam restart), headset, real size.
+- IVRInputInternal_002 (step 5): hand-written wrapper (`vrclient/src/inputinternal_pe.c` + `inputinternal_unix.cpp`,
+  unix call `varbor_input_internal`, registered under `VARBOR` in vrclient_generated.c). Not generatable: the interface
+  isn't in any OpenVR SDK header. OpenComposite's definition (`OpenVRHeaders/custom_interfaces/IVRInputInternal_002.h`)
+  is 20 placeholder `void UknFuncNNN()` methods that all abort, so the wrapper has 20 slots, each forwarding to the
+  same native slot with the first three integer arguments, and logs the first call of each to VRCLIENT_LOG. Verified:
+  `ovr_d3d11_render.exe` (now also asks for it) gets a wrapper on CX 27 FEX and CX 26.3 Rosetta; Alyx (FEX, monado-service)
+  gets it (`IVRInputInternal_002 -> ... (native ...)`), reaches the main menu, and never calls a method of it.
+
+## VarboR DXMT: zero-copy eye textures (2026-10-30, vrclient-native step 5)
+- Version: CX 27.0.0.41073's runner README says "CrossOver Preview 20261015", matching
+  ~/Downloads/crossover-sources-20261015.tar. Its `sources/dxmt/src` is identical to upstream 3Shain/dxmt `fb45156`
+  (`v0.80-247-gfb45156`, 2026-09-30); only `.gitmodules` (CodeWeavers mirrors), two CI LLVM flags and
+  build-arm64ec.txt's `-marm64x` differ. `third_party/dxmt` is pinned there. The FEX runner's x86_64 games load the
+  ARM64EC DLLs (`lib/dxmt/aarch64-windows`, checked by mapped image size) and `aarch64-unix/winemetal.so`.
+- `patches/dxmt/0001`: `IDXMTInteropSurface` (QI on a 2D texture: id<MTLTexture>, MTLDevice, format, size, usage) and
+  `IDXMTInteropDevice` (QI on the device: `FlushRenderingCommands` -> DXMT's queue MTLSharedEvent + the value its
+  committed work reaches, `SignalEvent`/`WaitEvent` on any id<MTLSharedEvent> in the immediate context's stream,
+  `Lock/ReleaseSubmissionQueue` = the device mutex). C mirror: `vrclient/src/dxmt_interop.h`.
+- Bridge (`dxmt_native_interop()`): lock, flush, OpenComposite's copy waits for DXMT's value and signals the bridge's
+  own event (`varbor_dxmt_direct_begin`), Submit with the game's own texture, and if the copy took the sync DXMT's next
+  work waits for that signal (`varbor_dxmt_direct_end` + `WaitEvent`), unlock. Copy path stays for stock DXMT (QI
+  fails), `VRCLIENT_DXMT_DIRECT=0`, no `oc_metal_submit_sync`, MSAA, other slices, non-shader-readable/non-DEFAULT.
+- Build/deploy: `scripts/build-dxmt.sh` (llvm-mingw, LLVM 15 and a Wine with ARM64EC import libs: from local.env, else
+  fetched/built like DXMT's CI; ntdll.so/winemac.so from the runner). `scripts/make-varbor-dxmt-runner.sh create`
+  clones the FEX runner (APFS) to `runners/crossover-27.0.0.41073-fex-varbordxmt` and replaces lib/dxmt's
+  d3d11/dxgi/d3d10core/winemetal(.dll, aarch64-unix .so); `remove` deletes it (only if it has `.varbor-dxmt`).
+  nvapi64/nvngx, i386/x86_64 DLLs and x86_64-unix stay stock.
+- Steam: `make-varbor-dxmt-runner.sh compat-tool` writes `compatibilitytools.d/notproton-fex-varbordxmt-41073` (NotProton's
+  `run` + toolmanifest unmodified, build `27.0.0.41073-fex-varbordxmt`, flavor fex) and clones
+  `notproton/bridge/wine/27.0.0.41073-fex` to the new build name (its `run` checks for it); NotProton then builds a
+  template for the new build on first launch. Not installed yet: Steam has to restart to list it.
+  `compat-tool-remove` / `remove` undo it.
+- Measured (`run-vrclient.sh 30 ovr_d3d11_render.exe 30 plain|stress64 1832x1920`, FEX, 2 runs x 2 windows of 500
+  eye submits, bridge total per eye median/p99 in ms): stock 0.41/0.76-1.19, VarboR 0.27/0.53-1.13; stress64 stock
+  0.43-0.44/1.00-1.27, VarboR 0.28-0.29/0.92-1.17. The bridge-side copy drops from ~0.12 ms to ~0.01 ms (the flush);
+  what's left is OpenComposite's Submit (~0.26 ms) and its spikes. All runs 600-601 frames, 0 submit/wait errors,
+  0 service errors, the one known OpenComposite soft abort (string property 1001); frame dumps show both eyes with
+  the bar on the same row. The VarboR runner with `VRCLIENT_DXMT_DIRECT=0` matches stock (0.41-0.42/1.1-1.2); msaa
+  falls back to the copy as intended. Stock runner: same numbers as step 3b's medians, files untouched (14 Oct).
+- Open: Alyx and the headset not run on it; Rosetta/x86_64 build not done (`build-dxmt.sh x86_64` written, untested);
+  the per-eye DXMT `WaitEvent` stalls DXMT's queue for OpenComposite's copy (~GPU copy time, like Proton's shared
+  VkQueue) - not measured on GPU; a never-executed OpenComposite copy after `taken` would hang DXMT's queue (same risk
+  as the keyed mutex path); the null compositor's "layer commits" count varies 5k-15k between runs on both runners
+  (pacing, not frames); DXMT's AGENTS.md forbids AI-generated contributions, so the patch is VarboR-local, not for
+  upstream as is.
+
+## DXVK on the vrclient bridge, the Mac way (2026-10-30, vrclient-native step 6)
+- MoltenVK: CX 26.3 (lib64, x86_64) and CX 27 (lib/x86_64 Rosetta, lib/aarch64 FEX) all export `vkExportMetalObjectsEXT`
+  and list VK_EXT_metal_objects, timeline/external semaphores. DXVK is `cxaddon-1.10.3-1-25` (needs timelineSemaphore).
+  CX 27 FEX has no ARM64EC DXVK: `CX_GRAPHICS_BACKEND=dxvk` logs "using dxvk" but loads wined3d's d3d11 (a native x86_64
+  DXVK d3d11.dll next to the exe was ignored too), so DXVK = Rosetta runners only.
+- Bridge (`vrclient/src/vk_pe.c`, `vk_unix.mm`): Proton's DXVK sequence (IDXGIVkInteropSurface, transition to
+  TRANSFER_SRC, flush, LockSubmissionQueue ... Release, transition back); the unix side calls CrossOver's MoltenVK
+  directly (found among the loaded images, CX_ROOT first; host handles via vulkan_driver.h's client->unix_handle) and
+  exports the VkImage's MTLTexture. Sync: two exported timeline semaphores, `ready` (signalled on DXVK's queue) and
+  `done` (signalled by OpenComposite's copy via oc_metal_submit_sync); if the copy took it, DXVK's queue waits for
+  `done` before later work. Copy fallback (ring of 3 per target, vkCmdCopyImage/Resolve on DXVK's queue, slot reuse
+  waits on the GPU for its `done`): overlays/skybox, MSAA, other slices, no shader read, no GPU sync,
+  `VRCLIENT_VK_DIRECT=0`. TextureType_Vulkan eye submits take the same path (untested: no Vulkan test app).
+- DXVK asked the runtime for Vulkan extensions and OpenComposite aborted: setup-vrclient-prefix.sh now writes
+  HKCU\Software\Wine\VR (state 1, instance list `VK_KHR_surface`) like Proton's steam.exe. DXVK still logs
+  "could not query value" for the missing PCIID device list (harmless).
+- Measured (1832x1920, 30 s, 2 windows of 500, bridge total per eye median/p99 ms): CX 27 Rosetta direct 0.26-0.27/
+  0.57-0.59, stress64 0.24-0.26/0.55-0.70, copy (VRCLIENT_VK_DIRECT=0) 0.27-0.28/0.53-0.71, msaa (resolve) 0.27/
+  0.58-0.65; CX 26.3 direct 0.27/0.56-0.57, stress64 0.25/0.61-0.72. All 599-601 frames, 0 submit/service errors,
+  both eyes in the dumps. DXMT unchanged (CX 27 FEX): stock 0.20/0.55-0.59 (stress 0.20/0.41-0.67), VarboR DXMT
+  0.13/0.32-0.34 (stress 0.13/0.40-0.43).
+- Open: native Vulkan games also need GetVulkan{Instance,Device}ExtensionsRequired answered by the bridge
+  (OpenComposite aborts) and Vulkan overlays converted; the GPU-side ordering relies on MoltenVK encoding timeline
+  waits as MTLEvent waits that hold the queue (as DXMT's WaitEvent does); the DXVK queue stalls for OpenComposite's
+  copy per eye (not measured on GPU); Alyx on DXVK not run (needs the Rosetta runner, `CX_GRAPHICS_BACKEND=dxvk`
+  instead of dxmt in its launch options and the prefix's Software\Wine\VR key from setup-vrclient-prefix.sh).
+
+## ARM64EC DXVK for CX 27 FEX (2026-10-30)
+- Why FEX had no DXVK: cxcompatdb.so adds `<CX_ROOT>/lib/dxvk` as a builtin DLL dir for `CX_GRAPHICS_BACKEND=dxvk`, and
+  Wine looks in its `<arch>-windows` subdir for the process's native arch: an ARM64EC process searches
+  `aarch64-windows`, which the stock runner lacks, so Wine's own d3d11 (wined3d) loads. CrossOver's DXVK ships
+  d3d9/d3d10/d3d10_1/d3d10core/d3d11 only (d3d11 runs on Wine's dxgi), as Wine builtins.
+- Source: crossover-sources-20261015.tar `sources/dxvk` = upstream v1.10.3 + 36 changed files (shipped DLLs say
+  `cxaddon-1.10.3-1-25-g737aacd`). third_party/dxvk pins upstream v1.10.3; patches/dxvk/0001 is CrossOver's diff,
+  0002 the ARM64EC fixes (no SSE/x87/bsf asm, arm64ec import libs for vulkan-1/d3dcompiler_43, MinGW 15 header dups).
+  `scripts/build-dxvk.sh` (llvm-mingw arm64ec, meson) -> build/dxvk/install/lib/dxvk/aarch64-windows, `winebuild
+  --builtin`-marked; logs `DXVK: v1.10.3+`.
+- `scripts/make-varbor-dxvk-runner.sh create|remove|status`: APFS clone `runners/crossover-27.0.0.41073-fex-varbordxvk`
+  with lib/dxvk/aarch64-windows added (`.varbor-dxvk` marker). No compat tool yet.
+- Verified (run-vrclient.sh, FEX, BACKEND=dxvk): vmmap shows d3d11.dll mapped from lib/dxvk/aarch64-windows (COFF-ARM64EC),
+  Wine's dxgi + wined3d alongside; bridge takes the DXVK direct path. Same session, 1832x1920, 30 s, bridge total per
+  eye median/p99 ms, test-process CPU: FEX DXVK plain 0.35-0.37/0.73-0.94 (5.0 %), stress64 0.32/0.59-0.62 (5.1 %; 576
+  frames, one 86 ms hitch); FEX stock DXMT (copy) plain 0.39-0.40/0.70-1.5 (5.1 %), stress64 0.39/0.91-1.05 (5.2 %);
+  Rosetta CX 27 DXVK plain 0.39-0.41/0.86-0.92 (6.1 %), stress64 0.40/0.74-1.01 (7.0 %). All other runs 600-601 frames,
+  0 submit/service errors, both eyes in the dumps. The test app is too light to show CPU differences; Alyx would.
+- Open: Alyx on it (compat tool for the clone, `CX_GRAPHICS_BACKEND=dxvk`, Software\Wine\VR key); dxvk.conf/state
+  cache paths; x86_64/i386 DXVK in the clone stay stock.
+
+## One VarboR runner: DXMT + ARM64EC DXVK (2026-10-30)
+- `scripts/make-varbor-runner.sh create|remove|status|compat-tool|compat-tool-remove|remove-old` replaces
+  make-varbor-dxmt-runner.sh and make-varbor-dxvk-runner.sh (both deleted; the step 5/ARM64EC notes above name them).
+  APFS clone `runners/crossover-27.0.0.41073-fex-varbor` (`.varbor` marker with versions/patch/file hashes): lib/dxmt's
+  ARM64EC/aarch64-unix files from build/dxmt/install, lib/dxvk/aarch64-windows from build/dxvk/install, stock
+  x86_64/i386 DXVK and everything else as the base. CX_GRAPHICS_BACKEND picks the engine (dxmt default, as stock).
+- `compat-tool`: `compatibilitytools.d/notproton-fex-varbor-41073` (NotProton's FEX `run` + toolmanifest unmodified,
+  build `27.0.0.41073-fex-varbor`, flavor fex, display name = the FEX tool's + " - VarboR", `.varbor` marker) and the
+  bridge/wine/27.0.0.41073-fex-varbor clone; prints NotProton's registry line. The registry itself is not touched.
+- `remove-old`: deletes the earlier -varbordxmt/-varbordxvk clones, notproton-fex-varbordxmt-41073 and its bridge data
+  (marker-checked). Run it only after the registry no longer names varbordxmt.
+- Verified (run-vrclient.sh 15, FEX, RUNNER=27.0.0.41073-fex-varbor, TEMPLATE_RUNNER=27.0.0.41073-fex): dxmt "DXMT
+  interop: the runtime reads the game's own MTLTexture"; dxvk logs `DXVK: v1.10.3+` (ours) and "DXVK eye: direct".
+  Both 301 frames, 0 submit/service errors, only the known OpenComposite soft abort (+ DXVK's PCIID query on dxvk).
+- Open: Alyx on it once the registry names the new tool.
+
+## Morning A/B: VarboR path vs vrclient path, real WiVRn server (prepared 2026-10-30)
+A = VarboR's path (VarboR.app's payload and its own wivrn-server: Windows OpenComposite -> wineopenxr). B = the vrclient
+path (vrclient_x64 -> native OpenComposite, Metal -> this tree's WiVRn client with Monado 0017 -> `build/wivrn` server,
+started with VarboR.app's pacer env). Both servers come from the same WiVRn/Monado patches; 0017 only adds client code.
+A's server uses VarboR's bundled MoltenVK, B's Homebrew's (scripts/env-macos.sh). B logs bridge stats every 500 submits
+(VRCLIENT_STATS=1, cheap); A runs without wineopenxr stats. OpenComposite defaults on both (A's ini only has
+`initUsingVulkan=false`). Checked tonight: `build/wivrn` server + both clients build (ipc-stamps equal), the server
+starts and publishes `_wivrn._tcp` (accepts apps only once a headset connects; stopped again); `on wivrn` / `off`
+round trip; `off` (and `check`) verifies VarboR's deployed payload and runner files against its own manifest/records.
+
+One-time setup (worktree root):
+```sh
+caffeinate -dimsu &                       # whole session
+pgrep -l screensharingd                   # must print nothing: no Screen Sharing (it shares the HW encoder/GPU)
+tail -3 ~/Library/Application\ Support/Steam/logs/content_log.txt   # no download running
+mkdir -p build/ab
+clang -O2 -o build/ab/gpufreq tools/mql-ab/gpufreq.c -framework CoreFoundation -lIOReport
+clang -O2 -fobjc-arc -o build/ab/gpustress tools/mql-ab/gpustress.m -framework Metal -framework Foundation
+clang -O1 -o build/ab/xr_refresh tools/mql-ab/xr_refresh.c -Ithird_party/openxr-sdk/include -Ibuild/openxr-sdk/include \
+  -I/usr/local/include -Lbuild/openxr-sdk/src/loader -lopenxr_loader -L/usr/local/lib -lvulkan \
+  -Wl,-rpath,$PWD/build/openxr-sdk/src/loader -Wl,-rpath,/usr/local/lib
+printf '{"file_format_version":"1.0.0","runtime":{"name":"Monado","library_path":"%s"}}\n' \
+  "$HOME/Library/Application Support/varbor/current/server/libopenxr_wivrn.dylib" > build/ab/openxr_varbor.json
+launchctl setenv MTL_HUD_LOG_ENABLED 1    # Metal HUD fps in the log (launch options already have MTL_HUD_ENABLED=1)
+```
+
+B, vrclient path (FEX first; Alyx's runner as `scripts/alyx-runner.sh` left it):
+```sh
+# VarboR.app must not run (own server, rescans prefixes)
+scripts/alyx-vrclient.sh on wivrn
+scripts/alyx-vrclient.sh wivrn            # terminal 2, foreground; PIN printed if the headset isn't paired
+adb shell am start -a android.intent.action.VIEW -d "wivrn://<mac address>:9757" -n org.meumeu.wivrn/.MainActivity
+XR_RUNTIME_JSON=$PWD/build/wivrn/openxr_wivrn-dev.json build/ab/xr_refresh 72
+tools/mql-ab/vrab.sh b72-1                # loads s6/steamvr_quit, fidelity 3, kick, 30-s window, prints abstats
+tools/mql-ab/vrab.sh b72-2
+python3 tools/vconsole.py quit            # quit Alyx; then Ctrl-C the server in terminal 2
+scripts/alyx-vrclient.sh off              # restores the prefix, runner, vrpath, launchd env; checks VarboR's payload
+```
+First look in the headset before measuring: both eyes, menu and balcony correct (B has never run on the headset).
+
+A, VarboR path (restore is `off` above, nothing else):
+```sh
+open -a VarboR                             # starts its wivrn-server; reconnect the headset (same adb command)
+XR_RUNTIME_JSON=$PWD/build/ab/openxr_varbor.json build/ab/xr_refresh 72
+AB_WIVRN_LOG=~/Library/Logs/VarboR/wivrn-server.log tools/mql-ab/vrab.sh a72-1
+AB_WIVRN_LOG=~/Library/Logs/VarboR/wivrn-server.log tools/mql-ab/vrab.sh a72-2
+python3 tools/vconsole.py quit; osascript -e 'quit app "VarboR"'
+```
+
+Rosetta check afterwards (one window each): `scripts/alyx-runner.sh rosetta` (restarts Steam), then B as above with
+labels `b72-rosetta` and A with `a72-rosetta`, then `scripts/alyx-runner.sh fex`.
+
+End: `launchctl unsetenv MTL_HUD_LOG_ENABLED`, `scripts/alyx-vrclient.sh check`, quit caffeinate, headset back to
+90 Hz (`build/ab/xr_refresh 90` against the running server) if wanted. Compare with docs/ab-alyx.md's B72 rows
+(72.0 fps, lowest second 70-71, HUD GPU 8.45-8.5 ms). If the `.hud` files are empty, the launcher didn't get
+MTL_HUD_LOG_ENABLED from launchd: restart Steam once and rerun.

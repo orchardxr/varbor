@@ -2,31 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleIdentifier</key>
-	<string>org.macvr.MacVR</string>
-	<key>CFBundleName</key>
-	<string>MacVR</string>
 	<key>CFBundleDisplayName</key>
-	<string>MacVR</string>
+	<string>VarboR</string>
+	<key>CFBundleExecutable</key>
+	<string>VarboR</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
-	<key>CFBundleExecutable</key>
-	<string>MacVR</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.orchardxr.varbor</string>
+	<key>CFBundleName</key>
+	<string>VarboR</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.0.5</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
-	<string>5</string>
+	<string>6</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.2</string>
-	<key>NSAudioCaptureUsageDescription</key>
-	<string>MacVR sends the game's sound to your headset.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>MacVR finds your headset and streams to it over the local network.</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_wivrn._tcp</string>
-	</array>
 </dict>
 </plist>

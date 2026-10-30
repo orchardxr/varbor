@@ -1,15 +1,3 @@
-[submodule "third_party/wivrn"]
-	path = third_party/wivrn
-	url = https://github.com/WiVRn/WiVRn.git
-	ignore = dirty
-[submodule "third_party/monado"]
-	path = third_party/monado
-	url = https://gitlab.freedesktop.org/monado/monado.git
-	ignore = dirty
-[submodule "third_party/opencomposite"]
-	path = third_party/opencomposite
-	url = https://gitlab.com/znixian/OpenOVR.git
-	ignore = dirty
 [submodule "third_party/openxr-sdk"]
 	path = third_party/openxr-sdk
 	url = https://github.com/KhronosGroup/OpenXR-SDK-Source.git

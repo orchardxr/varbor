@@ -86,7 +86,7 @@ On Apple, `xrt_graphics_buffer_handle_t` becomes `mach_port_t`: a send right mad
 
 ### D2 — Handle transport = Mach side channel next to the unix socket
 SCM_RIGHTS can't carry Mach ports.
-- The server checks in a per-user bootstrap service `org.macvr.monado.<uid>` via
+- The server checks in a per-user bootstrap service (the WiVRn runtime's Mach bootstrap name, see wivrn-macos) via
   `bootstrap_register`, as DXMT does.
 - On connect, the client sends a Mach message carrying its own receive right, plus a
   nonce it also sent over the unix socket, which pairs the two channels.
@@ -160,7 +160,7 @@ Behind `#ifdef __APPLE__` or CMake options; not reimplemented unless needed.
     bytes per row), imports it, and keeps the `IOSurfaceRef` for `IOSurfaceCreateMachPort`.
   - Only formats with a CoreVideo FourCC are offered.
 - **D2:**
-  - Bootstrap name = `org.macvr.monado.<uid>.<socket basename>.<fnv1a32(realpath)>`. The service takes the path
+  - Bootstrap name: the WiVRn runtime's Mach bootstrap name, see wivrn-macos. The service takes the path
     with `getsockname()`, so WiVRn's own `wivrn/comp_ipc` socket gets its own service.
   - The nonce goes on the socket as a 16-byte preamble before the first IPC call, so the socket protocol differs
     from Linux on macOS. A Wine/x86_64 bridge must link the same client code.

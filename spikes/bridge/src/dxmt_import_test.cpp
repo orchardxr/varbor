@@ -68,7 +68,7 @@ static bool load() {
 }
 
 static void make_name(char (&out)[54], const char *kind) {
-  snprintf(out, sizeof(out), "macvr_bridge_%s_%08lx_%08lx", kind, GetCurrentProcessId(), GetTickCount());
+  snprintf(out, sizeof(out), "varbor_bridge_%s_%08lx_%08lx", kind, GetCurrentProcessId(), GetTickCount());
 }
 
 // The bridge-side wrapping: a KMT global share handle whose private runtime data names our Mach port.

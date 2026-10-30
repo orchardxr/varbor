@@ -47,9 +47,9 @@ NTSTATUS xrprobe_init(void *a)
     if (!mvk) FAIL("no MoltenVK loaded");
     setenv("XRT_VK_GIPA_LIBRARY", mvk, 1);
     setenv("OXR_DEBUG_FORCE_TIMELINE_SEMAPHORES", "1", 1);
-    const char *rt = getenv("MACVR_OPENXR_RUNTIME");
+    const char *rt = getenv("VARBOR_OPENXR_RUNTIME");
     void *lib = rt ? dlopen(rt, RTLD_NOW | RTLD_LOCAL) : NULL;
-    if (!lib) FAIL("dlopen runtime %s: %s", rt ? rt : "(MACVR_OPENXR_RUNTIME unset)", dlerror());
+    if (!lib) FAIL("dlopen runtime %s: %s", rt ? rt : "(VARBOR_OPENXR_RUNTIME unset)", dlerror());
     PFN_xrNegotiateLoaderRuntimeInterface negotiate = (PFN_xrNegotiateLoaderRuntimeInterface)dlsym(lib, "xrNegotiateLoaderRuntimeInterface");
     XrNegotiateLoaderInfo li = {XR_LOADER_INTERFACE_STRUCT_LOADER_INFO, XR_LOADER_INFO_STRUCT_VERSION, sizeof(li),
                                 1, XR_CURRENT_LOADER_RUNTIME_VERSION, XR_MAKE_VERSION(1, 0, 0), XR_MAKE_VERSION(1, 1, 0x3ff)};

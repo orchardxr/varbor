@@ -1,8 +1,8 @@
-# Half-Life: Alyx A/B: SteamVR reference stack vs macvr (2026-10-24)
+# Half-Life: Alyx A/B: SteamVR reference stack vs varbor (2026-10-24)
 
 Stack A ("reference", a separate private prototype): Windows Steam + SteamVR in a CrossOver bottle (Rosetta),
 patched DXMT, vrlink → Steam Link VR on the Quest 3S.
-Stack B ("macvr"): native Steam + NotProton (stock DXMT, msync) → OpenComposite → wineopenxr bridge → WiVRn server
+Stack B ("varbor"): native Steam + NotProton (stock DXMT, msync) → OpenComposite → wineopenxr bridge → WiVRn server
 (build/wivrn-next, VideoToolbox zero-copy) → WiVRn client 26.9.
 
 ## Method
@@ -27,7 +27,7 @@ Stack B ("macvr"): native Steam + NotProton (stock DXMT, msync) → OpenComposit
 | Bitrate | vrlink adaptive | WiVRn client default (adaptive off), 2 streams |
 
 ## Results (30 s each)
-| Metric | A reference | B macvr |
+| Metric | A reference | B varbor |
 |---|---|---|
 | Game fps (HUD counter) mean / min 1-s | **69.6** / 63.8 | **66.5** / 61.0 |
 | HUD snapshot: fps, GPU, frame interval | 71.9, **8.45 ms**, 13.9 ms | 66.1, **13.95 ms**, 15.1 ms |
@@ -119,7 +119,7 @@ is bistable and drifts between runs and Steam/Alyx restarts. A 5-s `gpustress` k
 - Bridge: the DXMT copy is deferred to `xrEndFrame` and limited to the layers' imageRect. It is now 2087x2186 instead
   of 5904x3092, and the bridge's GPU time drops from 29 to ~5 ms/s. `WINEOPENXR_DXMT_DEFER=0` restores the old
   behaviour.
-- Bridge: `C:\macvr\wineopenxr.env` (WINEOPENXR_* lines). NotProton's launcher forwards only CX_/DXMT_/MTL_/... env,
+- Bridge: `C:\varbor\wineopenxr.env` (WINEOPENXR_* lines). NotProton's launcher forwards only CX_/DXMT_/MTL_/... env,
   so WINEOPENXR_* never reached the game. Also new: `WINEOPENXR_LOG=<file>`, because the bridge's stderr is dropped.
 
 Together these save ~0.8 ms GPU/frame, but fps doesn't move because the game isn't GPU-bound at either clock state.
@@ -129,10 +129,10 @@ state, which we don't control. Open items: the `xrWaitFrame` pacing spikes (next
 whether A's GPU also sits at low clocks (A's P-states were not measured).
 
 Changed and restored: WiVRn 90 → 72 → 90 Hz; `opencomposite.ini` (ini with test toggles, original restored);
-`C:\macvr\wineopenxr.env`/`.log` (removed); `vr_msaa` 2 → 4, `vr_fidelity_level_auto` 0 → 1; launch option WINEMSYNC
+`C:\varbor\wineopenxr.env`/`.log` (removed); `vr_msaa` 2 → 4, `vr_fidelity_level_auto` 0 → 1; launch option WINEMSYNC
 1 → 0 → 1 (`localconfig.vdf` restored byte-identical from `build/ab/localconfig.vdf.orig`, `notproton-msync` restored);
 launchctl MTL_HUD_LOG_ENABLED / WINEOPENXR_* unset and Steam restarted. Kept: the new `wineopenxr.dll` (system32 and
-C:\macvr), `wineopenxr.so` and `vrclient_x64.dll` in the Alyx prefix. The previous files are in `build/ab/installed-orig/`.
+C:\varbor), `wineopenxr.so` and `vrclient_x64.dll` in the Alyx prefix. The previous files are in `build/ab/installed-orig/`.
 
 ## Bridge render-thread cost and async xrEndFrame (2026-10-25)
 Same save/spot/settings (72 Hz via `xr_refresh 72`, fidelity 3 pinned, MSAA 4x, `supersampleRatio=0.949`), bridge
@@ -180,9 +180,9 @@ crop or shift; the two are identical.
 
 Changed and restored: WiVRn 90 → 72 → 90 Hz (and one server restart with the pacer variable, then the standard
 command again); `opencomposite.ini` (+`supersampleRatio=0.949`, original restored, `cmp` equal to
-`build/ab/opencomposite.ini.orig`); `C:\macvr\wineopenxr.env`/`.log` removed; `vr_fidelity_level_auto` 0 → 1;
+`build/ab/opencomposite.ini.orig`); `C:\varbor\wineopenxr.env`/`.log` removed; `vr_fidelity_level_auto` 0 → 1;
 launchctl `MTL_HUD_LOG_ENABLED` set, then unset, Steam restarted both times. Installed: the new `wineopenxr.dll`
-(system32, C:\macvr) and `wineopenxr.so` (async off by default, stats available); the previous files are in
+(system32, C:\varbor) and `wineopenxr.so` (async off by default, stats available); the previous files are in
 `build/ab/installed-pre-async/`.
 
 ## Frame pacing (2026-10-25)
@@ -230,7 +230,7 @@ Headset image: `build/ab/pacing-quest.png` (balcony, both eyes complete).
 
 Changed and restored: WiVRn 90 → 72 → 90 Hz, several server restarts (diag server `build/wivrn-diag`, old binary for
 the 90 Hz baseline), now the standard command with the new `build/wivrn-next`; `opencomposite.ini` (+`supersampleRatio`,
-`cmp` equal to `build/ab/opencomposite.ini.orig`); `C:\macvr\wineopenxr.env`/`.log` removed (log kept as
+`cmp` equal to `build/ab/opencomposite.ini.orig`); `C:\varbor\wineopenxr.env`/`.log` removed (log kept as
 `build/ab/pacing-wineopenxr.log`); `vr_fidelity_level_auto` 0 → 1. Previous server binary and client dylib:
 `build/backup/wivrn-next-pre-pacing/`.
 

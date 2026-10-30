@@ -26,3 +26,7 @@
 	path = third_party/dxmt
 	url = https://github.com/3Shain/dxmt.git
 	ignore = dirty
+[submodule "third_party/dxvk"]
+	path = third_party/dxvk
+	url = https://github.com/doitsujin/dxvk.git
+	ignore = dirty

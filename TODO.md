@@ -887,6 +887,27 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   copy per eye (not measured on GPU); Alyx on DXVK not run (needs the Rosetta runner, `CX_GRAPHICS_BACKEND=dxvk`
   instead of dxmt in its launch options and the prefix's Software\Wine\VR key from setup-vrclient-prefix.sh).
 
+## ARM64EC DXVK for CX 27 FEX (2026-10-30)
+- Why FEX had no DXVK: cxcompatdb.so adds `<CX_ROOT>/lib/dxvk` as a builtin DLL dir for `CX_GRAPHICS_BACKEND=dxvk`, and
+  Wine looks in its `<arch>-windows` subdir for the process's native arch: an ARM64EC process searches
+  `aarch64-windows`, which the stock runner lacks, so Wine's own d3d11 (wined3d) loads. CrossOver's DXVK ships
+  d3d9/d3d10/d3d10_1/d3d10core/d3d11 only (d3d11 runs on Wine's dxgi), as Wine builtins.
+- Source: crossover-sources-20261015.tar `sources/dxvk` = upstream v1.10.3 + 36 changed files (shipped DLLs say
+  `cxaddon-1.10.3-1-25-g737aacd`). third_party/dxvk pins upstream v1.10.3; patches/dxvk/0001 is CrossOver's diff,
+  0002 the ARM64EC fixes (no SSE/x87/bsf asm, arm64ec import libs for vulkan-1/d3dcompiler_43, MinGW 15 header dups).
+  `scripts/build-dxvk.sh` (llvm-mingw arm64ec, meson) -> build/dxvk/install/lib/dxvk/aarch64-windows, `winebuild
+  --builtin`-marked; logs `DXVK: v1.10.3+`.
+- `scripts/make-macvr-dxvk-runner.sh create|remove|status`: APFS clone `runners/crossover-27.0.0.41073-fex-macvrdxvk`
+  with lib/dxvk/aarch64-windows added (`.macvr-dxvk` marker). No compat tool yet.
+- Verified (run-vrclient.sh, FEX, BACKEND=dxvk): vmmap shows d3d11.dll mapped from lib/dxvk/aarch64-windows (COFF-ARM64EC),
+  Wine's dxgi + wined3d alongside; bridge takes the DXVK direct path. Same session, 1832x1920, 30 s, bridge total per
+  eye median/p99 ms, test-process CPU: FEX DXVK plain 0.35-0.37/0.73-0.94 (5.0 %), stress64 0.32/0.59-0.62 (5.1 %; 576
+  frames, one 86 ms hitch); FEX stock DXMT (copy) plain 0.39-0.40/0.70-1.5 (5.1 %), stress64 0.39/0.91-1.05 (5.2 %);
+  Rosetta CX 27 DXVK plain 0.39-0.41/0.86-0.92 (6.1 %), stress64 0.40/0.74-1.01 (7.0 %). All other runs 600-601 frames,
+  0 submit/service errors, both eyes in the dumps. The test app is too light to show CPU differences; Alyx would.
+- Open: Alyx on it (compat tool for the clone, `CX_GRAPHICS_BACKEND=dxvk`, Software\Wine\VR key); dxvk.conf/state
+  cache paths; x86_64/i386 DXVK in the clone stay stock.
+
 ## Morning A/B: MacVR path vs vrclient path, real WiVRn server (prepared 2026-10-30)
 A = MacVR's path (MacVR.app's payload and its own wivrn-server: Windows OpenComposite -> wineopenxr). B = the vrclient
 path (vrclient_x64 -> native OpenComposite, Metal -> this tree's WiVRn client with Monado 0017 -> `build/wivrn` server,

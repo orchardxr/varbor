@@ -74,6 +74,8 @@ compat_tool() {
 	cp "$from/run" "$from/toolmanifest.vdf" "$dir/$tool_name/"
 	printf '%s\n' "$build" > "$dir/$tool_name/build"
 	printf 'fex\n' > "$dir/$tool_name/flavor"
+	# NotProton deletes compatibilitytools.d/notproton-* dirs it doesn't know unless they hold a file it didn't write
+	printf 'macvr-dxmt compat tool\n' > "$dir/$tool_name/.macvr-dxmt"
 	cat > "$dir/$tool_name/compatibilitytool.vdf" <<-EOF
 	"compatibilitytools"
 	{
@@ -98,7 +100,7 @@ compat_tool() {
 
 compat_tool_remove() {
 	local dir="${1:-$steam_tools}"
-	if [[ -f "$dir/$tool_name/build" && "$(cat "$dir/$tool_name/build")" == "$build" ]]; then
+	if [[ -f "$dir/$tool_name/.macvr-dxmt" || ( -f "$dir/$tool_name/build" && "$(cat "$dir/$tool_name/build")" == "$build" ) ]]; then
 		rm -rf "$dir/$tool_name"
 		echo "removed $dir/$tool_name"
 	fi

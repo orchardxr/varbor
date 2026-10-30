@@ -14,6 +14,8 @@
 # /usr/local/share/openxr, and Wine keeps the registry environment out of the unix one, so XR_RUNTIME_JSON (a
 # universal x86_64 + arm64 client, for Rosetta and FEX runners) is set with `launchctl setenv` for apps launched from
 # then on, NotProton's included.
+# RUNNER_BUILD=<build> runner for `on` when the game is mapped to another compat tool than the one that last ran the
+# prefix (default: the prefix's notproton-build).
 # OUT=<dir> staging, logs and frame dumps (default $DARWIN_USER_TEMP_DIR/macvr-alyx-vrclient).
 # DUMP_FRAME=N committed frame the null compositor dumps to $OUT/frame.png (default 2400).
 set -euo pipefail
@@ -84,7 +86,7 @@ on)
 	[[ ! -e "$BK/saved" ]] || { echo "already on, or an interrupted on (backup in $BK); run off first" >&2; exit 1; }
 	pgrep -qf 'MacVR.app' && { echo "MacVR.app is running; it may rewrite the prefix" >&2; exit 1; }
 	prefix_idle
-	runner="$NP_RUNNERS/crossover-$(sed -n 1p "$CD/notproton-build")/CrossOver"
+	runner="$NP_RUNNERS/crossover-${RUNNER_BUILD:-$(sed -n 1p "$CD/notproton-build")}/CrossOver"
 	[[ -d "$runner/lib/wine/x86_64-windows" ]] || { echo "no runner $runner" >&2; exit 1; }
 	arch=x86_64
 	[[ "$(sed -n 2p "$CD/notproton-build")" == *FEX ]] && arch=aarch64

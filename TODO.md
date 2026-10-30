@@ -1,5 +1,9 @@
 # macvr TODO
 
+> Running log from the MacVR days, kept as written. The project is now VarboR (the Wine bridges only); the WiVRn
+> server, encoder and Monado work moved to orchardxr/wivrn-macos, OpenComposite to orchardxr/opencomposite-macos,
+> DXMT/DXVK to orchardxr/varbor-engines. Paths and scripts named below may live there now.
+
 Plan: [docs/porting-plan.md](docs/porting-plan.md)
 
 ## Status

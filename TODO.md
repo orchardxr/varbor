@@ -722,3 +722,23 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   but D3D11 service-commit → GPU-done is already 0.5 ms at 320×240, so measure DXVK's queue depth at Alyx's load.
 - A real game prefix install (copy placeholder + json + registry key, `CX_GRAPHICS_BACKEND=dxvk %command%`)
   (step 7). The FEX flavor (step 6): done 2026-10-28.
+
+## XR_KHR_metal_enable notes (2026-10-30, vrclient-native step 1)
+- Monado patch 0017-khr-metal-enable: `XRT_HAVE_METAL` (default ON on Apple), a Metal client compositor
+  (`compositor/client/comp_metal_client.m`: each native swapchain IOSurface wrapped with
+  `newTextureWithDescriptor:iosurface:plane:`, commit signals the IPC timeline semaphore's MTLSharedEvent on the app's
+  queue, CPU wait if the service has no shared semaphore), and the oxr side (`xrGetMetalGraphicsRequirementsKHR` returns
+  the system default MTLDevice, `XrGraphicsBindingMetalKHR` queue must be on it, `XrSwapchainImageMetalKHR`). Formats
+  are MTLPixelFormat values mapped from the native VkFormats: RGBA8/BGRA8 (+sRGB), RGB10A2, RGBA16Unorm/Float. No
+  depth, MSAA, arrays or mips (IOSurface limits from 0007/0011/0012). Spec version 3, as in openxr-sdk 1.1.65. No WiVRn
+  change needed: the WiVRn server and the x86_64/arm64 clients build with it.
+- Test app `tests/metal-xr/xr_metal.m` (built by `scripts/build-wivrn.sh` as `build/tests/xr_metal [s]`): native arm64,
+  side-by-side stereo swapchain, per-eye colour cycle + moving bar, one projection layer per frame.
+- Verified against the standalone monado-service (null compositor, simulated HMD): 604 frames in 30 s (20 fps = the
+  null compositor's rate), 0 errors, server commit->client GPU done (MTLSharedEvent) median 0.8 ms; the frame dump shows
+  both eyes' content. `MONADO_MACOS_SYNC=cpu` falls back to the CPU wait, also 0 errors. hello_xr Vulkan unchanged.
+- Not verified in the headset yet: the Quest sat on `com.oculus.os.vrlockscreen/.SensorLockActivity` after wake
+  ("Launch is blocked because: a Reprojected OS dialog is currently showing"), so the WiVRn client never started, and the
+  WiVRn server has no IPC service (Mach bootstrap name) without a connected headset. Retry with the headset unlocked:
+  `adb reverse tcp:9757 tcp:9757` then `am start -a android.intent.action.VIEW -d wivrn+tcp://127.0.0.1:9757 -n
+  org.meumeu.wivrn/.MainActivity`, then `XR_RUNTIME_JSON=build/wivrn/openxr_wivrn-dev.json build/tests/xr_metal 30`.

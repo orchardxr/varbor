@@ -101,6 +101,11 @@ clang -O1 -Wall -o "$ROOT/build/tests/xr_empty_frames" "$ROOT/tests/wivrn/xr_emp
 	-I"$ROOT/third_party/openxr-sdk/include" -I"$ROOT/build/openxr-sdk/include" -I/usr/local/include \
 	-L"$ROOT/build/openxr-sdk/src/loader" -lopenxr_loader -L/usr/local/lib -lvulkan \
 	-Wl,-rpath,"$ROOT/build/openxr-sdk/src/loader" -Wl,-rpath,/usr/local/lib
+# Native Metal OpenXR app (tests/metal-xr/xr_metal.m, XR_KHR_metal_enable)
+clang -fobjc-arc -O1 -Wall -o "$ROOT/build/tests/xr_metal" "$ROOT/tests/metal-xr/xr_metal.m" \
+	-I"$ROOT/third_party/openxr-sdk/include" -I"$ROOT/build/openxr-sdk/include" \
+	-L"$ROOT/build/openxr-sdk/src/loader" -lopenxr_loader \
+	-Wl,-rpath,"$ROOT/build/openxr-sdk/src/loader" -framework Metal -framework Foundation
 # Test tone for the CoreAudio backend (tests/wivrn/audio_tone.mm)
 clang++ -std=c++20 -fobjc-arc -O1 -o "$ROOT/build/tests/audio_tone" "$ROOT/tests/wivrn/audio_tone.mm" \
 	-framework AudioToolbox -framework CoreAudio -framework Foundation

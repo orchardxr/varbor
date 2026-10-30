@@ -10,7 +10,7 @@
 #                      copied there first.
 #   RUNNER=<build>     NotProton runner (default 26.3.0.39832: Rosetta; 27.0.0.41073-fex with FEX=1)
 #   TEMPLATE_RUNNER=<build>  NotProton template to copy the prefix from (default: RUNNER's; a runner clone such as
-#                      27.0.0.41073-fex-macvrdxmt (make-macvr-dxmt-runner.sh) has none: use its base build)
+#                      27.0.0.41073-fex-macvr (make-macvr-runner.sh) has none: use its base build)
 #   FEX=1              arm64 Wine with FEX: a clone of the runner gets vrclient_x64.dll/.so (setup-vrclient-prefix.sh
 #                      --runner) and the arm64 OpenXR client; the PE side stays x86_64
 #   BACKEND=dxmt       CX_GRAPHICS_BACKEND
@@ -19,7 +19,7 @@
 #   VRCLIENT_DXMT_SYNC=query   force the event-query sync (DXMT without keyed mutexes)
 #   VRCLIENT_DXMT_DIRECT=0     MacVR DXMT runner: copy the eye textures instead of handing over DXMT's own
 #   VRCLIENT_DXMT_GPU_SYNC=0   CPU wait before OpenComposite's copy instead of its GPU wait (oc_metal_submit_sync)
-#   VRCLIENT_VK_DIRECT=0       BACKEND=dxvk (Rosetta runners, or FEX with RUNNER=27.0.0.41073-fex-macvrdxvk from make-macvr-dxvk-runner.sh; stock CX 27 FEX falls back to wined3d): copy
+#   VRCLIENT_VK_DIRECT=0       BACKEND=dxvk (Rosetta runners, or FEX with RUNNER=27.0.0.41073-fex-macvr from make-macvr-runner.sh; stock CX 27 FEX falls back to wined3d): copy
 #                              the eye images instead of handing over DXVK's own MTLTexture
 # The service gets its own XDG_RUNTIME_DIR ($OUT/rt). Never touches the runners, NotProton's template or game prefixes.
 set -euo pipefail

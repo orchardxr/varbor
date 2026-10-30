@@ -908,6 +908,22 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
 - Open: Alyx on it (compat tool for the clone, `CX_GRAPHICS_BACKEND=dxvk`, Software\Wine\VR key); dxvk.conf/state
   cache paths; x86_64/i386 DXVK in the clone stay stock.
 
+## One MacVR runner: DXMT + ARM64EC DXVK (2026-10-30)
+- `scripts/make-macvr-runner.sh create|remove|status|compat-tool|compat-tool-remove|remove-old` replaces
+  make-macvr-dxmt-runner.sh and make-macvr-dxvk-runner.sh (both deleted; the step 5/ARM64EC notes above name them).
+  APFS clone `runners/crossover-27.0.0.41073-fex-macvr` (`.macvr` marker with versions/patch/file hashes): lib/dxmt's
+  ARM64EC/aarch64-unix files from build/dxmt/install, lib/dxvk/aarch64-windows from build/dxvk/install, stock
+  x86_64/i386 DXVK and everything else as the base. CX_GRAPHICS_BACKEND picks the engine (dxmt default, as stock).
+- `compat-tool`: `compatibilitytools.d/notproton-fex-macvr-41073` (NotProton's FEX `run` + toolmanifest unmodified,
+  build `27.0.0.41073-fex-macvr`, flavor fex, display name = the FEX tool's + " - MacVR", `.macvr` marker) and the
+  bridge/wine/27.0.0.41073-fex-macvr clone; prints NotProton's registry line. The registry itself is not touched.
+- `remove-old`: deletes the earlier -macvrdxmt/-macvrdxvk clones, notproton-fex-macvrdxmt-41073 and its bridge data
+  (marker-checked). Run it only after the registry no longer names macvrdxmt.
+- Verified (run-vrclient.sh 15, FEX, RUNNER=27.0.0.41073-fex-macvr, TEMPLATE_RUNNER=27.0.0.41073-fex): dxmt "DXMT
+  interop: the runtime reads the game's own MTLTexture"; dxvk logs `DXVK: v1.10.3+` (ours) and "DXVK eye: direct".
+  Both 301 frames, 0 submit/service errors, only the known OpenComposite soft abort (+ DXVK's PCIID query on dxvk).
+- Open: Alyx on it once the registry names the new tool.
+
 ## Morning A/B: MacVR path vs vrclient path, real WiVRn server (prepared 2026-10-30)
 A = MacVR's path (MacVR.app's payload and its own wivrn-server: Windows OpenComposite -> wineopenxr). B = the vrclient
 path (vrclient_x64 -> native OpenComposite, Metal -> this tree's WiVRn client with Monado 0017 -> `build/wivrn` server,

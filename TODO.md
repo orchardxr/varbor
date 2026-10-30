@@ -742,3 +742,27 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   WiVRn server has no IPC service (Mach bootstrap name) without a connected headset. Retry with the headset unlocked:
   `adb reverse tcp:9757 tcp:9757` then `am start -a android.intent.action.VIEW -d wivrn+tcp://127.0.0.1:9757 -n
   org.meumeu.wivrn/.MainActivity`, then `XR_RUNTIME_JSON=build/wivrn/openxr_wivrn-dev.json build/tests/xr_metal 30`.
+
+## Native macOS OpenComposite + Metal compositor (2026-10-30, vrclient-native step 2)
+- `scripts/build-opencomposite.sh --macos` (after `patches.sh apply opencomposite` and `git submodule update --init
+  --recursive third_party/opencomposite`): universal `build/oc-macos/vrclient.dylib` + universal
+  `libopenxr_loader.dylib` (openxr-sdk 1.1.65, `@loader_path`), copied into `build/oc-macos/runtime/bin/osx64`.
+  Links only system frameworks (no Vulkan loader; `-DOC_MACOS_VULKAN=ON` brings Vulkan textures back). The Windows
+  DLL build is unchanged.
+- Patches: 0009-macos-native-build (CMake APPLE branch, Mach-O resources, `_NSGetExecutablePath`, settings under
+  `~/Library/Application Support/OpenVR`, MoltenVK portability in TemporaryVk), 0010-metal-compositor
+  (`MetalCompositor` for `TextureType_Metal`, `TemporaryMetal` pre-submit session, `XR_KHR_metal_enable` binding =
+  one MTLCommandQueue per device shared by session and compositors, `GetOutputDevice` returns the runtime's MTLDevice).
+  Copies are blits (sRGB/linear twins through a `MUTABLE_FORMAT` view, `copyBoundsOnly` sub-rect, array slice = eye);
+  a render pass handles shader bounds, MSAA resolve and formats the runtime lacks. Cubemaps not done.
+- Test: `tests/openvr-metal/ovr_metal.mm` (dlopen + `VRClientCoreFactory`, scene app, WaitGetPoses/Submit) via
+  `scripts/run-ovr-metal.sh [secs] [separate|sbs|array|msaa]` against monado-service (null compositor). Each mode:
+  ~595 frames in 30 s (19.8 fps, the null compositor's rate), 0 errors with `MTL_DEBUG_LAYER=1`, frame dumps show
+  both eyes.
+- Open for the Wine vrclient bridge:
+  - OpenComposite copies on its own queue, not the game's (`Texture_t` has no queue). Fine for the native test
+    (committed before Submit, tracked textures), but DXMT must have committed the eye's command buffer before the
+    bridge calls Submit, and untracked DXMT resources need an explicit MTLSharedEvent wait.
+  - The x86_64 slice loads under Rosetta; it needs an x86_64 OpenXR client with 0017 (`build.sh x86_64` / the WiVRn
+    x86_64 client). Keep `libopenxr_loader.dylib` next to `vrclient.dylib`.
+  - OpenComposite logs to stdout and reads `opencomposite.ini` from the working directory on macOS.

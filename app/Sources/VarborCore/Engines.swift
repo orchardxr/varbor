@@ -157,6 +157,43 @@ public enum Engines {
         ctx.runners.appendingPathComponent("crossover-\(r.cloneBuild)")
     }
 
+    /// The runner a runners/ entry belongs to: itself, or for a VarboR clone the stock runner it was built from
+    /// (the marker's `base`, else the name without `-varbor`).
+    public static func stockName(_ ctx: Context, _ name: String) -> String {
+        let dir = ctx.runners.appendingPathComponent(name)
+        guard isClone(dir, name) else { return name }
+        if let base = readMarker(dir)["base"] { return "crossover-\(base)" }
+        return name.hasSuffix(suffix) ? String(name.dropLast(suffix.count)) : name
+    }
+
+    /// A stock runner with its bridge files, and its VarboR runner: engine state and the clone's bridge files.
+    public struct RunnerGroup: Equatable, Identifiable {
+        public var id: String { name }
+        public var name: String
+        public var bridge: [RunnerInstall.FileState]
+        public var varbor: RunnerState?
+        public var varborBridge: [RunnerInstall.FileState]
+    }
+
+    /// Bridge and engine states per stock runner; a clone never makes a group of its own.
+    public static func groups(_ ctx: Context, files: [RunnerInstall.FileState], states: [RunnerState]) -> [RunnerGroup] {
+        var out: [RunnerGroup] = []
+        func index(_ name: String) -> Int {
+            if let i = out.firstIndex(where: { $0.name == name }) { return i }
+            out.append(RunnerGroup(name: name, bridge: [], varbor: nil, varborBridge: []))
+            return out.count - 1
+        }
+        var stockOf: [String: String] = [:]
+        for f in files {
+            let stock = stockOf[f.runner] ?? stockName(ctx, f.runner)
+            stockOf[f.runner] = stock
+            let i = index(stock)
+            if stock == f.runner { out[i].bridge.append(f) } else { out[i].varborBridge.append(f) }
+        }
+        for st in states { out[index(st.runner.name)].varbor = st }
+        return out.sorted { $0.name < $1.name }
+    }
+
     // MARK: metadata
 
     /// varbor-engines' metadata.json (schema 1); only the fields VarboR uses.
@@ -275,7 +312,9 @@ public enum Engines {
             case .failure(let e): states[i].available = .none("\(e)")
             }
         }
-        return states
+        // re-read: an install may have finished while the network was asked
+        let available = Dictionary(states.map { ($0.runner.name, $0.available) }, uniquingKeysWith: { a, _ in a })
+        return status(ctx).map { var s = $0; s.available = available[s.runner.name] ?? nil; return s }
     }
 
     // MARK: install

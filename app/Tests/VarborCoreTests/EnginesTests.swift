@@ -101,6 +101,53 @@ final class EnginesTests: XCTestCase {
         XCTAssertEqual(Engines.toolID("notproton-26.3"), "notproton-26.3-varbor")
     }
 
+    func testGroupsPutClonesUnderTheirStockRunner() throws {
+        try fm.removeItem(at: ctx.runners.appendingPathComponent("crossover-27.0.0.41073-fex-copy"))
+        let cx26 = ctx.runners.appendingPathComponent("crossover-26.3.0.39832/CrossOver")
+        try write("\0v0.72-25-gf35d839\0", cx26.appendingPathComponent("lib/dxmt/x86_64-windows/d3d11.dll"))
+        try write("ntdll", cx26.appendingPathComponent("lib/wine/x86_64-windows/ntdll.dll"))
+        let clone26 = ctx.runners.appendingPathComponent("crossover-26.3.0.39832-varbor")
+        try write("ntdll", clone26.appendingPathComponent("CrossOver/lib/wine/x86_64-windows/ntdll.dll"))
+        try write("x", clone26.appendingPathComponent("CrossOver/lib/dxmt/x"))
+        try write("tag cx-26.3.0.39832\nrevision 1\nbase 26.3.0.39832\ndxmt v0.72-varbor.1\n", clone26.appendingPathComponent(".varbor"))
+        let cloneFex = ctx.runners.appendingPathComponent("crossover-27.0.0.41073-fex-varbor")
+        try write("ntdll", cloneFex.appendingPathComponent("CrossOver/lib/wine/x86_64-windows/ntdll.dll"))
+        try write("x", cloneFex.appendingPathComponent("CrossOver/lib/dxmt/x"))
+        try write("tag cx-27.0.0.41073\nrevision 2\nbase 27.0.0.41073-fex\ndxmt v0.80-247-gfb451568-varbor.2\n",
+                  cloneFex.appendingPathComponent(".varbor"))
+
+        XCTAssertEqual(Engines.stockRunners(ctx).map(\.name), ["crossover-26.3.0.39832", "crossover-27.0.0.41073-fex"])
+        XCTAssertEqual(Engines.stockName(ctx, "crossover-26.3.0.39832-varbor"), "crossover-26.3.0.39832")
+        XCTAssertEqual(Engines.stockName(ctx, "crossover-27.0.0.41073-fex-varbor"), "crossover-27.0.0.41073-fex")
+        XCTAssertEqual(Engines.stockName(ctx, "crossover-27.0.0.41073-fex"), "crossover-27.0.0.41073-fex")
+        // without a marker the suffix decides
+        XCTAssertEqual(Engines.stockName(ctx, "crossover-28.0.0.1-fex-varbor"), "crossover-28.0.0.1-fex")
+        XCTAssertEqual(Engines.stockName(ctx, "crossover-28.0.0.1-varbor"), "crossover-28.0.0.1")
+
+        let files = RunnerInstall.fileStates(ctx)
+        XCTAssertEqual(Set(files.map(\.runner)).count, 4)
+        let g = Engines.groups(ctx, files: files, states: Engines.status(ctx))
+        XCTAssertEqual(g.map(\.name), ["crossover-26.3.0.39832", "crossover-27.0.0.41073-fex"])
+        for (group, clone) in zip(g, [clone26, cloneFex]) {
+            XCTAssertGreaterThanOrEqual(group.bridge.count, RunnerInstall.files.count, group.name)
+            XCTAssertEqual(Set(group.bridge.map(\.runner)), [group.name])
+            XCTAssertEqual(Set(group.varborBridge.map(\.runner)), [clone.lastPathComponent])
+            XCTAssertEqual(group.varborBridge.count, group.bridge.count)
+            XCTAssertEqual(group.varbor?.runner.name, group.name)
+            XCTAssertEqual(group.varbor?.installed, true)
+        }
+        XCTAssertEqual(g[0].varbor?.installedDXMT, "v0.72-varbor.1")
+        XCTAssertEqual(g[1].varbor?.installedTag, "cx-27.0.0.41073")
+        XCTAssertEqual(g[1].varbor?.installedRevision, 2)
+
+        // a stock runner without DXMT still gets its row, with no engine state
+        try write("ntdll", ctx.runners.appendingPathComponent("crossover-25.0/CrossOver/lib/wine/x86_64-windows/ntdll.dll"))
+        let g2 = Engines.groups(ctx, files: RunnerInstall.fileStates(ctx), states: Engines.status(ctx))
+        XCTAssertEqual(g2.map(\.name), ["crossover-25.0", "crossover-26.3.0.39832", "crossover-27.0.0.41073-fex"])
+        XCTAssertNil(g2[0].varbor)
+        XCTAssertTrue(g2[0].varborBridge.isEmpty)
+    }
+
     func testCheck() async throws {
         var st = await Engines.check(ctx, source: source)
         guard case .none(let why)? = st[0].available else { return XCTFail("\(st)") }

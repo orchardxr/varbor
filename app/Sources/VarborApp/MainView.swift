@@ -202,12 +202,17 @@ struct StatusPage: View {
                 Text("Separate apps VarboR works with. Each installs and updates itself; VarboR only checks them.")
             }
             Section {
-                if runners.isEmpty { Text("No NotProton runners found.") }
-                ForEach(runners, id: \.self) { r in
-                    let files = model.runnerFiles.filter { $0.runner == r }
-                    let ok = files.filter { $0.state == "ok" }.count
-                    Row(title: r, subtitle: ["Bridge: \(ok) of \(files.count) files"], dot: ok == files.count ? .green : .orange)
-                    if let st = model.engines.first(where: { $0.runner.name == r }) { EngineRow(model: model, st: st) }
+                let groups = Engines.groups(model.ctx, files: model.runnerFiles, states: model.engines)
+                if groups.isEmpty { Text("No NotProton runners found.") }
+                ForEach(groups) { g in
+                    Row(title: g.name, subtitle: g.bridge.isEmpty ? ["Not found"] : [bridgeText(g.bridge)],
+                        dot: !g.bridge.isEmpty && bridgeOK(g.bridge) ? .green : .orange)
+                    if let st = g.varbor {
+                        EngineRow(model: model, st: st, bridge: g.varborBridge).padding(.leading, 18)
+                    } else if !g.varborBridge.isEmpty {
+                        Row(title: "VarboR runner", subtitle: [bridgeText(g.varborBridge)],
+                            dot: bridgeOK(g.varborBridge) ? .secondary : .orange).padding(.leading, 18)
+                    }
                 }
             } header: {
                 Text("Runners")
@@ -232,28 +237,39 @@ struct StatusPage: View {
         }
     }
 
-    var runners: [String] {
-        var out: [String] = []
-        for f in model.runnerFiles where !out.contains(f.runner) { out.append(f.runner) }
-        return out
-    }
+}
+
+func bridgeOK(_ files: [RunnerInstall.FileState]) -> Bool { files.allSatisfy { $0.state == "ok" } }
+
+func bridgeText(_ files: [RunnerInstall.FileState]) -> String {
+    "Bridge: \(files.filter { $0.state == "ok" }.count) of \(files.count) files"
 }
 
 struct EngineRow: View {
     @ObservedObject var model: AppModel
     let st: Engines.RunnerState
+    let bridge: [RunnerInstall.FileState]
 
     var subtitle: [String] {
-        var out = [st.installed ? "Installed (\(st.installedTag!))" : "Not installed"]
+        var out: [String] = []
+        if st.installed {
+            out.append("\(Engines.cloneDir(model.ctx, st.runner).lastPathComponent): \(st.installedTag!) revision "
+                + "\(st.installedRevision ?? 0), DXMT \(st.installedDXMT ?? "?")")
+        } else {
+            out.append("Not installed")
+        }
         if !st.tools.isEmpty { out.append("Steam tools: \(st.tools.joined(separator: ", "))") }
         if !st.unregistered.isEmpty { out.append("Not in NotProton's tool list yet") }
+        if st.installed { out.append(bridgeText(bridge)) }
+        if case .available? = st.available, st.installed, !st.updateAvailable { out.append("Up to date") }
         if case .none(let why)? = st.available { out.append(why) }
         return out
     }
 
     var body: some View {
+        let healthy = st.installed && !st.updateAvailable && st.unregistered.isEmpty && bridgeOK(bridge)
         Row(title: "VarboR runner", subtitle: subtitle,
-            dot: st.installed && !st.updateAvailable && st.unregistered.isEmpty ? .green : st.updateAvailable ? .blue : .secondary) {
+            dot: healthy ? .green : st.updateAvailable ? .blue : st.installed ? .orange : .secondary) {
             if st.updateAvailable {
                 Button(st.installed ? "Update Engines" : "Install Engines") { model.installEngines(st.runner) }
                     .disabled(model.working != nil || model.gameRunning)

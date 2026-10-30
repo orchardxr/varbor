@@ -181,6 +181,43 @@ extern "C" NTSTATUS macvr_dxmt_idle( void *args )
     return 0;
 }
 
+static struct
+{
+    id<MTLDevice> device;
+    id<MTLSharedEvent> event;
+    uint64_t value;
+} direct;
+
+extern "C" NTSTATUS macvr_dxmt_direct_begin( void *args )
+{
+    struct macvr_dxmt_direct_params *p = (struct macvr_dxmt_direct_params *)args;
+    id<MTLDevice> device = (id<MTLDevice>)(uintptr_t)p->device;
+
+    p->gpu = 0;
+    p->signal_event = p->signal_value = 0;
+    if (!gpu_sync() || !p->event || !device) return 0;
+    if (direct.device != device)
+    {
+        [direct.event release];
+        direct.device = device;
+        direct.event = [device newSharedEvent];
+        direct.value = 0;
+    }
+    if (!direct.event) return 0;
+    p->signal_event = (uint64_t)(uintptr_t)direct.event;
+    p->signal_value = ++direct.value;
+    oc_sync_begin( (void *)(uintptr_t)p->event, p->value, (void *)direct.event, p->signal_value );
+    p->gpu = 1;
+    return 0;
+}
+
+extern "C" NTSTATUS macvr_dxmt_direct_end( void *args )
+{
+    struct macvr_dxmt_direct_params *p = (struct macvr_dxmt_direct_params *)args;
+    p->taken = oc_sync_end && oc_sync_end();
+    return 0;
+}
+
 extern "C" NTSTATUS macvr_dxmt_destroy( void *args )
 {
     struct macvr_dxmt_destroy_params *p = (struct macvr_dxmt_destroy_params *)args;

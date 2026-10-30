@@ -1,4 +1,5 @@
-/* D3D11 submits through stock DXMT (CX_GRAPHICS_BACKEND=dxmt), in place of Proton's IDXGIVkInteropSurface path.
+/* D3D11 submits through DXMT (CX_GRAPHICS_BACKEND=dxmt), in place of Proton's IDXGIVkInteropSurface path. MacVR
+ * DXMT's IDXMTInteropSurface hands the game's own texture over (dxmt_native_interop below); stock DXMT gets a copy:
  *
  * Stock DXMT turns SHARED(_KEYEDMUTEX) textures into MTLSharedTextures whose Mach port it registers in the bootstrap
  * namespace, under a name kept in the D3DKMT resource's private runtime data; the keyed mutex's MTLSharedEvent is
@@ -21,6 +22,7 @@
 
 #include "vrclient_private.h"
 #include "dxmt_kmt.h"
+#include "dxmt_interop.h"
 #include "macvr_pe.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
@@ -284,18 +286,93 @@ fail:
     return FALSE;
 }
 
-/* What the future patched DXMT could offer instead of the copy: the texture's own id<MTLTexture> and a
- * MTLSharedEvent value that its rendering signals. Not used yet: logs once when a device has it. */
-static const GUID IID_IMacVRDXMTInterop = {0x8e3d6a47, 0x2c1b, 0x4f0e, {0x9a, 0x51, 0x6d, 0x0b, 0x7c, 0x3e, 0x21, 0xa9}};
+/* MacVR DXMT (patches/dxmt): the runtime gets the eye texture's own id<MTLTexture>, like Proton's DXVK path hands
+ * over the VkImage. DXMT commits the game's work and names the MTLSharedEvent value it reaches (FlushRenderingCommands);
+ * OpenComposite's copy waits for it on the GPU and signals the bridge's own event after it; once its copy took the
+ * sync, DXMT's next work waits for that signal (WaitEvent), so the game can't overwrite the texture under the copy.
+ * The submission queue lock is held from the flush until the wait is queued, as Proton holds DXVK's around Submit.
+ * Stock DXMT (no IDXMTInteropSurface), VRCLIENT_DXMT_DIRECT=0, a runtime without oc_metal_submit_sync, or a texture
+ * the runtime can't take as is (MSAA, a slice other than the eye's, not shader-readable, not D3D11_USAGE_DEFAULT):
+ * the copy below. */
+static int direct_mode = -1;
 
-static BOOL dxmt_native_interop( IUnknown *texture )
+static void log_fallback( unsigned int reason, const char *what, const DXMT_INTEROP_TEXTURE_INFO *info )
 {
+    static unsigned int logged;
+    if (logged & (1u << reason)) return;
+    logged |= 1u << reason;
+    macvr_log( "DXMT interop: copying %ux%u textures (%s: %u samples, %u slices, type %u, usage %#x)", info->Width,
+               info->Height, what, info->SampleCount, info->ArraySize, info->TextureType, info->Usage );
+}
+
+static BOOL dxmt_native_interop( ID3D11Texture2D *src, uint32_t eye, uint32_t slice, struct macvr_submit *state )
+{
+    struct macvr_dxmt_direct_params p = {0};
+    DXMT_INTEROP_TEXTURE_INFO info = {0};
+    IDXMTInteropSurface *surface;
+    IDXMTInteropDevice *device = NULL;
     static BOOL logged;
-    IUnknown *interop;
-    if (FAILED(IUnknown_QueryInterface( texture, &IID_IMacVRDXMTInterop, (void **)&interop ))) return FALSE;
-    IUnknown_Release( interop );
-    if (!logged) macvr_log( "DXMT offers native Metal interop; not implemented yet, copying" );
-    logged = TRUE;
+    HRESULT hr;
+
+    if (!direct_mode) return FALSE;
+    if (direct_mode < 0)
+    {
+        const char *env = getenv( "VRCLIENT_DXMT_DIRECT" );
+        if (env && !atoi( env ))
+        {
+            direct_mode = 0;
+            macvr_log( "DXMT interop off (VRCLIENT_DXMT_DIRECT=0): copying eye textures" );
+            return FALSE;
+        }
+    }
+    if (FAILED(ID3D11Texture2D_QueryInterface( src, &IID_IDXMTInteropSurface, (void **)&surface )))
+    {
+        if (direct_mode < 0) macvr_log( "DXMT without IDXMTInteropSurface (stock DXMT): copying eye textures" );
+        direct_mode = 0;
+        return FALSE;
+    }
+    direct_mode = 1;
+    hr = surface->lpVtbl->GetMetalTextureInfo( surface, &info );
+    if (SUCCEEDED(hr)) hr = surface->lpVtbl->GetDevice( surface, &device );
+    surface->lpVtbl->Release( surface );
+    if (FAILED(hr))
+    {
+        log_fallback( 0, "no Metal texture", &info );
+        return FALSE;
+    }
+    if (slice == ~0u) slice = 0;
+    if (info.SampleCount > 1) log_fallback( 1, "multisampled", &info );
+    else if (info.D3D11Usage != D3D11_USAGE_DEFAULT) log_fallback( 2, "not D3D11_USAGE_DEFAULT", &info );
+    else if (!(info.Usage & MACVR_MTL_TEXTURE_USAGE_SHADER_READ)) log_fallback( 3, "not shader-readable", &info );
+    else if (info.TextureType == MACVR_MTL_TEXTURE_TYPE_2D_ARRAY ? slice != eye
+             : info.TextureType != MACVR_MTL_TEXTURE_TYPE_2D || slice)
+        log_fallback( 4, "slice the runtime doesn't read", &info );
+    else
+    {
+        device->lpVtbl->LockSubmissionQueue( device );
+        device->lpVtbl->FlushRenderingCommands( device, &p.event, &p.value );
+        state->t_copied = now();
+        p.device = info.Device;
+        VRCLIENT_CALL( macvr_dxmt_direct_begin, &p );
+        if (p.gpu)
+        {
+            state->interop = device;
+            state->direct_texture = info.Texture;
+            state->signal_event = p.signal_event;
+            state->signal_value = p.signal_value;
+            state->gpu = TRUE;
+            state->t_waited = now();
+            if (!logged)
+                macvr_log( "DXMT interop: the runtime reads the game's own MTLTexture (%ux%u MTLPixelFormat %u), "
+                           "synced on the GPU", info.Width, info.Height, info.PixelFormat );
+            logged = TRUE;
+            return TRUE;
+        }
+        device->lpVtbl->ReleaseSubmissionQueue( device );
+        direct_mode = 0;
+        macvr_log( "DXMT interop: the runtime has no oc_metal_submit_sync (or VRCLIENT_DXMT_GPU_SYNC=0): copying" );
+    }
+    device->lpVtbl->Release( device );
     return FALSE;
 }
 
@@ -418,7 +495,6 @@ static BOOL copy_and_wait( struct dxmt_target *t, const char *what, uint64_t id,
     UINT sub;
 
     if (dxmt.mode != SYNC_KEYED && dxmt.mode != SYNC_QUERY) return FALSE;
-    dxmt_native_interop( (IUnknown *)src );
     ID3D11Texture2D_GetDesc( src, &desc );
     if (!(slot = next_slot( t, what, id, &desc ))) return FALSE;
     if (slice == ~0u) slice = 0;
@@ -491,7 +567,8 @@ static const void *metal_texture( const w_Texture_t *in, uint32_t *flags, w_VRTe
 {
     UINT pose = *flags & Submit_TextureWithPose;
     memcpy( out, in, pose ? sizeof(w_VRTextureWithPose_t) : sizeof(w_Texture_t) );
-    out->handle = state->slot ? (void *)(UINT_PTR)state->slot->mtl_texture : NULL;
+    out->handle = state->slot ? (void *)(UINT_PTR)state->slot->mtl_texture
+                  : state->interop ? (void *)(UINT_PTR)state->direct_texture : NULL;
     out->eType = TextureType_Metal;
     *flags = (*flags & ~(Submit_TextureWithMotion | Submit_VulkanTextureWithArrayData)) | pose;
     return out;
@@ -508,10 +585,12 @@ const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t
     state->locked = TRUE;
     state->slot = NULL;
     state->gpu = FALSE;
+    state->interop = NULL;
     state->t_start = now();
     ID3D11Texture2D_GetDesc( (ID3D11Texture2D *)in->handle, &desc );
     if (slice == ~0u && desc.ArraySize > 1) slice = eye;
-    if (!copy_and_wait( &dxmt.eyes[eye & 1], "eye", eye, in->handle, slice, state ))
+    if (!dxmt_native_interop( in->handle, eye, slice, state )
+        && !copy_and_wait( &dxmt.eyes[eye & 1], "eye", eye, in->handle, slice, state ))
         state->slot = NULL;
     return metal_texture( in, flags, texture_out, state );
 }
@@ -525,6 +604,7 @@ const void *macvr_load_overlay_dxmt( uint64_t overlay, const void *texture, uint
     state->locked = TRUE;
     state->slot = NULL;
     state->gpu = FALSE;
+    state->interop = NULL;
     state->t_start = now();
     state->overlay = TRUE;
     if (!copy_and_wait( overlay_target( overlay ), "overlay", overlay, in->handle, 0, state ))
@@ -537,6 +617,17 @@ void macvr_free_texture_dxmt( struct macvr_submit *state )
     struct dxmt_slot *slot = state->slot;
     BOOL taken = FALSE;
     if (!state->locked) return;
+    if (state->interop)
+    {
+        IDXMTInteropDevice *device = state->interop;
+        struct macvr_dxmt_direct_params e = {0};
+        VRCLIENT_CALL( macvr_dxmt_direct_end, &e );
+        if (e.taken) device->lpVtbl->WaitEvent( device, state->signal_event, state->signal_value );
+        device->lpVtbl->ReleaseSubmissionQueue( device );
+        device->lpVtbl->Release( device );
+        if (!state->overlay) stats_add( state, now() );
+        state->interop = NULL;
+    }
     if (slot && state->gpu)
     {
         struct macvr_dxmt_end_params e = {slot->image};

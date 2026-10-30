@@ -10,6 +10,9 @@ struct macvr_submit
     UINT64 fence;
     LONGLONG t_start, t_copied, t_waited;
     BOOL locked, overlay, gpu;
+    /* MacVR DXMT interop: the game's own id<MTLTexture>, and the DXMT device to resume after the runtime's call */
+    struct IDXMTInteropDevice *interop;
+    UINT64 direct_texture, signal_event, signal_value;
 };
 
 void macvr_log( const char *fmt, ... ) __attribute__((format(printf, 1, 2)));
@@ -18,8 +21,10 @@ void macvr_log_runtime( BOOL loaded );
 /* TRUE when the D3D11 texture is DXMT's (not DXVK's: those keep Proton's IDXGIVkInteropSurface path). */
 BOOL macvr_dxmt_texture( IUnknown *texture );
 
-/* Copies the eye's D3D11 texture (slice array_index, else eye for arrays, else 0; MSAA resolved) into a DXMT shared
- * texture, syncs the runtime's copy with it and returns a TextureType_Metal texture for the native runtime.
+/* With MacVR DXMT (IDXMTInteropSurface on the texture) the runtime gets the game's own Metal texture, ordered by
+ * DXMT's and OpenComposite's MTLSharedEvents. Otherwise copies the eye's D3D11 texture (slice array_index, else eye
+ * for arrays, else 0; MSAA resolved) into a DXMT shared texture, syncs the runtime's copy with it and returns a
+ * TextureType_Metal texture for the native runtime.
  * texture_out is at least a w_VRTextureWithPose_t; flags loses the depth and motion bits. On failure the texture's
  * handle is NULL, which the unix side refuses with VRCompositorError_InvalidTexture. */
 const void *macvr_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,

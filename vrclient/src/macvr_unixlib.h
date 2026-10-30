@@ -47,6 +47,22 @@ struct macvr_dxmt_destroy_params
     uint64_t image;
 };
 
+/* MacVR DXMT interop (IDXMTInteropSurface): the runtime gets the game's own id<MTLTexture>. begin, before the
+ * runtime's call: arms OpenComposite's copy to wait on the GPU for event >= value (DXMT's FlushRenderingCommands) and
+ * to signal the bridge's own event for device at signal_value after it; gpu = 0 when OpenComposite lacks
+ * oc_metal_submit_sync (or VRCLIENT_DXMT_GPU_SYNC=0), nothing armed. end, after it: taken = its copy took the sync,
+ * so DXMT has to wait for signal_event >= signal_value before writing the texture again. */
+struct macvr_dxmt_direct_params
+{
+    uint64_t device;
+    uint64_t event;
+    uint64_t value;
+    uint32_t gpu;
+    int32_t taken;
+    uint64_t signal_event;
+    uint64_t signal_value;
+};
+
 /* Native runtime the unix side loaded (or would load), for the PE side's log. */
 struct macvr_runtime_info_params
 {

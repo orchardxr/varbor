@@ -88,11 +88,12 @@ final class AppModel: ObservableObject {
         a.addButton(withTitle: "Install")
         a.addButton(withTitle: "Release Notes")
         a.addButton(withTitle: "Later")
-        NSApp.activate(ignoringOtherApps: true)
-        switch a.runModal() {
-        case .alertFirstButtonReturn: installUpdate()
-        case .alertSecondButtonReturn: NSWorkspace.shared.open(r.page)
-        default: break
+        present(a) { response in
+            switch response {
+            case .alertFirstButtonReturn: self.installUpdate()
+            case .alertSecondButtonReturn: NSWorkspace.shared.open(r.page)
+            default: break
+            }
         }
     }
 
@@ -100,8 +101,38 @@ final class AppModel: ObservableObject {
         let a = NSAlert()
         a.messageText = title
         a.informativeText = text
-        NSApp.activate(ignoringOtherApps: true)
-        a.runModal()
+        present(a)
+    }
+
+    private var mainWindow: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }
+    }
+
+    /// Calls `body` with the main window once it's open and in front. From a full-screen app macOS switches to the
+    /// desktop Space, where the window is; a free-standing modal alert would stay behind on the full-screen Space.
+    private func withMainWindow(_ body: @escaping @MainActor (NSWindow) -> Void) {
+        showWindow()
+        func attempt(_ left: Int) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                MainActor.assumeIsolated {
+                    if let w = self.mainWindow, w.isVisible {
+                        body(w)
+                    } else if left > 0 {
+                        attempt(left - 1)
+                    } else {
+                        Log.shared("main window didn't open")
+                    }
+                }
+            }
+        }
+        attempt(60)
+    }
+
+    /// The one way VarboR shows an alert: a sheet on the main window.
+    func present(_ a: NSAlert, _ done: @escaping @MainActor (NSApplication.ModalResponse) -> Void = { _ in }) {
+        withMainWindow { w in
+            a.beginSheetModal(for: w) { r in MainActor.assumeIsolated { done(r) } }
+        }
     }
 
     func installUpdate() {
@@ -193,11 +224,12 @@ final class AppModel: ObservableObject {
             + "(a backup of the list is kept). Steam shows them after it restarts; pick one in a game's Compatibility settings."
         a.addButton(withTitle: "Add")
         a.addButton(withTitle: "Cancel")
-        NSApp.activate(ignoringOtherApps: true)
-        guard a.runModal() == .alertFirstButtonReturn else { return }
-        perform("Registering…") { ctx in
-            _ = try Engines.register(ctx, st.runner)
-            return nil
+        present(a) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            self.perform("Registering…") { ctx in
+                _ = try Engines.register(ctx, st.runner)
+                return nil
+            }
         }
     }
 
@@ -251,7 +283,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func choose(_ title: String, from dir: URL) -> URL? {
+    func choose(_ title: String, from dir: URL, _ done: @escaping @MainActor (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.message = title
         panel.prompt = "Add"
@@ -259,20 +291,25 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = dir
-        NSApp.activate(ignoringOtherApps: true)
-        return panel.runModal() == .OK ? panel.url : nil
+        withMainWindow { w in
+            panel.beginSheetModal(for: w) { r in
+                MainActor.assumeIsolated { if r == .OK, let u = panel.url { done(u) } }
+            }
+        }
     }
 
     func addBottle() {
-        guard let url = choose("Choose a CrossOver bottle", from: Bottles.defaultDir(ctx)) else { return }
-        if let why = Bottles.forbidden(ctx, url) { message = why; return }
-        perform("Adding \(url.lastPathComponent)…") { ctx in try Varbor.addBottle(ctx, url) }
+        choose("Choose a CrossOver bottle", from: Bottles.defaultDir(ctx)) { url in
+            if let why = Bottles.forbidden(self.ctx, url) { self.message = why; return }
+            self.perform("Adding \(url.lastPathComponent)…") { ctx in try Varbor.addBottle(ctx, url) }
+        }
     }
 
     func addLibrary() {
-        guard let url = choose("Choose a Steam library folder (the one that contains steamapps)", from: ctx.home) else { return }
-        if let why = Bottles.forbidden(ctx, url) { message = why; return }
-        perform("Adding \(url.lastPathComponent)…") { ctx in try Varbor.addLibrary(ctx, url) }
+        choose("Choose a Steam library folder (the one that contains steamapps)", from: ctx.home) { url in
+            if let why = Bottles.forbidden(self.ctx, url) { self.message = why; return }
+            self.perform("Adding \(url.lastPathComponent)…") { ctx in try Varbor.addLibrary(ctx, url) }
+        }
     }
 
     func setExcluded(_ p: Varbor.PrefixState, _ excluded: Bool) {
@@ -292,10 +329,10 @@ final class AppModel: ObservableObject {
 
     func showWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        if let openMain {
-            openMain()
+        if let w = mainWindow, w.isVisible {
+            w.makeKeyAndOrderFront(nil)
         } else {
-            NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true }?.makeKeyAndOrderFront(nil)
+            openMain?()
         }
     }
 
@@ -310,8 +347,7 @@ final class AppModel: ObservableObject {
 
             Version \(Updater.currentVersion), payload \(Deploy.currentStamp(ctx) ?? "?"). Logs: \(ctx.logDir.path)
             """
-        NSApp.activate(ignoringOtherApps: true)
-        a.runModal()
+        present(a)
     }
 
     func quit() {

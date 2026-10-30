@@ -13,9 +13,13 @@ pgrep -xq caffeinate || { echo "caffeinate is not running (caffeinate -dimsu &)"
 pgrep -xq wivrn-server || { echo "no wivrn-server running" >&2; exit 1; }
 $ROOT/scripts/alyx-save.sh || exit 1
 python3 $D/vcq.py 'vr_fidelity_level_auto 0' 'vr_fidelity_level 3' > /dev/null
-osascript -e 'tell application "System Events" to set frontmost of process "hlvr.exe" to true'
+# AB_ACTIVATE: command that brings hlvr.exe to the front and prints the frontmost app (System Events can hang
+# behind a permission prompt); it runs again right before the window, output in <label>.front
+activate() { if [[ -n ${AB_ACTIVATE:-} ]]; then $AB_ACTIVATE; else osascript -e 'tell application "System Events" to set frontmost of process "hlvr.exe" to true'; fi; }
+activate
 sleep $(( ${2:-20} - 9 ))
 $B/gpustress 5 > /dev/null 2>&1; sleep 4
+activate > $B/$L.front 2>&1
 v0=$(wc -l < $VLOG 2>/dev/null || echo 0)
 $B/gpufreq 30 > $B/$L.gpufreq &
 $D/abrecord.sh $L 30 > /dev/null 2>&1

@@ -17,6 +17,7 @@
 #   DUMP_FRAME=N       committed frame the null compositor writes to $OUT/frame-<tag>.png (default 300)
 #   TAG=<name>         log/dump name suffix (default: runner arch)
 #   VRCLIENT_DXMT_SYNC=query   force the event-query sync (DXMT without keyed mutexes)
+#   VRCLIENT_DXMT_DIRECT=0     MacVR DXMT runner: copy the eye textures instead of handing over DXMT's own
 #   VRCLIENT_DXMT_GPU_SYNC=0   CPU wait before OpenComposite's copy instead of its GPU wait (oc_metal_submit_sync)
 # The service gets its own XDG_RUNTIME_DIR ($OUT/rt). Never touches the runners, NotProton's template or game prefixes.
 set -euo pipefail

@@ -822,6 +822,44 @@ Needed for M3 (OpenComposite + Half-Life: Alyx):
   `ovr_d3d11_render.exe` (now also asks for it) gets a wrapper on CX 27 FEX and CX 26.3 Rosetta; Alyx (FEX, monado-service)
   gets it (`IVRInputInternal_002 -> ... (native ...)`), reaches the main menu, and never calls a method of it.
 
+## MacVR DXMT: zero-copy eye textures (2026-10-30, vrclient-native step 5)
+- Version: CX 27.0.0.41073's runner README says "CrossOver Preview 20261015", matching
+  ~/Downloads/crossover-sources-20261015.tar. Its `sources/dxmt/src` is identical to upstream 3Shain/dxmt `fb45156`
+  (`v0.80-247-gfb45156`, 2026-09-30); only `.gitmodules` (CodeWeavers mirrors), two CI LLVM flags and
+  build-arm64ec.txt's `-marm64x` differ. `third_party/dxmt` is pinned there. The FEX runner's x86_64 games load the
+  ARM64EC DLLs (`lib/dxmt/aarch64-windows`, checked by mapped image size) and `aarch64-unix/winemetal.so`.
+- `patches/dxmt/0001`: `IDXMTInteropSurface` (QI on a 2D texture: id<MTLTexture>, MTLDevice, format, size, usage) and
+  `IDXMTInteropDevice` (QI on the device: `FlushRenderingCommands` -> DXMT's queue MTLSharedEvent + the value its
+  committed work reaches, `SignalEvent`/`WaitEvent` on any id<MTLSharedEvent> in the immediate context's stream,
+  `Lock/ReleaseSubmissionQueue` = the device mutex). C mirror: `vrclient/src/dxmt_interop.h`.
+- Bridge (`dxmt_native_interop()`): lock, flush, OpenComposite's copy waits for DXMT's value and signals the bridge's
+  own event (`macvr_dxmt_direct_begin`), Submit with the game's own texture, and if the copy took the sync DXMT's next
+  work waits for that signal (`macvr_dxmt_direct_end` + `WaitEvent`), unlock. Copy path stays for stock DXMT (QI
+  fails), `VRCLIENT_DXMT_DIRECT=0`, no `oc_metal_submit_sync`, MSAA, other slices, non-shader-readable/non-DEFAULT.
+- Build/deploy: `scripts/build-dxmt.sh` (llvm-mingw, LLVM 15 and a Wine with ARM64EC import libs: from local.env, else
+  fetched/built like DXMT's CI; ntdll.so/winemac.so from the runner). `scripts/make-macvr-dxmt-runner.sh create`
+  clones the FEX runner (APFS) to `runners/crossover-27.0.0.41073-fex-macvrdxmt` and replaces lib/dxmt's
+  d3d11/dxgi/d3d10core/winemetal(.dll, aarch64-unix .so); `remove` deletes it (only if it has `.macvr-dxmt`).
+  nvapi64/nvngx, i386/x86_64 DLLs and x86_64-unix stay stock.
+- Steam: `make-macvr-dxmt-runner.sh compat-tool` writes `compatibilitytools.d/notproton-fex-macvrdxmt-41073` (NotProton's
+  `run` + toolmanifest unmodified, build `27.0.0.41073-fex-macvrdxmt`, flavor fex) and clones
+  `notproton/bridge/wine/27.0.0.41073-fex` to the new build name (its `run` checks for it); NotProton then builds a
+  template for the new build on first launch. Not installed yet: Steam has to restart to list it.
+  `compat-tool-remove` / `remove` undo it.
+- Measured (`run-vrclient.sh 30 ovr_d3d11_render.exe 30 plain|stress64 1832x1920`, FEX, 2 runs x 2 windows of 500
+  eye submits, bridge total per eye median/p99 in ms): stock 0.41/0.76-1.19, MacVR 0.27/0.53-1.13; stress64 stock
+  0.43-0.44/1.00-1.27, MacVR 0.28-0.29/0.92-1.17. The bridge-side copy drops from ~0.12 ms to ~0.01 ms (the flush);
+  what's left is OpenComposite's Submit (~0.26 ms) and its spikes. All runs 600-601 frames, 0 submit/wait errors,
+  0 service errors, the one known OpenComposite soft abort (string property 1001); frame dumps show both eyes with
+  the bar on the same row. The MacVR runner with `VRCLIENT_DXMT_DIRECT=0` matches stock (0.41-0.42/1.1-1.2); msaa
+  falls back to the copy as intended. Stock runner: same numbers as step 3b's medians, files untouched (14 Oct).
+- Open: Alyx and the headset not run on it; Rosetta/x86_64 build not done (`build-dxmt.sh x86_64` written, untested);
+  the per-eye DXMT `WaitEvent` stalls DXMT's queue for OpenComposite's copy (~GPU copy time, like Proton's shared
+  VkQueue) - not measured on GPU; a never-executed OpenComposite copy after `taken` would hang DXMT's queue (same risk
+  as the keyed mutex path); the null compositor's "layer commits" count varies 5k-15k between runs on both runners
+  (pacing, not frames); DXMT's AGENTS.md forbids AI-generated contributions, so the patch is MacVR-local, not for
+  upstream as is.
+
 ## Morning A/B: MacVR path vs vrclient path, real WiVRn server (prepared 2026-10-30)
 A = MacVR's path (MacVR.app's payload and its own wivrn-server: Windows OpenComposite -> wineopenxr). B = the vrclient
 path (vrclient_x64 -> native OpenComposite, Metal -> this tree's WiVRn client with Monado 0017 -> `build/wivrn` server,

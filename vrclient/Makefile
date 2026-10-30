@@ -70,7 +70,7 @@ $(OBJ)/pe/winecrt0_%.o: $(WINE_SRC)/dlls/winecrt0/%.c
 $(OUT)/x86_64-windows/vrclient_x64.dll: $(PE_OBJS) proton/vrclient_x64.spec src/vrclient_x64.def 
 	@mkdir -p $(dir $@)
 	$(PE_CC) -shared -o $@ $(PE_OBJS) src/vrclient_x64.def  -ladvapi32 -lntdll -ldxguid -luuid \
-		-Wl,--pdb=
+		-Wl,--pdb= -Wl,-Xlink=-pdbaltpath:%_PDB%
 	python3 ../bridge/tools/mark-builtin.py $@
 
 # ntdll.so's exports resolve at load time from the one Wine has loaded (no install-name dependency: under FEX the .so

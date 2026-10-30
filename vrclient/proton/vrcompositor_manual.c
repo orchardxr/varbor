@@ -483,6 +483,10 @@ struct set_skybox_override_state
     }
     images[6];
     unsigned int image_count;
+#ifdef MACVR
+    struct macvr_submit macvr;
+    w_VRTextureWithPose_t metal;
+#endif
 };
 
 static const w_Texture_t *set_skybox_override_d3d11_init( const w_Texture_t *textures, uint32_t count, struct set_skybox_override_state *state )
@@ -644,6 +648,18 @@ static const w_Texture_t *set_skybox_override_init( const w_Texture_t *textures,
         return textures;
     }
 
+#ifdef MACVR
+    /* OpenComposite shows only the first texture, as a quad: every face gets that one, in an overlay ring of its own. */
+    if (textures[0].eType == TextureType_DirectX && macvr_dxmt_texture( textures[0].handle ))
+    {
+        uint32_t flags = 0, i;
+        const w_Texture_t *metal = macvr_load_overlay_dxmt( ~(uint64_t)0, &textures[0], &flags, &state->metal,
+                                                            &state->macvr );
+        for (i = 0; i < count; i++) state->textures[i] = *metal;
+        state->texture_type = TextureType_Metal;
+        return state->textures;
+    }
+#endif
     if (textures[0].eType == TextureType_DirectX)
         return set_skybox_override_d3d11_init( textures, count, state );
     if (textures[0].eType == TextureType_DirectX12)
@@ -658,6 +674,9 @@ static void set_skybox_override_done( struct set_skybox_override_state *state )
 {
     unsigned int i;
 
+#ifdef MACVR
+    macvr_free_texture_dxmt( &state->macvr );
+#endif
     if (state->texture_type == TextureType_DirectX)
     {
         compositor_data.dxvk_device->lpVtbl->ReleaseSubmissionQueue( compositor_data.dxvk_device );

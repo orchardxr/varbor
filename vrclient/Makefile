@@ -25,8 +25,9 @@ PROTON_SRCS := $(notdir $(wildcard proton/*.c proton/*.cpp))
 PE_SRCS    := $(filter %.c,$(PROTON_SRCS))
 UNIX_SRCS  := $(filter %.cpp,$(PROTON_SRCS))
 PE_OBJS    := $(addprefix $(OBJ)/pe/,$(PE_SRCS:.c=.o)) $(OBJ)/pe/winecrt0_debug.o $(OBJ)/pe/winecrt0_unix_lib.o $(OBJ)/pe/dxmt_pe.o \
-              $(OBJ)/pe/inputinternal_pe.o
-UNIX_OBJS  := $(addprefix $(OBJ)/unix/,$(UNIX_SRCS:.cpp=.o)) $(OBJ)/unix/dxmt_unix.o $(OBJ)/unix/macos_unix.o $(OBJ)/unix/inputinternal_unix.o
+              $(OBJ)/pe/inputinternal_pe.o $(OBJ)/pe/vk_pe.o
+UNIX_OBJS  := $(addprefix $(OBJ)/unix/,$(UNIX_SRCS:.cpp=.o)) $(OBJ)/unix/dxmt_unix.o $(OBJ)/unix/macos_unix.o $(OBJ)/unix/inputinternal_unix.o \
+              $(OBJ)/unix/vk_unix.o
 HEADERS    := $(wildcard proton/*.h src/*.h src/pe/*.h)
 OVR        := $(ROOT_DIR)/third_party/openvr
 

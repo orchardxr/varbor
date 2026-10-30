@@ -451,10 +451,15 @@ static const w_Texture_t *load_compositor_texture( uint32_t eye, const w_Texture
 #ifdef MACVR
         if (macvr_dxmt_texture( texture->handle ))
             return macvr_load_texture_dxmt( eye, texture, flags, &state->texture, &state->macvr, array_index );
+        return macvr_load_texture_vk( eye, texture, flags, &state->texture, &state->macvr, array_index );
 #endif
         return load_compositor_texture_dxvk( eye, texture, flags, state, array_index );
     case TextureType_DirectX12:
         return load_compositor_texture_d3d12( eye, texture, flags, state, array_index );
+#ifdef MACVR
+    case TextureType_Vulkan:
+        return macvr_load_texture_vk( eye, texture, flags, &state->texture, &state->macvr, array_index );
+#endif
     default: return texture;
     }
 }
@@ -463,6 +468,7 @@ static void free_compositor_texture( uint32_t type, struct submit_state *state )
 {
 #ifdef MACVR
     macvr_free_texture_dxmt( &state->macvr );
+    macvr_free_texture_vk( &state->macvr );
 #endif
     if (type == TextureType_DirectX) free_compositor_texture_dxvk( state );
     else if (type == TextureType_DirectX12) free_compositor_texture_d3d12( state );
@@ -659,6 +665,15 @@ static const w_Texture_t *set_skybox_override_init( const w_Texture_t *textures,
         state->texture_type = TextureType_Metal;
         return state->textures;
     }
+    if (textures[0].eType == TextureType_DirectX)
+    {
+        uint32_t flags = 0, i;
+        const w_Texture_t *metal = macvr_load_overlay_vk( ~(uint64_t)0, &textures[0], &flags, &state->metal,
+                                                          &state->macvr );
+        for (i = 0; i < count; i++) state->textures[i] = *metal;
+        state->texture_type = TextureType_Metal;
+        return state->textures;
+    }
 #endif
     if (textures[0].eType == TextureType_DirectX)
         return set_skybox_override_d3d11_init( textures, count, state );
@@ -676,6 +691,7 @@ static void set_skybox_override_done( struct set_skybox_override_state *state )
 
 #ifdef MACVR
     macvr_free_texture_dxmt( &state->macvr );
+    macvr_free_texture_vk( &state->macvr );
 #endif
     if (state->texture_type == TextureType_DirectX)
     {

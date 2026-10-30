@@ -49,6 +49,11 @@ static void load_overlay_texture_dxvk( uint64_t overlay, const w_Texture_t *text
         state->texture = *(const w_Texture_t *)macvr_load_overlay_dxmt( overlay, texture, &flags, &state->metal, &state->macvr );
         return;
     }
+    {
+        uint32_t flags = 0;
+        state->texture = *(const w_Texture_t *)macvr_load_overlay_vk( overlay, texture, &flags, &state->metal, &state->macvr );
+        return;
+    }
 #endif
 
     if (FAILED(texture_iface->lpVtbl->QueryInterface( texture_iface, &IID_IDXGIVkInteropSurface,
@@ -76,6 +81,7 @@ static void free_unix_overlay_texture_dxvk( struct set_overlay_texture_state *st
 {
 #ifdef MACVR
     macvr_free_texture_dxmt( &state->macvr );
+    macvr_free_texture_vk( &state->macvr );
 #endif
     if (!state->dxvk_device) return;
 

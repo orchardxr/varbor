@@ -53,6 +53,15 @@ static bool gpu_sync(void)
     return oc_sync_begin != NULL;
 }
 
+/* For vk_unix.mm */
+extern "C" bool macvr_oc_sync( void (**begin)( void *, uint64_t, void *, uint64_t ), int (**end)( void ) )
+{
+    if (!gpu_sync()) return false;
+    *begin = oc_sync_begin;
+    *end = oc_sync_end;
+    return true;
+}
+
 static int event_wait( id<MTLSharedEvent> event, uint64_t value, uint32_t timeout_ms )
 {
     int result = 0;

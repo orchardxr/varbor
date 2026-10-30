@@ -63,6 +63,32 @@ struct macvr_dxmt_direct_params
     uint64_t signal_value;
 };
 
+/* Vulkan images (DXVK's through IDXGIVkInteropSurface, or a Vulkan game's) as Metal textures for the runtime
+ * (vk_unix.mm). Handles are the PE side's (winevulkan client) ones; the image is in TRANSFER_SRC_OPTIMAL with its
+ * writes submitted to queue, which nobody else submits to until macvr_vk_end. begin hands over the image's own
+ * MTLTexture (vkExportMetalObjectsEXT) or copies it into a ring slot of the target (copy = 1, or the runtime can't read
+ * the image as is), signals the bridge's ready semaphore on queue and arms OpenComposite's copy to wait for it on the
+ * GPU and to signal the done semaphore after it (no oc_metal_submit_sync: a CPU wait instead, and always the copy).
+ * target: 0/1 eye, 2 overlay (target_id its handle). */
+struct macvr_vk_begin_params
+{
+    uint64_t device, physical_device, queue, image;
+    uint32_t queue_family, format, width, height, samples, slice, target;
+    uint64_t target_id;
+    uint32_t copy;
+    uint64_t texture; /* out: id<MTLTexture>, 0 on failure */
+    uint32_t path;    /* out: 1 direct, 2 copy */
+    uint32_t gpu;     /* out: OpenComposite's copy syncs on the GPU */
+    char info[256];
+};
+
+/* After the runtime's call: disarms OpenComposite's sync. Direct path with the sync taken: queue waits for
+ * OpenComposite's copy before any later work on it, so the game can't write the image under the copy. */
+struct macvr_vk_end_params
+{
+    int32_t taken;
+};
+
 /* Native runtime the unix side loaded (or would load), for the PE side's log. */
 struct macvr_runtime_info_params
 {

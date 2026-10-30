@@ -69102,6 +69102,8 @@ enum unix_funcs
     unix_macvr_input_internal,
     unix_macvr_dxmt_direct_begin,
     unix_macvr_dxmt_direct_end,
+    unix_macvr_vk_begin,
+    unix_macvr_vk_end,
 };
 
 #ifdef __cplusplus

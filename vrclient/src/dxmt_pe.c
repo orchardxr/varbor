@@ -112,13 +112,18 @@ static LONGLONG now(void)
     return t.QuadPart;
 }
 
+LONGLONG macvr_now(void)
+{
+    return now();
+}
+
 static int cmp_float( const void *a, const void *b )
 {
     float x = *(const float *)a, y = *(const float *)b;
     return x < y ? -1 : x > y;
 }
 
-static void stats_add( const struct macvr_submit *s, LONGLONG end )
+void macvr_stats_add( const struct macvr_submit *s, LONGLONG end )
 {
     char line[512];
     int len;
@@ -627,7 +632,7 @@ void macvr_free_texture_dxmt( struct macvr_submit *state )
         if (e.taken) device->lpVtbl->WaitEvent( device, state->signal_event, state->signal_value );
         device->lpVtbl->ReleaseSubmissionQueue( device );
         device->lpVtbl->Release( device );
-        if (!state->overlay) stats_add( state, now() );
+        if (!state->overlay) macvr_stats_add( state, now() );
         state->interop = NULL;
     }
     if (slot && state->gpu)
@@ -641,7 +646,7 @@ void macvr_free_texture_dxmt( struct macvr_submit *state )
         D3DKMT_RELEASEKEYEDMUTEX rel = {slot->kmt_mutex, 0, state->fence + (taken ? 1 : 0)};
         if (kmt.ReleaseKeyedMutex( &rel )) macvr_log( "D3DKMTReleaseKeyedMutex failed" );
     }
-    if (slot && !state->overlay) stats_add( state, now() );
+    if (slot && !state->overlay) macvr_stats_add( state, now() );
     state->slot = NULL;
     state->gpu = FALSE;
     state->locked = FALSE;

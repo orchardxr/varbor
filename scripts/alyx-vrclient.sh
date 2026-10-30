@@ -89,7 +89,7 @@ on)
 	runner="$NP_RUNNERS/crossover-${RUNNER_BUILD:-$(sed -n 1p "$CD/notproton-build")}/CrossOver"
 	[[ -d "$runner/lib/wine/x86_64-windows" ]] || { echo "no runner $runner" >&2; exit 1; }
 	arch=x86_64
-	[[ "$(sed -n 2p "$CD/notproton-build")" == *FEX ]] && arch=aarch64
+	[[ "$(sed -n 2p "$CD/notproton-build")" == *FEX* ]] && arch=aarch64
 	mkdir -p "$BK" "$OUT/logs"
 	cp -p "$PFX/system.reg" "$PFX/user.reg" "$PFX/userdef.reg" "$BK/"
 	cp -p "$MAC_VRPATH" "$BK/openvrpaths.vrpath.mac"

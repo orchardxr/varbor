@@ -86,8 +86,13 @@ $(B)/tests/engine_test: tests/engine_test.c src/engine.h
 	@mkdir -p $(dir $@)
 	clang -std=c11 -Wall -Werror -Isrc -o $@ $<
 
-test: $(B)/tests/engine_test
-	$<
+$(B)/tests/runtime_test: tests/runtime_test.cpp src/runtime.h
+	@mkdir -p $(dir $@)
+	clang++ -std=c++17 -Wall -Werror -Isrc -o $@ $<
+
+test: $(B)/tests/engine_test $(B)/tests/runtime_test
+	$(B)/tests/engine_test
+	$(B)/tests/runtime_test
 
 clean:
 	rm -rf $(OBJ) $(OUT)

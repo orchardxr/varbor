@@ -14,6 +14,7 @@
 #include "json/json.h"
 
 #include "unix_private.h"
+#include "runtime.h"
 
 #include <stdlib.h>
 #include <unistd.h>
@@ -49,27 +50,6 @@ extern "C" void varbor_note( const char *msg )
     fclose( f );
 }
 
-static bool runtime_dylib( const std::string &dir, std::string &out )
-{
-    static const char *const candidates[] = {"/bin/osx64/vrclient.dylib", "/bin/vrclient.dylib", "/vrclient.dylib"};
-    if (dir.size() > 6 && !dir.compare( dir.size() - 6, 6, ".dylib" ))
-    {
-        if (access( dir.c_str(), R_OK )) return false;
-        out = dir;
-        return true;
-    }
-    for (const char *c : candidates)
-    {
-        std::string path = dir + c;
-        if (!access( path.c_str(), R_OK ))
-        {
-            out = path;
-            return true;
-        }
-    }
-    return false;
-}
-
 static std::string home_dir(void)
 {
     const char *home = getenv( "HOME" );
@@ -78,42 +58,44 @@ static std::string home_dir(void)
     return (pw = getpwuid( getuid() )) ? pw->pw_dir : "";
 }
 
-/* The macOS OpenVR paths file, as SteamVR for macOS kept it. */
-static bool runtime_from_vrpath( std::string &out )
+/* The runtimes in the macOS OpenVR paths file, as SteamVR for macOS kept it (WiVRn writes it while its server runs). */
+static std::vector<std::string> vrpath_runtimes(void)
 {
     std::string file = home_dir() + "/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath";
     std::ifstream in( file );
     std::stringstream text;
     Json::Reader reader;
     Json::Value root;
+    std::vector<std::string> out;
 
-    if (!in) return false;
+    if (!in) return out;
     text << in.rdbuf();
     if (!reader.parse( text.str(), root ) || !root["runtime"].isArray())
     {
         ERR( "%s: no runtime array.\n", file.c_str() );
-        return false;
+        return out;
     }
     for (const Json::Value &v : root["runtime"])
-        if (v.isString() && runtime_dylib( v.asString(), out )) return true;
-    return false;
+        if (v.isString()) out.push_back( v.asString() );
+    return out;
 }
 
-/* VARBOR_VRCLIENT_RUNTIME (a runtime directory or the dylib itself), then the path the PE side got from
- * PROTON_VR_RUNTIME, then the macOS openvrpaths.vrpath. */
 extern "C" const char *varbor_find_runtime( const char *given )
 {
-    const char *env = getenv( "VARBOR_VRCLIENT_RUNTIME" );
     std::string found;
 
-    if (env && *env && runtime_dylib( env, found )) runtime_path = found;
-    else if (given && *given && runtime_dylib( given, found )) runtime_path = found;
-    else if (runtime_from_vrpath( found )) runtime_path = found;
-    else
+    switch (varbor_pick_runtime( getenv( "VARBOR_VRCLIENT_RUNTIME" ), given, vrpath_runtimes(), home_dir(), found ))
     {
+    case VARBOR_RUNTIME_NONE:
         runtime_path.clear();
         return NULL;
+    case VARBOR_RUNTIME_INSTALL:
+        varbor_note( "runtime: OpenComposite's install, none registered in openvrpaths.vrpath (WiVRn not running yet?)" );
+        break;
+    default:
+        break;
     }
+    runtime_path = found;
     return runtime_path.c_str();
 }
 

@@ -304,7 +304,7 @@ static NTSTATUS vrclient_init( Params *params, bool wow64 )
     const char *found = varbor_find_runtime( params->runtime_unix_path );
     if (!found)
     {
-        ERR( "no native OpenVR runtime: set VARBOR_VRCLIENT_RUNTIME or ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath\n" );
+        ERR( "no native OpenVR runtime: install OpenComposite for macOS, or set VARBOR_VRCLIENT_RUNTIME\n" );
         return 0;
     }
     std::string vrclient_path = found;

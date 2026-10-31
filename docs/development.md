@@ -8,7 +8,7 @@ The project is four repos under [orchardxr](https://github.com/orchardxr), each 
 |---|---|---|
 | [orchardxr/varbor](https://github.com/orchardxr/varbor) (this one) | the Wine bridges (vrclient, wineopenxr), runner and prefix setup, VarboR.app | VarboR.app |
 | [orchardxr/wivrn-macos](https://github.com/orchardxr/wivrn-macos) | WiVRn server, VideoToolbox encoder, Monado patches, the OpenXR runtime, later the dashboard | an install tree with `lib/wivrn/libopenxr_wivrn.dylib`, `share/openxr/1/openxr_wivrn.json`, `share/wivrn/build-info` |
-| [orchardxr/opencomposite-macos](https://github.com/orchardxr/opencomposite-macos) | native OpenComposite with the Metal compositor | `~/Library/Application Support/OpenComposite/runtime`, registered in the macOS `openvrpaths.vrpath` |
+| [orchardxr/opencomposite-macos](https://github.com/orchardxr/opencomposite-macos) | native OpenComposite with the Metal compositor | `~/Library/Application Support/OpenComposite/runtime`; WiVRn registers it in the macOS `openvrpaths.vrpath` while its server runs |
 | [orchardxr/varbor-engines](https://github.com/orchardxr/varbor-engines) | patched DXMT and ARM64EC DXVK per CrossOver build | GitHub releases `cx-<CrossOver version>`, downloaded by VarboR |
 
 VarboR only reads the other installs (`app/Sources/VarborCore/Components.swift`: locations, version minimums,
@@ -61,6 +61,9 @@ into `patches/<project>/`.
 - Unit tests: `cd app && swift test` (or `scripts/build-app.sh --test`). They run on scratch trees under the temp
   dir: prefixes, runners, bottles, fake WiVRn/OpenComposite/NotProton installs and a fake engines
   release.
+- vrclient tests: `make -C vrclient test` (run by `scripts/build-bridge.sh vrclient`): the D3D11 engine classification
+  and the native runtime lookup (`src/runtime.h`: `VARBOR_VRCLIENT_RUNTIME`, `PROTON_VR_RUNTIME`, the macOS
+  `openvrpaths.vrpath`, then the standard OpenComposite install, since WiVRn registers it only while its server runs).
 - Never run the CLI or the app from a build against your real setup by accident: set `VARBOR_SUPPORT`,
   `VARBOR_STEAM_ROOT`, `VARBOR_RUNNERS`, `VARBOR_LOG_DIR` and `VARBOR_NO_SYSTEM=1`. `app/Tests/scratch.sh` builds a scratch tree from real prefixes.
 - Bridge rigs: `scripts/run-vrclient.sh` (an OpenVR program through vrclient and OpenComposite against monado-service's

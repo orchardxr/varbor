@@ -44,6 +44,7 @@ extern NTSTATUS varbor_dxmt_direct_begin( void *args );
 extern NTSTATUS varbor_dxmt_direct_end( void *args );
 extern NTSTATUS varbor_vk_begin( void *args );
 extern NTSTATUS varbor_vk_end( void *args );
+extern NTSTATUS varbor_unsupported_device( void *args );
 
 extern char *vrclient_dos_to_unix_path( const char *src );
 extern void vrclient_free_path( char *path );

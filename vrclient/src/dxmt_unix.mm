@@ -12,6 +12,7 @@
 #include <time.h>
 
 #include "varbor_unixlib.h"
+#include "engine.h"
 
 typedef int NTSTATUS;
 
@@ -232,6 +233,41 @@ extern "C" NTSTATUS varbor_dxmt_direct_end( void *args )
 {
     struct varbor_dxmt_direct_params *p = (struct varbor_dxmt_direct_params *)args;
     p->taken = oc_sync_end && oc_sync_end();
+    return 0;
+}
+
+/* As wineopenxr's bridge_unsupported_device (bridge/src/dxmt_unix.m). */
+extern "C" NTSTATUS varbor_unsupported_device( void *args )
+{
+    struct varbor_unsupported_device_params *p = (struct varbor_unsupported_device_params *)args;
+    const char *dir = getenv( "STEAM_COMPAT_INSTALL_PATH" ), *slash;
+    char game[256] = "This game", note[512];
+    CFOptionFlags response = kCFUserNotificationDefaultResponse;
+#ifdef __aarch64__
+    const int arm64_wine = 1;
+#else
+    const int arm64_wine = 0;
+#endif
+
+    varbor_engine_description( getenv( "CX_GRAPHICS_BACKEND" ), arm64_wine, p->engine, sizeof(p->engine) );
+    snprintf( note, sizeof(note), "the game's D3D11 runs on %s, neither DXMT nor DXVK: eye textures are not submitted",
+              p->engine );
+    varbor_note( note );
+    if (dir && (slash = strrchr( dir, '/' )) && slash[1]) snprintf( game, sizeof(game), "%s", slash + 1 );
+    @autoreleasepool
+    {
+        NSString *header = [NSString stringWithFormat:@"%s can't run in VR with this graphics backend", game];
+        NSString *text = [NSString stringWithFormat:
+            @"VarboR needs DXMT or DXVK, but the game's D3D11 runs on %s. The headset stays black.\n\n"
+            @"In Steam, open the game's Properties → Compatibility and pick a VarboR compatibility tool (DXMT by default), "
+            @"or set Graphics to DXMT, or add the launch option CX_GRAPHICS_BACKEND=dxmt %%command%%.\n\n"
+            @"Run Anyway continues without VR video.", p->engine];
+        CFUserNotificationDisplayAlert( 0, kCFUserNotificationCautionAlertLevel, NULL, NULL, NULL, (CFStringRef)header,
+                                        (CFStringRef)text, CFSTR("Quit Game"), CFSTR("Run Anyway"), NULL, &response );
+    }
+    p->run_anyway = (response & 3) == kCFUserNotificationAlternateResponse;
+    varbor_note( p->run_anyway ? "unsupported D3D11 engine: the user chose Run Anyway"
+                               : "unsupported D3D11 engine: the user chose Quit Game" );
     return 0;
 }
 

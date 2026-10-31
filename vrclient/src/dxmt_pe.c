@@ -24,6 +24,7 @@
 #include "dxmt_kmt.h"
 #include "dxmt_interop.h"
 #include "varbor_pe.h"
+#include "engine.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(vrclient);
 
@@ -239,7 +240,7 @@ static BOOL shared_names( ID3D11Texture2D *texture, char *name, char *event_name
     destroy.hResource = open.hResource;
     kmt.DestroyAllocation( &destroy );
     data.mach_port_name[sizeof(data.mach_port_name) - 1] = 0;
-    if (strncmp( data.mach_port_name, "DXMT_", 5 )) return FALSE;
+    if (varbor_classify_engine( FALSE, data.mach_port_name ) != VARBOR_ENGINE_DXMT) return FALSE;
     strcpy( name, data.mach_port_name );
     event_name[0] = 0;
     *mutex = 0;
@@ -581,6 +582,20 @@ static const void *metal_texture( const w_Texture_t *in, uint32_t *flags, w_VRTe
     return out;
 }
 
+/* Once, on the first eye submit from an unsupported device: the alert, as wineopenxr's guard. */
+static void unsupported_engine(void)
+{
+    static LONG asked;
+    struct varbor_unsupported_device_params p = {{0}};
+
+    if (InterlockedExchange( &asked, 1 )) return;
+    VRCLIENT_CALL( varbor_unsupported_device, &p );
+    varbor_log( "the game's D3D11 runs on %s: eye submits fail with VRCompositorError_InvalidTexture", p.engine );
+    if (p.run_anyway) return;
+    varbor_log( "Quit Game chosen: terminating" );
+    TerminateProcess( GetCurrentProcess(), 0 );
+}
+
 const void *varbor_load_texture_dxmt( uint32_t eye, const void *texture, uint32_t *flags, void *texture_out,
                                      struct varbor_submit *state, uint32_t array_index )
 {
@@ -588,6 +603,7 @@ const void *varbor_load_texture_dxmt( uint32_t eye, const void *texture, uint32_
     D3D11_TEXTURE2D_DESC desc;
     uint32_t slice = array_index;
 
+    if (dxmt.mode == SYNC_UNSUPPORTED) unsupported_engine();
     AcquireSRWLockExclusive( &dxmt_lock );
     state->locked = TRUE;
     state->slot = NULL;

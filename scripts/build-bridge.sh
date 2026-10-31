@@ -75,7 +75,8 @@ for t in "${targets[@]}"; do
 			fi
 			echo "==> build vrclient"
 			make -C "$ROOT/vrclient" -j"$(sysctl -n hw.ncpu)" LLVM_MINGW="$LLVM_MINGW" VK_INC="$VK_INC" > "$LOGS/vrclient-make.log" 2>&1 \
-				|| { grep -E "error|Error" "$LOGS/vrclient-make.log" | head -30; exit 1; } ;;
+				|| { grep -E "error|Error" "$LOGS/vrclient-make.log" | head -30; exit 1; }
+			make -C "$ROOT/vrclient" test > "$LOGS/vrclient-test.log" 2>&1 || { cat "$LOGS/vrclient-test.log"; exit 1; } ;;
 		*) echo "unknown target $t" >&2; exit 2 ;;
 	esac
 done

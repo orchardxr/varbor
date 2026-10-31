@@ -69104,6 +69104,7 @@ enum unix_funcs
     unix_varbor_dxmt_direct_end,
     unix_varbor_vk_begin,
     unix_varbor_vk_end,
+    unix_varbor_unsupported_device,
 };
 
 #ifdef __cplusplus

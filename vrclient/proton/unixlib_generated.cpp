@@ -4130,6 +4130,7 @@ extern "C" const unixlib_entry_t __wine_unix_call_funcs[] =
     varbor_dxmt_direct_end,
     varbor_vk_begin,
     varbor_vk_end,
+    varbor_unsupported_device,
 };
 
 #if defined(__x86_64__) || defined(__aarch64__)

@@ -89,6 +89,15 @@ struct varbor_vk_end_params
     int32_t taken;
 };
 
+/* First eye submit from a D3D11 device that is neither DXMT nor DXVK: names the engine (CX_GRAPHICS_BACKEND and the
+ * Wine flavour), logs it to bridge.log and asks the user with a native alert: Quit Game, or Run Anyway (the eye submits
+ * keep failing with VRCompositorError_InvalidTexture). */
+struct varbor_unsupported_device_params
+{
+    char engine[256];    /* out */
+    uint32_t run_anyway; /* out */
+};
+
 /* Native runtime the unix side loaded (or would load), for the PE side's log. */
 struct varbor_runtime_info_params
 {

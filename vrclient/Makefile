@@ -82,7 +82,14 @@ $(OUT)/x86_64-unix/vrclient_x64.so: $(UNIX_OBJS)
 	clang++ $(UNIX_ARCHS) -mmacosx-version-min=13.0 -dynamiclib -o $@ $(UNIX_OBJS) -Wl,-undefined,dynamic_lookup \
 		-framework Foundation -framework Metal
 
+$(B)/tests/engine_test: tests/engine_test.c src/engine.h
+	@mkdir -p $(dir $@)
+	clang -std=c11 -Wall -Werror -Isrc -o $@ $<
+
+test: $(B)/tests/engine_test
+	$<
+
 clean:
 	rm -rf $(OBJ) $(OUT)
 
-.PHONY: all clean
+.PHONY: all clean test

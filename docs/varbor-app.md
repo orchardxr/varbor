@@ -47,9 +47,13 @@ updates, About, Quit. Quitting undoes nothing: prefixes and runner files stay.
 
 Backend note (About, `varbor status`): VR works with DXMT and DXVK (the game's NotProton compatibility settings);
 DXMT is preferred. D3DMetal isn't supported. VarboR never sets `CX_GRAPHICS_BACKEND`. When a D3D11 game's device is
-neither, the bridge's unix side asks with a native alert: Quit Game, or Run Anyway (XR_ERROR_GRAPHICS_DEVICE_INVALID).
+neither, the bridge's unix side asks with a native alert: Quit Game, or Run Anyway. wineopenxr asks at
+xrCreateSession (Run Anyway: XR_ERROR_GRAPHICS_DEVICE_INVALID); the vrclient bridge at the first eye submit (Run
+Anyway: every eye submit returns VRCompositorError_InvalidTexture, the headset stays black). With nothing set,
+CrossOver picks D3DMetal, which arm64 Wine (FEX) can't load, so Wine's own wined3d runs the game's D3D11.
 The vrclient bridge writes one line to `~/Library/Logs/VarboR/bridge.log` the first time a game uses the DXMT or DXVK
-direct path (the runtime reads the game's own texture), whatever `VRCLIENT_LOG` says.
+direct path (the runtime reads the game's own texture), and the engine and the user's answer when it is neither,
+whatever `VRCLIENT_LOG` says.
 
 ## Runners
 

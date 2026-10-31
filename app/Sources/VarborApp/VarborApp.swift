@@ -355,49 +355,54 @@ final class AppModel: ObservableObject {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        DockMenu.shared.menu()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        MainActor.assumeIsolated { AppModel.shared.showWindow() }
+        AppModel.shared.showWindow()
         return false
     }
 }
 
-struct MenuContent: View {
-    @ObservedObject var model: AppModel
+@MainActor
+final class DockMenu: NSObject {
+    static let shared = DockMenu()
 
-    var body: some View {
-        Button("Show VarboR") { model.showWindow() }
-        Divider()
-        Text("Setup: \(model.setup)")
-        Divider()
-        Button("Open VarboR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
-        Button("Rescan Games") { model.rescanNow() }
-        Divider()
+    func menu() -> NSMenu {
+        let model = AppModel.shared
+        actions = []
+        let m = NSMenu()
+        m.autoenablesItems = false
+        let status = m.addItem(withTitle: "Setup: \(model.setup)", action: nil, keyEquivalent: "")
+        status.isEnabled = false
+        m.addItem(.separator())
+        add(m, "Rescan Games") { model.rescanNow() }
+        add(m, "Open VarboR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
+        m.addItem(.separator())
         if let r = model.update {
-            Button("Install VarboR \(r.version)") { model.installUpdate() }.disabled(model.updating != nil)
+            add(m, "Install VarboR \(r.version)", enabled: model.updating == nil) { model.installUpdate() }
         }
-        Button("Check for Updates…") { model.checkForUpdates(quiet: false) }
-        Button("About VarboR") { model.about() }
-        Button("Quit VarboR") { model.quit() }.keyboardShortcut("q")
-    }
-}
-
-struct MenuLabel: View {
-    @ObservedObject var model: AppModel
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Self.icon
-            .opacity(model.setup == "ready" ? 1 : 0.5)
-            .onAppear { model.openMain = { openWindow(id: "main") } }
+        add(m, "Check for Updates…") { model.checkForUpdates(quiet: false) }
+        return m
     }
 
-    static var icon: Image {
-        guard let img = NSImage(named: "MenuBarIconTemplate") else { return Image(systemName: "visionpro") }
-        img.isTemplate = true
-        return Image(nsImage: img)
+    private var actions: [() -> Void] = []
+
+    private func add(_ m: NSMenu, _ title: String, enabled: Bool = true, _ action: @escaping () -> Void) {
+        let item = m.addItem(withTitle: title, action: #selector(run(_:)), keyEquivalent: "")
+        item.target = self
+        item.tag = actions.count
+        item.isEnabled = enabled
+        actions.append(action)
+    }
+
+    @objc private func run(_ item: NSMenuItem) {
+        if actions.indices.contains(item.tag) { actions[item.tag]() }
     }
 }
 
@@ -412,18 +417,20 @@ struct VarborApp: App {
         }
         .defaultSize(width: 820, height: 640)
         .commands {
-            CommandGroup(after: .appInfo) {
+            CommandGroup(replacing: .appInfo) {
+                Button("About VarboR") { model.about() }
                 Button("Check for Updates…") { model.checkForUpdates(quiet: false) }
+                if let r = model.update {
+                    Button("Install VarboR \(r.version)") { model.installUpdate() }.disabled(model.updating != nil)
+                }
+            }
+            CommandGroup(after: .newItem) {
+                Button("Rescan Games") { model.rescanNow() }.keyboardShortcut("r")
+                Button("Open VarboR Log") { if let u = Log.shared.url { NSWorkspace.shared.open(u) } }
             }
             CommandGroup(replacing: .appTermination) {
                 Button("Quit VarboR") { model.quit() }.keyboardShortcut("q")
             }
-        }
-
-        MenuBarExtra {
-            MenuContent(model: model)
-        } label: {
-            MenuLabel(model: model)
         }
     }
 }

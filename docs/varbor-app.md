@@ -1,4 +1,4 @@
-# VarboR app (window + menu bar + CLI)
+# VarboR app (window + CLI)
 
 Goal: install VarboR.app, open it, launch VR games from Steam. The user edits nothing. VarboR provides what Proton
 has and CrossOver lacks, and nothing else: it doesn't run or watch the WiVRn server, show pairing PINs, the headset
@@ -19,15 +19,16 @@ OpenXR game -> openxr_loader.dll -> ActiveRuntime = varbor\current\bridge\wineop
 scripts/build-app.sh [--test]        # build/app/VarboR.app, CLI at VarboR.app/Contents/Helpers/varbor
 ```
 
-- Sources in `app/` (Swift package): `VarborCore` (all logic), `varbor` (CLI), `VarborApp` (SwiftUI `Window` +
-  `MenuBarExtra`), `Tests/VarborCoreTests` (XCTest), `Tests/scratch.sh` (scratch tree from real prefixes).
+- Sources in `app/` (Swift package): `VarborCore` (all logic), `varbor` (CLI), `VarborApp` (SwiftUI `Window`, Dock
+  menu), `Tests/VarborCoreTests` (XCTest), `Tests/scratch.sh` (scratch tree from real prefixes).
 - Payload in `Contents/Resources/payload/bridge`: `x86_64-windows/{wineopenxr.dll, vrclient_x64.dll, varborreg.dll}`,
   `x86_64-unix/{wineopenxr.so, vrclient_x64.so}` (universal x86_64 + arm64; the script refuses thin files) and
   `wineopenxr.json` (`"library_path": "x86_64-windows\\wineopenxr.dll"`). No server, no OpenComposite, no IPC client.
-- `Info.plist`: bundle id `org.orchardxr.varbor`, `LSUIElement` (menu bar, no Dock icon): on macOS 26+ a
-  regular app's menu-bar menu doesn't open over another app's full-screen Space (its glass window stays on the app's
-  Space, whatever its collection behavior), with or without a window open. Ad-hoc signed. The linker gets the current SDK
-  version (`-platform_version`), or macOS draws the window in the legacy style.
+- `Info.plist`: bundle id `org.orchardxr.varbor`, a regular Dock app. A menu-bar item's Show was unreliable from
+  full-screen Spaces (a second click went back to the previous Space), so VarboR has none: a Dock click shows the
+  window, closing it keeps the app running, and the commands are in the Dock menu and the File/VarboR menus.
+  Ad-hoc signed. The linker gets the current SDK version (`-platform_version`), or macOS draws the window in the
+  legacy style.
 
 ## What the app does
 

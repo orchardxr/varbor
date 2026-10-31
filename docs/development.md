@@ -18,7 +18,7 @@ release pages). The minimum versions VarboR needs are constants there.
 
 | Path | What |
 |---|---|
-| `app/` | VarboR.app (SwiftUI window + menu bar) and the `varbor` CLI ([varbor-app.md](varbor-app.md)) |
+| `app/` | VarboR.app (SwiftUI window) and the `varbor` CLI ([varbor-app.md](varbor-app.md)) |
 | `vrclient/` | Proton's vrclient_x64 (`proton/`, imported from experimental_11.0) built for CrossOver, our code in `src/` |
 | `bridge/` | `wineopenxr` Wine builtin: PE side (llvm-mingw) + universal unix side ([bridge-plan.md](bridge-plan.md)); `varborreg.dll` |
 | `patches/` | our changes to upstream submodules (only `openxr-sdk/` now) |

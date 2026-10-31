@@ -30,6 +30,7 @@ enum Page: String, CaseIterable, Identifiable {
 
 struct MainView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @State private var page: Page? = .status
 
     var body: some View {
@@ -61,6 +62,7 @@ struct MainView: View {
         }
         .frame(minWidth: 720, minHeight: 520)
         .onAppear {
+            model.openMain = { openWindow(id: "main") }
             model.windowVisible = true
             model.refreshDetails()
         }

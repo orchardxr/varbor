@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build VarboR.app (window + menu-bar app and the `varbor` CLI, app/) with the bridge payload, ad-hoc signed
+# Build VarboR.app (window app and the `varbor` CLI, app/) with the bridge payload, ad-hoc signed
 # (docs/varbor-app.md).
 #   scripts/build-app.sh [--test]       --test also runs the unit tests (swift test)
 # Payload: build/bridge/root (scripts/build-bridge.sh bridge) and build/vrclient/root (scripts/build-bridge.sh vrclient).
@@ -36,8 +36,7 @@ mkdir -p "$c/MacOS" "$c/Helpers" "$p/bridge/x86_64-windows" "$p/bridge/x86_64-un
 cp "$BIN/VarborApp" "$c/MacOS/VarboR"
 cp "$BIN/varbor" "$c/Helpers/varbor"
 cp "$ROOT/app/Resources/Info.plist" "$c/Info.plist"
-cp "$ROOT/app/Resources/icon/AppIcon.icns" "$ROOT/app/Resources/icon/MenuBarIconTemplate.png" \
-	"$ROOT/app/Resources/icon/MenuBarIconTemplate@2x.png" "$c/Resources/"
+cp "$ROOT/app/Resources/icon/AppIcon.icns" "$c/Resources/"
 
 cp "$BRIDGE/x86_64-windows/wineopenxr.dll" "$BRIDGE/x86_64-windows/varborreg.dll" \
 	"$VRCLIENT/x86_64-windows/vrclient_x64.dll" "$p/bridge/x86_64-windows/"

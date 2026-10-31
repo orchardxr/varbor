@@ -2,7 +2,8 @@ import Foundation
 
 public enum Varbor {
     public static let backendNote = "VR works with the DXMT and DXVK graphics backends (set in the game's NotProton "
-        + "compatibility settings); DXMT is preferred. D3DMetal isn't supported."
+        + "compatibility settings); DXMT is preferred, and the VarboR tools use it when the game sets none. "
+        + "D3DMetal isn't supported."
 
     /// What the app does each time it opens (and `varbor install`): deploy, runner files, prefixes.
     @discardableResult
@@ -14,6 +15,7 @@ public enum Varbor {
         }
         let r = try RunnerInstall.ensure(ctx)
         log("runner: \(r.installed) installed, \(r.current) current" + (r.foreign.isEmpty ? "" : ", \(r.foreign.count) foreign left alone"))
+        for st in Engines.status(ctx) where st.installed { Engines.seedDefaults(ctx, st.runner) }
         return rescan(ctx)
     }
 

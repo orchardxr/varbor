@@ -46,7 +46,12 @@ Steam libraries), Runners (each file), Logs. Menu: Show VarboR, setup state, Ope
 updates, About, Quit. Quitting undoes nothing: prefixes and runner files stay.
 
 Backend note (About, `varbor status`): VR works with DXMT and DXVK (the game's NotProton compatibility settings);
-DXMT is preferred. D3DMetal isn't supported. VarboR never sets `CX_GRAPHICS_BACKEND`. When a D3D11 game's device is
+DXMT is preferred. D3DMetal isn't supported. VarboR never sets `CX_GRAPHICS_BACKEND` for the stock tools; for the
+VarboR tools it writes NotProton's per-version Default Compatibility Settings once per flavor
+(`notproton/defaults-override-<clone build>-<fex|rosetta>`: the user's `defaults-<flavor>` lines plus
+`CX_GRAPHICS_BACKEND=dxmt`, or their `dxvk`), at engine install and at app launch, never over an existing file nor
+again once the user removed it (`state/notproton-defaults`). NotProton's `run` applies it only when the launch options
+don't set the engine, so DXMT is the VarboR tools' default, as DXVK is Proton's. When a D3D11 game's device is
 neither, the bridge's unix side asks with a native alert: Quit Game, or Run Anyway. wineopenxr asks at
 xrCreateSession (Run Anyway: XR_ERROR_GRAPHICS_DEVICE_INVALID); the vrclient bridge at the first eye submit (Run
 Anyway: every eye submit returns VRCompositorError_InvalidTexture, the headset stays black). With nothing set,

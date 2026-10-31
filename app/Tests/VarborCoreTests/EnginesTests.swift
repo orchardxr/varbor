@@ -164,6 +164,30 @@ final class EnginesTests: XCTestCase {
         XCTAssertFalse(st[0].installed)
     }
 
+    func testSeededDefaultsMakeDXMTTheVarborToolsEngine() throws {
+        XCTAssertEqual(Engines.seededDefaults(nil), "CX_GRAPHICS_BACKEND=dxmt\n")
+        XCTAssertEqual(Engines.seededDefaults("WINEMSYNC=1\nCX_GRAPHICS_BACKEND=wined3d\n"), "WINEMSYNC=1\nCX_GRAPHICS_BACKEND=dxmt\n")
+        XCTAssertEqual(Engines.seededDefaults("CX_GRAPHICS_BACKEND=d3dmetal"), "CX_GRAPHICS_BACKEND=dxmt\n")
+        XCTAssertEqual(Engines.seededDefaults("CX_GRAPHICS_BACKEND=dxvk\nMTL_HUD_ENABLED=1\n"), "CX_GRAPHICS_BACKEND=dxvk\nMTL_HUD_ENABLED=1\n")
+
+        let r = Engines.stockRunners(ctx).first { $0.build == "27.0.0.41073-fex" }!
+        let np = ctx.runners.deletingLastPathComponent()
+        try write("WINEMSYNC=1\n", np.appendingPathComponent("defaults-fex"))
+        let fex = Engines.defaultsFile(ctx, build: r.cloneBuild, flavor: "fex")
+        let rosetta = Engines.defaultsFile(ctx, build: r.cloneBuild, flavor: "rosetta")
+        try write("CX_GRAPHICS_BACKEND=wined3d\n", rosetta)
+        XCTAssertEqual(Engines.seedDefaults(ctx, r), [fex.lastPathComponent])
+        XCTAssertEqual(try String(contentsOf: fex, encoding: .utf8), "WINEMSYNC=1\nCX_GRAPHICS_BACKEND=dxmt\n")
+        XCTAssertEqual(try String(contentsOf: rosetta, encoding: .utf8), "CX_GRAPHICS_BACKEND=wined3d\n", "the user's own setting stays")
+        XCTAssertFalse(fm.fileExists(atPath: Engines.defaultsFile(ctx, build: r.build, flavor: "fex").path), "stock build untouched")
+        XCTAssertEqual(try String(contentsOf: np.appendingPathComponent("defaults-fex"), encoding: .utf8), "WINEMSYNC=1\n")
+
+        // NotProton's "Apply as defaults for all" removes the override: not written again
+        try fm.removeItem(at: fex)
+        XCTAssertEqual(Engines.seedDefaults(ctx, r), [])
+        XCTAssertFalse(fm.fileExists(atPath: fex.path))
+    }
+
     func testInstallBuildsCloneAndTools() async throws {
         try publish(files: releaseFiles)
         let r = Engines.stockRunners(ctx)[0]

@@ -465,12 +465,62 @@ public enum Engines {
 
                 """.write(to: dir.appendingPathComponent("compatibilitytool.vdf"), atomically: true, encoding: .utf8)
         }
+        seedDefaults(ctx, r)
         let bridge = notProtonSupport(ctx).appendingPathComponent("bridge/wine")
         let from = bridge.appendingPathComponent(r.build), to = bridge.appendingPathComponent(r.cloneBuild)
         if fm.fileExists(atPath: from.path) && !fm.fileExists(atPath: to.path) {
             let c = run("/bin/cp", ["-c", "-R", from.path, to.path])
             if c.status == 0 { try? "varbor clone of \(r.build)\n".write(to: to.appendingPathComponent(marker), atomically: true, encoding: .utf8) }
         }
+    }
+
+    // MARK: default graphics engine
+
+    /// NotProton's per-version Default Compatibility Settings, which its `run` reads in place of `defaults-<flavor>`
+    /// for that build: `KEY=VALUE` lines, applied only where the launch options don't set the key.
+    public static func defaultsFile(_ ctx: Context, build: String, flavor: String) -> URL {
+        notProtonSupport(ctx).appendingPathComponent("defaults-override-\(build)-\(flavor)")
+    }
+
+    static func seededRecord(_ ctx: Context) -> URL { ctx.stateDir.appendingPathComponent("notproton-defaults") }
+
+    /// The user's `defaults-<flavor>` lines with the graphics engine set to DXMT (DXVK if they chose it).
+    static func seededDefaults(_ global: String?) -> String {
+        var lines = (global ?? "").split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        if !lines.contains("CX_GRAPHICS_BACKEND=dxvk") {
+            lines.removeAll { $0.hasPrefix("CX_GRAPHICS_BACKEND=") }
+            lines.append("CX_GRAPHICS_BACKEND=dxmt")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Makes DXMT the VarboR tools' graphics engine when the game sets none, as Proton defaults to DXVK: with nothing
+    /// set CrossOver picks D3DMetal, which FEX can't load (so wined3d) and VR can't use. Written once per flavor as
+    /// NotProton's own per-version setting, so its Compatibility page shows and changes it; never over a file that
+    /// exists, nor again after the user removed ours. The stock tools' builds are never touched.
+    @discardableResult
+    public static func seedDefaults(_ ctx: Context, _ r: StockRunner) -> [String] {
+        let fm = FileManager.default
+        let record = seededRecord(ctx)
+        var seeded = Set(((try? String(contentsOf: record, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init))
+        var wrote: [String] = []
+        for flavor in Set(plannedTools(ctx, r).map(\.flavor)).sorted() {
+            let file = defaultsFile(ctx, build: r.cloneBuild, flavor: flavor)
+            let name = file.lastPathComponent
+            guard !seeded.contains(name), !fm.fileExists(atPath: file.path) else { continue }
+            let global = try? String(contentsOf: notProtonSupport(ctx).appendingPathComponent("defaults-\(flavor)"), encoding: .utf8)
+            do {
+                try writeAtomically(Data(seededDefaults(global).utf8), to: file)
+                try fm.createDirectory(at: ctx.stateDir, withIntermediateDirectories: true)
+                seeded.insert(name)
+                try Data((seeded.sorted().joined(separator: "\n") + "\n").utf8).write(to: record)
+                wrote.append(name)
+            } catch {
+                log("engines: \(name): \(error)")
+            }
+        }
+        if !wrote.isEmpty { log("engines: DXMT is the default graphics engine of \(r.cloneBuild) (\(wrote.joined(separator: ", ")))") }
+        return wrote
     }
 
     /// Adds the VarboR tools to NotProton's registry so Steam lists them (after a Steam restart). Only on the user's

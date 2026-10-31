@@ -227,16 +227,30 @@ public enum Components {
         return d.range(of: Data(needle.utf8)) != nil
     }
 
+    public static let openCompositeActivatedByWiVRn = "info: WiVRn activates OpenComposite while it runs"
+
+    public static func openCompositeInstall(_ home: URL) -> URL {
+        home.appendingPathComponent("Library/Application Support/OpenComposite/runtime")
+    }
+
+    /// Found by its installed files. Registration in openvrpaths.vrpath is WiVRn's job while its server runs (as on
+    /// Linux); the bridge takes the first registered runtime with a vrclient.dylib, else this install
+    /// (vrclient/src/macos_unix.cpp).
     public static func openComposite(_ r: Roots) -> State {
         var s = State(name: "OpenComposite", health: .missing, page: openCompositePage)
         let fm = FileManager.default
         let dylib = { (dir: String) in URL(fileURLWithPath: dir).appendingPathComponent("bin/osx64/vrclient.dylib") }
-        let registered = vrpathRuntimes(r.home)
-        // the bridge takes the first runtime with a vrclient.dylib (vrclient/src/macos_unix.cpp)
-        guard let rt = registered.first(where: { fm.fileExists(atPath: dylib($0).path) }) else {
-            let home = r.home.appendingPathComponent("Library/Application Support/OpenComposite/runtime")
-            s.notes.append(fm.fileExists(atPath: dylib(home.path).path)
-                ? "installed but not registered in openvrpaths.vrpath: run its install again" : "not installed")
+        let trimmed = { (p: String) in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
+        let registered = vrpathRuntimes(r.home).map(trimmed)
+        let installed = openCompositeInstall(r.home).path
+        let first = registered.first { fm.fileExists(atPath: dylib($0).path) }
+        let rt: String
+        if fm.fileExists(atPath: dylib(installed).path) {
+            rt = installed
+        } else if let first {
+            rt = first
+        } else {
+            s.notes.append("not installed")
             return s
         }
         s.health = .ok
@@ -255,7 +269,15 @@ public enum Components {
             s.health = .outdated
             s.notes.append("lacks oc_metal_submit_sync: install a newer OpenComposite for macOS")
         }
-        if let first = registered.first, first != rt { s.notes.append("\(first) comes first in openvrpaths.vrpath but has no vrclient.dylib") }
+        if let first, first != rt {
+            if s.health == .ok { s.health = .warning }
+            s.notes.append("\(first) is registered first in openvrpaths.vrpath: OpenVR games load it instead")
+        } else if first == nil {
+            s.notes.append(openCompositeActivatedByWiVRn)
+        }
+        if let head = registered.first, head != first, !fm.fileExists(atPath: dylib(head).path) {
+            s.notes.append("\(head) comes first in openvrpaths.vrpath but has no vrclient.dylib")
+        }
         return s
     }
 }

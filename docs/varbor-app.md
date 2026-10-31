@@ -7,7 +7,8 @@ OpenComposite or NotProton.
 
 ```
 OpenVR game -> openvr_api.dll -> C:\vrclient\bin\vrclient_x64.dll (the runner's builtin) -> vrclient_x64.so
-            -> OpenComposite's vrclient.dylib (first runtime in ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath)
+            -> OpenComposite's vrclient.dylib (first runtime in ~/Library/Application Support/OpenVR/.openvr/openvrpaths.vrpath,
+               which WiVRn writes while its server runs; else ~/Library/Application Support/OpenComposite/runtime)
 OpenXR game -> openxr_loader.dll -> ActiveRuntime = varbor\current\bridge\wineopenxr.json -> wineopenxr.dll/.so
             -> the host runtime (XR_RUNTIME_JSON, else active_runtime.json: WiVRn's libopenxr_wivrn.dylib)
 ```
@@ -109,9 +110,12 @@ and release pages:
   `Contents/Resources/wivrn/{build-info,ipc-stamp}`) or a prefix tree (`lib/wivrn/`, `share/wivrn/`). Version: build-info
   `version=`, else `wivrn-macos=`; a commit-only build isn't compared with the minimum.
   The server sets the active runtime only when it runs from its configured prefix; until then: a warning.
-- OpenComposite for macOS: the first runtime in the macOS `openvrpaths.vrpath` with `bin/osx64/vrclient.dylib` (what
-  the vrclient bridge loads), `share/opencomposite/build-info` `version=` (else the third word of `bin/osx64/version.txt`), and the
-  `oc_metal_submit_sync` export the bridge's GPU sync needs.
+- OpenComposite for macOS: found by its installed files, `~/Library/Application Support/OpenComposite/runtime` with
+  `bin/osx64/vrclient.dylib` (else the first runtime in the macOS `openvrpaths.vrpath` that has one),
+  `share/opencomposite/build-info` `version=` (else the third word of `bin/osx64/version.txt`), and the
+  `oc_metal_submit_sync` export the bridge's GPU sync needs. Not being registered is normal: WiVRn registers it while
+  its server runs, as on Linux (an info line). Another runtime registered first, which the bridge would load instead,
+  is a warning.
 
 ## Engines (the VarboR runner)
 

@@ -162,14 +162,42 @@ final class ComponentsTests: XCTestCase {
 
     func testOpenComposite() throws {
         let rt = roots.home.appendingPathComponent("Library/Application Support/OpenComposite/runtime")
+        XCTAssertEqual(Components.openComposite(roots).health, .missing)
+        XCTAssertEqual(Components.openComposite(roots).notes, ["not installed"])
         try makeOC(rt, version: "0.2.0", sync: true)
-        XCTAssertTrue(Components.openComposite(roots).notes[0].contains("not registered"))
-        try vrpath(["/gone", rt.path])
+        // installed, not registered: WiVRn registers it while its server runs
         var s = Components.openComposite(roots)
         XCTAssertEqual(s.health, .ok)
         XCTAssertEqual(s.version, "0.2.0")
         XCTAssertEqual(s.location, rt.path)
-        XCTAssertTrue(s.notes[0].contains("/gone comes first"))
+        XCTAssertEqual(s.notes, [Components.openCompositeActivatedByWiVRn])
+        try vrpath([])
+        XCTAssertEqual(Components.openComposite(roots).notes, [Components.openCompositeActivatedByWiVRn])
+
+        // registered (by WiVRn, or install.sh --register), also with a trailing slash
+        try vrpath(["/gone", rt.path + "/"])
+        s = Components.openComposite(roots)
+        XCTAssertEqual(s.health, .ok)
+        XCTAssertEqual(s.location, rt.path)
+        XCTAssertEqual(s.notes, ["/gone comes first in openvrpaths.vrpath but has no vrclient.dylib"])
+
+        // another runtime with a vrclient.dylib registered first: the bridge loads that one
+        let other = roots.home.appendingPathComponent("Other/runtime")
+        try makeOC(other, version: "0.1.0", sync: true)
+        try vrpath([other.path, rt.path])
+        s = Components.openComposite(roots)
+        XCTAssertEqual(s.health, .warning)
+        XCTAssertEqual(s.location, rt.path)
+        XCTAssertTrue(s.notes.contains { $0.hasPrefix("\(other.path) is registered first") }, "\(s.notes)")
+
+        // only a registered install elsewhere (OPENCOMPOSITE_HOME)
+        try fm.removeItem(at: rt)
+        s = Components.openComposite(roots)
+        XCTAssertEqual(s.health, .ok)
+        XCTAssertEqual(s.location, other.path)
+        XCTAssertEqual(s.version, "0.1.0")
+        try vrpath([])
+        try makeOC(rt, version: "0.2.0", sync: true)
 
         // a commit-only build: shown as is, no version warning
         try makeOC(rt, version: "dd200ad", sync: true)

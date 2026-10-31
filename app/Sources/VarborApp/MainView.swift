@@ -204,16 +204,7 @@ struct StatusPage: View {
             Section {
                 let groups = Engines.groups(model.ctx, files: model.runnerFiles, states: model.engines)
                 if groups.isEmpty { Text("No NotProton runners found.") }
-                ForEach(groups) { g in
-                    Row(title: g.name, subtitle: g.bridge.isEmpty ? ["Not found"] : [bridgeText(g.bridge)],
-                        dot: !g.bridge.isEmpty && bridgeOK(g.bridge) ? .green : .orange)
-                    if let st = g.varbor {
-                        EngineRow(model: model, st: st, bridge: g.varborBridge).padding(.leading, 18)
-                    } else if !g.varborBridge.isEmpty {
-                        Row(title: "VarboR runner", subtitle: [bridgeText(g.varborBridge)],
-                            dot: bridgeOK(g.varborBridge) ? .secondary : .orange).padding(.leading, 18)
-                    }
-                }
+                ForEach(groups) { g in RunnerGroupRows(model: model, g: g) }
             } header: {
                 Text("Runners")
             } footer: {
@@ -245,10 +236,52 @@ func bridgeText(_ files: [RunnerInstall.FileState]) -> String {
     "Bridge: \(files.filter { $0.state == "ok" }.count) of \(files.count) files"
 }
 
+/// A stock runner, its VarboR runner nested under it, and with `files` each one's bridge files.
+struct RunnerGroupRows: View {
+    @ObservedObject var model: AppModel
+    let g: Engines.RunnerGroup
+    var files = false
+
+    var body: some View {
+        Row(title: g.name, subtitle: g.bridge.isEmpty ? ["Not found"] : [bridgeText(g.bridge)],
+            dot: !g.bridge.isEmpty && bridgeOK(g.bridge) ? .green : .orange) {
+            if let st = g.varbor, st.updateAvailable {
+                Button(st.installed ? "Update Engines" : "Install Engines") { model.installEngines(st.runner) }
+                    .disabled(model.working != nil || model.gameRunning)
+            }
+            if files { MoreMenu { PathMenu(path: model.ctx.runners.appendingPathComponent(g.name).path) } }
+        }
+        if files && !g.bridge.isEmpty {
+            DisclosureGroup("Bridge files") { ForEach(g.bridge) { BridgeFileRow(f: $0) } }
+        }
+        if let st = g.varbor {
+            EngineRow(model: model, st: st, bridge: g.varborBridge, files: files).padding(.leading, 18)
+        } else if !g.varborBridge.isEmpty {
+            Row(title: "VarboR runner", subtitle: [bridgeText(g.varborBridge)],
+                dot: bridgeOK(g.varborBridge) ? .secondary : .orange).padding(.leading, 18)
+        }
+        if files && !g.varborBridge.isEmpty {
+            DisclosureGroup("VarboR runner bridge files") { ForEach(g.varborBridge) { BridgeFileRow(f: $0) } }
+                .padding(.leading, 18)
+        }
+    }
+}
+
+struct BridgeFileRow: View {
+    let f: RunnerInstall.FileState
+
+    var body: some View {
+        Row(title: f.file, subtitle: [f.path], dot: f.state == "ok" ? .green : .orange) {
+            Text(f.state + (f.archs.map { " (\($0))" } ?? "")).foregroundStyle(.secondary)
+        }
+    }
+}
+
 struct EngineRow: View {
     @ObservedObject var model: AppModel
     let st: Engines.RunnerState
     let bridge: [RunnerInstall.FileState]
+    var files = false
 
     var subtitle: [String] {
         var out: [String] = []
@@ -261,22 +294,28 @@ struct EngineRow: View {
         if !st.tools.isEmpty { out.append("Steam tools: \(st.tools.joined(separator: ", "))") }
         if !st.unregistered.isEmpty { out.append("Not in NotProton's tool list yet") }
         if st.installed { out.append(bridgeText(bridge)) }
-        if case .available? = st.available, st.installed, !st.updateAvailable { out.append("Up to date") }
+        if case .available(let m)? = st.available {
+            if !st.installed {
+                out.append("Engines \(m.tag) revision \(m.revision) available")
+            } else if st.updateAvailable {
+                out.append("Update available: revision \(m.revision), DXMT \(m.dxmt.version ?? "?")")
+            } else {
+                out.append("Up to date")
+            }
+        }
         if case .none(let why)? = st.available { out.append(why) }
         return out
     }
 
     var body: some View {
         let healthy = st.installed && !st.updateAvailable && st.unregistered.isEmpty && bridgeOK(bridge)
+        let dir = Engines.cloneDir(model.ctx, st.runner).path
         Row(title: "VarboR runner", subtitle: subtitle,
             dot: healthy ? .green : st.updateAvailable ? .blue : st.installed ? .orange : .secondary) {
-            if st.updateAvailable {
-                Button(st.installed ? "Update Engines" : "Install Engines") { model.installEngines(st.runner) }
-                    .disabled(model.working != nil || model.gameRunning)
-            }
             if !st.unregistered.isEmpty {
                 Button("Add to NotProton…") { model.registerTools(st) }.disabled(model.working != nil)
             }
+            if files && st.installed { MoreMenu { PathMenu(path: dir) } }
         }
     }
 }
@@ -444,34 +483,26 @@ struct AddedPage: View {
 struct RunnersPage: View {
     @ObservedObject var model: AppModel
 
-    var runners: [String] {
-        var out: [String] = []
-        for f in model.runnerFiles where !out.contains(f.runner) { out.append(f.runner) }
-        return out
-    }
-
     var body: some View {
+        let groups = Engines.groups(model.ctx, files: model.runnerFiles, states: model.engines)
         PageForm(model: model) {
-            if runners.isEmpty {
+            if groups.isEmpty {
                 Section { Text("No NotProton runners found.") }
             }
-            ForEach(runners, id: \.self) { r in
-                let files = model.runnerFiles.filter { $0.runner == r }
-                let ok = files.filter { $0.state == "ok" }.count
-                let dir = model.ctx.runners.appendingPathComponent(r).path
+            ForEach(groups) { g in
                 Section {
-                    Row(title: r, subtitle: ["\(ok) of \(files.count) files ok"], dot: ok == files.count ? .green : .orange) {
-                        MoreMenu { PathMenu(path: dir) }
-                    }
-                    ForEach(files) { f in
-                        Row(title: f.file, subtitle: [f.path], dot: f.state == "ok" ? .green : .orange) {
-                            Text(f.state + (f.archs.map { " (\($0))" } ?? "")).foregroundStyle(.secondary)
+                    RunnerGroupRows(model: model, g: g, files: true)
+                } header: {
+                    if g.id == groups.first?.id { Text("NotProton Runners") }
+                } footer: {
+                    if g.id == groups.last?.id {
+                        HStack {
+                            Text("VarboR installs its OpenVR and OpenXR bridges into each runner. The VarboR runner is a copy "
+                                + "of a stock runner with VarboR's DXMT and ARM64EC DXVK.")
+                            Spacer()
+                            Button("Check for Engines") { model.checkEngines() }.disabled(model.working != nil)
                         }
                     }
-                } header: {
-                    if r == runners.first { Text("NotProton Runners") }
-                } footer: {
-                    if r == runners.last { Text("VarboR installs its OpenVR and OpenXR bridges into each runner.") }
                 }
             }
         }
